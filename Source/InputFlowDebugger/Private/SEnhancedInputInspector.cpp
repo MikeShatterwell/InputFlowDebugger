@@ -4,6 +4,7 @@
 
 // Engine
 #include <Engine/GameInstance.h>
+#include <Engine/LocalPlayer.h>
 
 // EnhancedInput
 #include <EnhancedInputSubsystems.h>
