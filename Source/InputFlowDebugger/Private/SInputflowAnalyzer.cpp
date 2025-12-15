@@ -20,6 +20,8 @@
 #include <Widgets/Layout/SSeparator.h>
 #include <Widgets/Layout/SSplitter.h>
 #include <Widgets/Text/STextBlock.h>
+#include <Widgets/Layout/SScrollBox.h>
+#include <Widgets/Layout/SExpandableArea.h>
 
 // Internal
 #include "InputDebugSubsystem.h"
