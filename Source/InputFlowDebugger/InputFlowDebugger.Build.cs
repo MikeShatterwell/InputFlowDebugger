@@ -26,6 +26,7 @@ public class InputFlowDebugger : ModuleRules
 			new string[]
 			{
 				"Core",
+				"EnhancedInput",
 				// ... add other public dependencies that you statically link with here ...
 			}
 			);
@@ -40,7 +41,6 @@ public class InputFlowDebugger : ModuleRules
 				"SlateCore",
 				"InputCore",
 				"UMG",
-				"EnhancedInput",
 				"CommonInput",
 				"CommonUI",
 				"GameplayTags"

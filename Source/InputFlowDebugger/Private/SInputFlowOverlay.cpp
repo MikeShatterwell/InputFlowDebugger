@@ -427,7 +427,7 @@ void SInputFlowOverlay::PaintFocusHistory(const FGeometry& AllottedGeometry, FSl
 
 		TSharedPtr<SWidget> Widget = Entry.Widget.Pin();
 		if (!Widget.IsValid()) continue;
-
+		
 		// Alpha calculation
 		float NormalizedAge = (float)(Age / MaxAge);
 		float Alpha = 1.0f - NormalizedAge;

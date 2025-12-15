@@ -10,6 +10,7 @@
 #include <EnhancedPlayerInput.h>
 #include <InputAction.h>
 #include <InputMappingContext.h>
+#include <InputModifiers.h>
 
 // Slate
 #include <Styling/AppStyle.h>
@@ -28,6 +29,52 @@ public:
 	static const TMap<TObjectPtr<const UInputMappingContext>, FAppliedInputContextData>& GetContextData(const UEnhancedPlayerInput* PlayerInput)
 	{
 		return static_cast<const FInputFlowDebugAccessor*>(PlayerInput)->GetAppliedInputContextData();
+	}
+};
+
+class SEnhancedInputContextRow : public STableRow<TSharedPtr<FEnhancedInputInfoItem>>
+{
+public:
+	SLATE_BEGIN_ARGS(SEnhancedInputContextRow) {}
+	SLATE_END_ARGS()
+
+	void Construct(const FArguments& InArgs, const TSharedRef<STableViewBase>& InOwnerTableView, TSharedPtr<FEnhancedInputInfoItem> InItem, bool bInOverlay)
+	{
+		SetTag(InputFlowHelpers::InputFlowAnalyzerTag);
+
+		STableRow<TSharedPtr<FEnhancedInputInfoItem>>::Construct(
+			STableRow<TSharedPtr<FEnhancedInputInfoItem>>::FArguments()
+			.Padding(FMargin(0, 2, 0, 2))
+			.ShowSelection(false),
+			InOwnerTableView
+		);
+
+		if (bInOverlay)
+		{
+			SetBorderBackgroundColor(FLinearColor::Transparent);
+		}
+
+		this->ChildSlot
+		[
+			SNew(SBorder)
+			.Padding(2)
+			.BorderImage(bInOverlay ? FCoreStyle::Get().GetBrush("NoBrush") : FCoreStyle::Get().GetBrush("WhiteBrush"))
+			.BorderBackgroundColor(bInOverlay ? FLinearColor(0,0,0,0.2f) : FLinearColor(0.1f, 0.1f, 0.1f))
+			[
+				SNew(SHorizontalBox)
+				+ SHorizontalBox::Slot().AutoWidth()
+				[
+					SNew(SExpanderArrow, SharedThis(this))
+				]
+				+ SHorizontalBox::Slot().FillWidth(1.0f).VAlign(VAlign_Center)
+				[
+					SNew(STextBlock)
+					.Text_Lambda([InItem](){ return FText::FromString(FString::Printf(TEXT("%s (Pri: %d)"), *InItem->Name, InItem->Priority)); })
+					.ColorAndOpacity(FLinearColor(1.0f, 0.8f, 0.2f))
+					.Font(FCoreStyle::GetDefaultFontStyle("Bold", 9))
+				]
+			]
+		];
 	}
 };
 
@@ -54,11 +101,11 @@ void SEnhancedInputInspector::Construct(const FArguments& InArgs, UInputDebugSub
 			]
 			+ SVerticalBox::Slot().FillHeight(1.0f)
 			[
-				SAssignNew(ListView, SListView<TSharedPtr<FEnhancedInputInfoItem>>)
-				.ListItemsSource(&SourceData)
+				SAssignNew(TreeView, STreeView<TSharedPtr<FEnhancedInputInfoItem>>)
+				.TreeItemsSource(&SourceData)
 				.OnGenerateRow(this, &SEnhancedInputInspector::GenerateRow)
+				.OnGetChildren(this, &SEnhancedInputInspector::OnGetChildren)
 				.SelectionMode(ESelectionMode::None)
-				.IsFocusable(!bIsOverlay)
 			]
 		]
 	];
@@ -91,24 +138,50 @@ void SEnhancedInputInspector::UpdateData()
 	UEnhancedPlayerInput* PlayerInput = EISub->GetPlayerInput();
 	if (!PlayerInput) return;
 
-	TArray<TSharedPtr<FEnhancedInputInfoItem>> NewData;
+	// --- Sync Data ---
+	// To preserve tree expansion state, we update existing items in-place where possible
+	// and only modify the list structure when Contexts/Actions are added/removed.
 
-	const auto& ContextMap = FInputFlowDebugAccessor::GetContextData(PlayerInput);
+	const TMap<TObjectPtr<const UInputMappingContext>, FAppliedInputContextData>& ContextMap =
+		FInputFlowDebugAccessor::GetContextData(PlayerInput);
 	
 	TArray<const UInputMappingContext*> SortedContexts;
-	for (auto& Pair : ContextMap) { SortedContexts.Add(Pair.Key); }
+	for (auto& Pair : ContextMap) { if(Pair.Key) SortedContexts.Add(Pair.Key); }
+	
 	SortedContexts.Sort([&](const UInputMappingContext& A, const UInputMappingContext& B){
 		return ContextMap[&A].Priority > ContextMap[&B].Priority;
 	});
 
+	bool bStructureChanged = false;
+	TArray<TSharedPtr<FEnhancedInputInfoItem>> NewRoots;
+
 	for (const UInputMappingContext* IMC : SortedContexts)
 	{
-		TSharedPtr<FEnhancedInputInfoItem> Header = MakeShared<FEnhancedInputInfoItem>();
-		Header->Name = IMC->GetName();
-		Header->Priority = ContextMap[IMC].Priority;
-		Header->bIsContext = true;
-		NewData.Add(Header);
+		// Find existing root or create new
+		TSharedPtr<FEnhancedInputInfoItem> ContextItem = nullptr;
+		FString IMCName = IMC->GetName();
+		
+		auto FoundItem = SourceData.FindByPredicate([&](const TSharedPtr<FEnhancedInputInfoItem>& Item){
+			return Item->Name == IMCName && Item->bIsInputMappingContext;
+		});
 
+		if (FoundItem)
+		{
+			ContextItem = *FoundItem;
+		}
+		else
+		{
+			ContextItem = MakeShared<FEnhancedInputInfoItem>();
+			ContextItem->Name = IMCName;
+			ContextItem->bIsInputMappingContext = true;
+			bStructureChanged = true;
+		}
+
+		// Update Context Properties
+		ContextItem->Priority = ContextMap[IMC].Priority;
+		
+		// Process Children (Actions)
+		TArray<TSharedPtr<FEnhancedInputInfoItem>> NewChildren;
 		TSet<const UInputAction*> ActionsProcessedInContext;
 
 		for (const auto& Mapping : IMC->GetMappings())
@@ -125,67 +198,124 @@ void SEnhancedInputInspector::UpdateData()
 				FInputActionValue Val = PlayerInput->GetActionValue(Action);
 				
 				// Checking TriggerState or Magnitude > 0 to filter only active/relevant inputs
+				// NOTE: We only show items that are 'active' to reduce noise, similar to original logic
 				if (Trigger != ETriggerEvent::None || Val.GetMagnitudeSq() > 0.001f)
 				{
-					TSharedPtr<FEnhancedInputInfoItem> ActionItem = MakeShared<FEnhancedInputInfoItem>();
-					ActionItem->Name = Action->GetName();
+					FString ActionName = Action->GetName();
+					TSharedPtr<FEnhancedInputInfoItem> ActionItem = nullptr;
+
+					// Try to find existing child to update
+					auto FoundChild = ContextItem->Children.FindByPredicate([&](const TSharedPtr<FEnhancedInputInfoItem>& Item){
+						return Item->Name == ActionName;
+					});
+
+					if (FoundChild)
+					{
+						ActionItem = *FoundChild;
+					}
+					else
+					{
+						ActionItem = MakeShared<FEnhancedInputInfoItem>();
+						ActionItem->Name = ActionName;
+						ActionItem->bIsInputMappingContext = false;
+						// Child added, but parent structure doesn't change from View perspective unless we set flag
+						// However, we rebuild the child list below, so we detect diffs there.
+					}
+
+					// Update Action Values
 					ActionItem->TriggerState = InputFlowHelpers::TriggerEventToString((int32)Trigger);
 					ActionItem->StateColor = InputFlowHelpers::GetColorForTriggerEvent((int32)Trigger);
 					ActionItem->ValueStr = Val.ToString();
-					ActionItem->bIsContext = false;
-					NewData.Add(ActionItem);
+
+					// Modifiers
+					FString ModStr;
+					for (const UInputModifier* Mod : Data->GetModifiers())
+					{
+						if (Mod)
+						{
+							if (!ModStr.IsEmpty()) ModStr += TEXT(", ");
+							FString ClassName = Mod->GetClass()->GetName();
+							ClassName.RemoveFromStart("InputModifier");
+							ModStr += ClassName;
+						}
+					}
+					ActionItem->ModifiersStr = ModStr;
+
+					NewChildren.Add(ActionItem);
 				}
 			}
 		}
+
+		// Detect Child Changes
+		if (NewChildren.Num() != ContextItem->Children.Num())
+		{
+			bStructureChanged = true;
+		}
+		else
+		{
+			for (int32 i=0; i<NewChildren.Num(); ++i)
+			{
+				if (NewChildren[i] != ContextItem->Children[i])
+				{
+					bStructureChanged = true; break;
+				}
+			}
+		}
+		
+		ContextItem->Children = NewChildren;
+		NewRoots.Add(ContextItem);
 	}
 
-	bool bEqual = (NewData.Num() == SourceData.Num());
-	if (bEqual)
+	// Detect Root Changes
+	if (NewRoots.Num() != SourceData.Num())
 	{
-		for(int32 i=0; i<NewData.Num(); ++i)
+		bStructureChanged = true;
+	}
+	else
+	{
+		for (int32 i=0; i<NewRoots.Num(); ++i)
 		{
-			if (*NewData[i] == *SourceData[i] == false)
+			if (NewRoots[i] != SourceData[i])
 			{
-				bEqual = false; break;
+				bStructureChanged = true; break;
 			}
 		}
 	}
 
-	if (!bEqual)
+	SourceData = NewRoots;
+
+	if (bStructureChanged)
 	{
-		SourceData = NewData;
-		ListView->RequestListRefresh();
+		TreeView->RequestTreeRefresh();
+		
+		// Auto-Expand all Contexts by default for visibility
+		for (const auto& Root : SourceData)
+		{
+			TreeView->SetItemExpansion(Root, true);
+		}
 	}
 }
 
 TSharedRef<ITableRow> SEnhancedInputInspector::GenerateRow(TSharedPtr<FEnhancedInputInfoItem> Item, const TSharedRef<STableViewBase>& OwnerTable)
 {
-	if (Item->bIsContext)
+	if (Item->bIsInputMappingContext)
 	{
-		return SNew(STableRow<TSharedPtr<FEnhancedInputInfoItem>>, OwnerTable)
-		.Padding(FMargin(0, 4, 0, 2))
-		[
-			SNew(SBorder)
-			.Padding(2)
-			.BorderImage(bIsOverlay ? FCoreStyle::Get().GetBrush("NoBrush") : FCoreStyle::Get().GetBrush("WhiteBrush"))
-			.BorderBackgroundColor(bIsOverlay ? FLinearColor(0,0,0,0.2f) : FLinearColor(0.1f, 0.1f, 0.1f))
-			[
-				SNew(STextBlock)
-				.Text(FText::FromString(FString::Printf(TEXT("%s (Pri: %d)"), *Item->Name, Item->Priority)))
-				.ColorAndOpacity(FLinearColor(1.0f, 0.8f, 0.2f))
-				.Font(FCoreStyle::GetDefaultFontStyle("Bold", 9))
-			]
-		];
+		return SNew(SEnhancedInputContextRow, OwnerTable, Item, bIsOverlay);
 	}
-	else
-	{
-		return SNew(STableRow<TSharedPtr<FEnhancedInputInfoItem>>, OwnerTable)
+
+	// Action Row with Modifier Support
+	return SNew(STableRow<TSharedPtr<FEnhancedInputInfoItem>>, OwnerTable)
+	.Padding(FMargin(16, 0, 0, 0)) // Indent actions
+	[
+		SNew(SVerticalBox)
+		+ SVerticalBox::Slot().AutoHeight()
 		[
 			SNew(SHorizontalBox)
-			+ SHorizontalBox::Slot().AutoWidth().Padding(10, 0, 5, 0)
+			+ SHorizontalBox::Slot().AutoWidth().Padding(0, 0, 5, 0)
 			[
-				SNew(STextBlock).Text(FText::FromString(Item->Name))
-				.ColorAndOpacity(bIsOverlay ? FLinearColor::White : FLinearColor::Black)
+				SNew(STextBlock)
+				.Text_Lambda([Item](){ return FText::FromString(Item->Name); })
+				.ColorAndOpacity(FLinearColor::White)
 				.Font(FCoreStyle::GetDefaultFontStyle("Regular", 9))
 			]
 			+ SHorizontalBox::Slot().FillWidth(1.0f).HAlign(HAlign_Right)
@@ -193,11 +323,47 @@ TSharedRef<ITableRow> SEnhancedInputInspector::GenerateRow(TSharedPtr<FEnhancedI
 				SNew(SHorizontalBox)
 				+ SHorizontalBox::Slot().AutoWidth().Padding(5, 0)
 				[
-					SNew(STextBlock).Text(FText::FromString(Item->TriggerState))
-					.ColorAndOpacity(Item->StateColor)
+					SNew(STextBlock)
+					.Text_Lambda([Item](){ return FText::FromString(Item->ValueStr); })
+					.ColorAndOpacity(FLinearColor::Gray)
+					.Font(FCoreStyle::GetDefaultFontStyle("Mono", 8))
+				]
+				+ SHorizontalBox::Slot().AutoWidth().Padding(5, 0)
+				[
+					SNew(STextBlock)
+					.Text_Lambda([Item](){ return FText::FromString(Item->TriggerState); })
+					.ColorAndOpacity_Lambda([Item](){ return Item->StateColor; })
 					.Font(FCoreStyle::GetDefaultFontStyle("Bold", 8))
 				]
 			]
-		];
+		]
+		// Modifiers Row
+		+ SVerticalBox::Slot().AutoHeight()
+		[
+			SNew(SHorizontalBox)
+			.Visibility_Lambda([Item](){ return Item->ModifiersStr.IsEmpty() ? EVisibility::Collapsed : EVisibility::Visible; })
+			+ SHorizontalBox::Slot().AutoWidth()
+			[
+				SNew(STextBlock)
+				.Text_Lambda([Item](){ return FText::FromString(Item->ModifiersStr); })
+				.ColorAndOpacity(FLinearColor(0.4f, 0.6f, 1.0f))
+				.Font(FCoreStyle::GetDefaultFontStyle("Italic", 7))
+			]
+			+ SHorizontalBox::Slot().AutoWidth().Padding(4, 0, 0, 0)
+			[
+				SNew(STextBlock)
+				.Text_Lambda([Item](){ return FText::FromString(FString::Printf(TEXT("=> %s"), *Item->ValueStr)); })
+				.ColorAndOpacity(FLinearColor(0.4f, 0.6f, 1.0f))
+				.Font(FCoreStyle::GetDefaultFontStyle("Mono", 7))
+			]
+		]
+	];
+}
+void SEnhancedInputInspector::OnGetChildren(TSharedPtr<FEnhancedInputInfoItem> Item,
+	TArray<TSharedPtr<FEnhancedInputInfoItem>>& OutChildren)
+{
+	if (Item.IsValid())
+	{
+		OutChildren = Item->Children;
 	}
 }

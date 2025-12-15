@@ -16,7 +16,7 @@ class InputFlowHelpers
 public:
 	static const FSlateBrush* GetBackgroundBrush(bool bIsOverlay);
 	static UInputDebugSubsystem* GetActiveDebugSubsystem();
-
+	
 	// Generates a human-readable name for a widget, including hierarchy context
 	// e.g. "ConfirmButton (from PopupDialog)"
 	static FString GetWidgetDisplayName(const TSharedPtr<SWidget>& Widget);

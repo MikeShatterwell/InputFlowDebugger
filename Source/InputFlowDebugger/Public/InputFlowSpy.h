@@ -13,7 +13,7 @@
 class UWidget;
 class UCommonButtonBase;
 
-DECLARE_MULTICAST_DELEGATE_OneParam(FOnInputFlowFocusChanged, const TSharedPtr<SWidget>& /*NewFocus*/);
+DECLARE_MULTICAST_DELEGATE_TwoParams(FOnInputFlowFocusChanged, const TSharedPtr<SWidget>& /*NewFocus*/, const FFocusEvent& /*InFocusEvent*/);
 
 struct FInputLogRichTextPart
 {

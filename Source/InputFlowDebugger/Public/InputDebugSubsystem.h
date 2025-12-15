@@ -45,6 +45,7 @@ struct FInputOverlayState
 struct FFocusHistoryEntry
 {
 	TWeakPtr<SWidget> Widget;
+	EFocusCause FocusCause = EFocusCause::Cleared;
 	double Timestamp = 0.0;
 };
 
@@ -110,15 +111,13 @@ public:
 	TSharedPtr<SWidget> GetFocusedWidget() const { return FocusedWidget.Pin(); }
 	const TArray<FFocusHistoryEntry>& GetFocusHistory() const { return FocusHistory; }
 
-	// Called by Spy or manual debug
-	void AddLog(const FString& Type, const FString& InputDetails, FColor Color, const FString& WidgetType = TEXT(""), const FString& WidgetName = TEXT(""), const FString& WidgetState = TEXT(""), bool bIsButton = false, UObject* SourceObject = nullptr, const TArray<FInputLogRichTextPart>& InParts = TArray<FInputLogRichTextPart>());
 private:
 	// Internal ticker to sync data from the Spy and run Spider
 	bool TickSyncLogs(float DeltaTime);
 	void TickNavigationSim(float DeltaTime);
 
 	// Callback from Spy on Focus Change
-	void OnSpyFocusChanged(const TSharedPtr<SWidget>& NewFocus);
+	void OnSpyFocusChanged(const TSharedPtr<SWidget>& NewFocus, const FFocusEvent& InFocusEvent);
 	
 	// Recursive navigation finder responsible for filling NavigationLinks with the crawled results
 	void StartNewSimulation(TSharedPtr<SWidget> StartWidget);

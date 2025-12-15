@@ -22,6 +22,7 @@
 
 // Internal
 #include "InputFlowHelpers.h"
+#include "LogInputFlow.h"
 
 FInputFlowSpy::FInputFlowSpy() 
 {
@@ -85,6 +86,8 @@ void FInputFlowSpy::AddLog(const FString& Type, const FString& InputDetails, FCo
 		WriteIndex = 0;
 		bWrapped = true;
 	}
+
+	UE_LOG(LogInputFlow, Verbose, TEXT("[InputFlowDebugger] Log Added: %s on %s"), *Type, *WidgetName);
 }
 
 void FInputFlowSpy::GenerateWidgetContextParts(const TSharedPtr<SWidget>& Widget, TArray<FInputLogRichTextPart>& OutParts, FString& OutFlatName) const
@@ -666,7 +669,7 @@ void FInputFlowSpy::OnFocusChanging(const FFocusEvent& InFocusEvent, const FWeak
 	}
 
 	BindButtonObservation(NewFocusedWidget);
-	OnFocusChangedDelegate.Broadcast(NewFocusedWidget);
+	OnFocusChangedDelegate.Broadcast(NewFocusedWidget, InFocusEvent);
 
 	if (bCaptureHover && InFocusEvent.GetCause() == EFocusCause::Navigation)
 	{
@@ -750,9 +753,9 @@ void FInputFlowSpy::OnFocusChanging(const FFocusEvent& InFocusEvent, const FWeak
 	FColor LogColor = (InFocusEvent.GetCause() == EFocusCause::Navigation) ? FColor::Green : FColor(100, 150, 255);
 	if (OldFocusedWidget.IsValid())
 	{
-		AddLog("Slate | Focus Lost", InFocusEvent.GetCause() == EFocusCause::Navigation ? TEXT("Navigation") : TEXT("Other"), LogColor, SrcType, SrcName, SrcState, bIsSrcBtn, SrcObj, SrcParts);
+		AddLog("Slate | Focus Lost", CauseStr, LogColor, SrcType, SrcName, SrcState, bIsSrcBtn, SrcObj, SrcParts);
 	}
-	AddLog("Slate | Focus Gained", InFocusEvent.GetCause() == EFocusCause::Navigation ? TEXT("Navigation") : TEXT("Other"), LogColor, DestType, DestName, DestState, bIsDestBtn, DestObj, DestParts);
+	AddLog("Slate | Focus Gained", CauseStr, LogColor, DestType, DestName, DestState, bIsDestBtn, DestObj, DestParts);
 }
 
 FString FInputFlowSpy::GetNavigationDirectionString(EUINavigation NavDir) const
