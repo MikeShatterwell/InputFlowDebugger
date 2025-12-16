@@ -87,7 +87,7 @@ void FInputFlowSpy::AddLog(const FString& Type, const FString& InputDetails, FCo
 		bWrapped = true;
 	}
 
-	UE_LOG(LogInputFlow, Verbose, TEXT("[InputFlowDebugger] Log Added: %s on %s"), *Type, *WidgetName);
+	UE_LOG(LogInputFlow, Verbose, TEXT("[InputFlowDebugger] Log Added: %s %s on %s"), *Type, *InputDetails, *WidgetName);
 }
 
 void FInputFlowSpy::GenerateWidgetContextParts(const TSharedPtr<SWidget>& Widget, TArray<FInputLogRichTextPart>& OutParts, FString& OutFlatName) const

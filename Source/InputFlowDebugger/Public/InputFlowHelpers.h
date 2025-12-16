@@ -32,6 +32,22 @@ public:
 	// Helper to convert Input Trigger Events to string/color
 	static FString TriggerEventToString(int32 EventType);
 	static FColor GetColorForTriggerEvent(int32 EventType);
+	
+	static FString NavDirToString(EUINavigation Dir);
+	static FString NavRuleToString(EUINavigationRule Rule);
+	static FString NavSimResultToString(ENavSimResult Result);
+
+	static FString WidgetDesc(const TSharedPtr<SWidget>& W);
+
+	static bool IsTableViewWidget(const TSharedPtr<SWidget>& InWidget, FString InTypeStr = TEXT(""));
+
+	static void LogWidgetPathVerbose(const FWidgetPath& Path, const TCHAR* Prefix);
+
+	static int32 FindWidgetIndexInPath(const FWidgetPath& Path, const TSharedPtr<SWidget>& Widget);
+
+	static FArrangedWidget ToWindowSpace(const FArrangedWidget& InArranged, const TSharedRef<SWindow>& Window);
+
+	static TSharedPtr<SWidget> ResolveFocusableDescendant(TSharedPtr<SWidget> Root);
 
 	static const FName InputFlowAnalyzerTag;
 };

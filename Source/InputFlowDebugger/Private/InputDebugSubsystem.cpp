@@ -28,8 +28,15 @@
 #include "Widgets/SWindow.h"
 #include "Widgets/SWeakWidget.h"
 
+// UMG
+#include <Blueprint/WidgetTree.h>
+
 // CommonUI
+#include <CommonButtonBase.h>
+#include <SCommonButtonTableRow.h>
+#include <Components/PanelWidget.h>
 #include <Runtime/Slate/Private/Widgets/Views/SListPanel.h>
+#include <Slate/SObjectTableRow.h>
 #include <Widgets/Views/STileView.h>
 
 #include "CommonInputSubsystem.h"
@@ -40,14 +47,20 @@
 
 static TAutoConsoleVariable<bool> CVarInputFlowOverlay(
 	TEXT("InputFlow.Overlay"),
-	false,
+	true, // TODO: Default false after testing
+	TEXT("Toggles the Input Flow Debugger in-game overlay"),
+	ECVF_Default
+);
+
+static TAutoConsoleVariable<bool> CVarInputFlowNavSpiderDebugLog(
+	TEXT("InputFlow.NavSpider.DebugLogEnabled"),
+	true, // TODO: Default false after testing
 	TEXT("Toggles the Input Flow Debugger in-game overlay"),
 	ECVF_Default
 );
 
 // ----------------------------------------------------------------------------------
 // Accessor Hacks
-// These classes provide access to protected members of Slate views required for accurate simulation
 // ----------------------------------------------------------------------------------
 
 class FTableViewAccess : public STableViewBase
@@ -59,123 +72,78 @@ public:
 	static const TSharedPtr<SScrollBar>& GetScrollBar(const STableViewBase& View) { return ((const FTableViewAccess&)View).ScrollBar; }
 };
 
-template <typename ItemType>
-class SListViewAccess : public SListView<ItemType>
+class FButtonAccess : public UButton
 {
 public:
-	static bool GetSelectorItem(const STableViewBase& View, ItemType& OutItem)
-	{
-		const SListViewAccess<ItemType>* AccessedView = static_cast<const SListViewAccess<ItemType>*>(&View);
-		
-		if (TListTypeTraits<ItemType>::IsPtrValid(AccessedView->SelectorItem))
-		{
-			OutItem = TListTypeTraits<ItemType>::NullableItemTypeConvertToItemType(AccessedView->SelectorItem);
-			return true;
-		}
-		return false;
-	}
-	static TSharedPtr<ITableRow> GetWidgetFromItem(const STableViewBase& View, const ItemType& Item)
-	{
-		const SListView<ItemType>* TypedView = static_cast<const SListView<ItemType>*>(&View);
-		return TypedView->WidgetFromItem(Item);
-	}
+	static TSharedPtr<SButton> GetSlateButton(const UButton* Button) 
+	{ 
+		if (!Button) return nullptr;
+		return static_cast<const FButtonAccess*>(Button)->MyButton;	}
 };
 
+// Explicit Accessor for UObject* types (Common use case in UMG / CommonUI)
 class FListViewUObjectAccess : public SListView<UObject*>
 {
 public:
-	static const UObject* GetSelectorItem(const SListView<UObject*>& List) { return ((const FListViewUObjectAccess&)List).SelectorItem; }
-	static bool GetHandleDirectionalNavigation(const SListView<UObject*>& List) { return ((const FListViewUObjectAccess&)List).bHandleDirectionalNavigation; }
+	static const UObject* GetSelectorItem(const STableViewBase& List) 
+	{ 
+		return ((const FListViewUObjectAccess&)List).SelectorItem; 
+	}
+	
+	static const TArray<UObject*>& GetItemsRef(const STableViewBase& List) 
+	{ 
+		const FListViewUObjectAccess* Access = static_cast<const FListViewUObjectAccess*>(&List);
+		if (Access->HasValidItemsSource())
+		{
+			// Safe access to the data view assuming standard TArray layout or ObservableArray
+			return *(const TArray<UObject*>*)(Access->GetItems().GetData()); 
+		}
+		static TArray<UObject*> Empty;
+		return Empty;
+	}
+
+	static TSharedPtr<ITableRow> GetWidgetFromItem(const STableViewBase& List, const UObject* Item)
+	{
+		const FListViewUObjectAccess* Access = static_cast<const FListViewUObjectAccess*>(&List);
+		return Access->WidgetFromItem(const_cast<UObject*>(Item));
+	}
+
+	// Robustly finds the index of the item corresponding to any widget in the focus path.
+	// This fixes the issue where focus is on a row but the list's 'SelectorItem' is stale or null.
+	static int32 GetIndexForPathWidget(const STableViewBase& List, const FWidgetPath& Path, int32 BoundaryIndex)
+	{
+		const FListViewUObjectAccess* Access = static_cast<const FListViewUObjectAccess*>(&List);
+		const TArray<UObject*>& Items = GetItemsRef(List);
+
+		// Iterate down the path from the list boundary (WidgetIndex) to the Leaf.
+		// We are looking for the STableRow widget that holds the focused content.
+		for (int32 i = BoundaryIndex + 1; i < Path.Widgets.Num(); ++i)
+		{
+			TSharedPtr<SWidget> PathWidget = Path.Widgets[i].Widget;
+			
+			// We check the ItemToWidgetMap. This map contains all *generated* (visible) rows.
+			// This iteration is generally fast (only visible items).
+			for (const auto& Pair : Access->WidgetGenerator.ItemToWidgetMap)
+			{
+				if (Pair.Value->AsWidget() == PathWidget)
+				{
+					return Items.Find(Pair.Key);
+				}
+			}
+		}
+		return INDEX_NONE;
+	}
 };
 
 template <typename ItemType>
 class FTileViewAccess : public STileView<ItemType>
 {
 public:
-	static bool IsWrappingEnabled(const STileView<ItemType>& View) { return ((const FTileViewAccess<ItemType>&)View).bWrapHorizontalNavigation; }
+	static bool IsWrappingEnabled(const STableViewBase& View) 
+	{ 
+		return ((const FTileViewAccess<ItemType>&)View).bWrapHorizontalNavigation; 
+	}
 };
-
-// ----------------------------------------------------------------------------------
-// Helper Functions
-// ----------------------------------------------------------------------------------
-
-/** 
- * Drills down into a widget hierarchy (e.g., a TableRow or UserWidget) to find the actual 
- * leaf widget that accepts focus (e.g., a CommonButton). 
- * 
- * Modified to aggressively drill through containers like SObjectWidget (UserWidget) and STableRow
- * even if they claim to support focus, as they often delegate focus to children in practice.
- */
-static TSharedPtr<SWidget> ResolveFocusableDescendant(TSharedPtr<SWidget> Root)
-{
-	if (!Root.IsValid()) return nullptr;
-
-	TSharedPtr<SWidget> BestCandidate = nullptr;
-
-	// Breadth-first search
-	TArray<TSharedPtr<SWidget>> Queue;
-	Queue.Add(Root);
-
-	int32 LoopCount = 0;
-	const int32 MaxLoop = 200; // Safety cap
-
-	while (Queue.Num() > 0 && LoopCount < MaxLoop)
-	{
-		TSharedPtr<SWidget> Current = Queue[0];
-		Queue.RemoveAt(0);
-
-		if (Current.IsValid() && Current->GetVisibility().IsVisible() && Current->IsEnabled())
-		{
-			FString Type = Current->GetTypeAsString();
-
-			// Is this a container wrapper?
-			bool bIsWrapper = (Type == TEXT("SObjectWidget") || 
-							   Type.Contains(TEXT("TableRow")) || 
-							   Type.Contains(TEXT("ListItem")) ||
-							   Type.Contains(TEXT("SBox")) ||
-							   Type.Contains(TEXT("SOverlay")) ||
-							   Type.Contains(TEXT("SBorder")));
-
-			if (Current->SupportsKeyboardFocus())
-			{
-				// If we haven't found a candidate yet, take this one
-				if (!BestCandidate.IsValid())
-				{
-					BestCandidate = Current;
-				}
-				// If we have a candidate, but this one is NOT a wrapper and the candidate WAS a wrapper,
-				// update candidate.
-				else if (!bIsWrapper)
-				{
-					BestCandidate = Current;
-					// If we found a concrete interactive element, we can stop searching children of this branch?
-					// Ideally yes, but CommonUI sometimes nests buttons.
-					// For now, assume first non-wrapper is good.
-					return BestCandidate;
-				}
-			}
-
-			// Continue searching children to find something "deeper" / "more specific"
-			FChildren* Children = Current->GetChildren();
-			if (Children)
-			{
-				for (int32 i = 0; i < Children->Num(); ++i)
-				{
-					Queue.Add(Children->GetChildAt(i));
-				}
-			}
-		}
-		LoopCount++;
-	}
-
-	// If we found nothing better, return root (if focusable) or nullptr
-	if (!BestCandidate.IsValid() && Root->IsEnabled() && Root->SupportsKeyboardFocus())
-	{
-		return Root;
-	}
-
-	return BestCandidate; 
-}
 
 // ----------------------------------------------------------------------------------
 // UInputDebugSubsystem Implementation
@@ -225,11 +193,12 @@ void UInputDebugSubsystem::Deinitialize()
 
 void UInputDebugSubsystem::ClearLogHistory()
 {
+	// Reset indices and clear buffer content while maintaining size
 	LogHistory.Empty();
 	LogHistory.SetNum(MaxLogHistorySize);
 	LogHistoryIndex = 0;
 	bLogHistoryWrapped = false;
-	LogVersion++; 
+	LogVersion++; // Force view update
 }
 
 bool UInputDebugSubsystem::TickSyncLogs(float DeltaTime)
@@ -242,11 +211,13 @@ bool UInputDebugSubsystem::TickSyncLogs(float DeltaTime)
 
 		if (SpyWriteIdx > 0 || bSpyWrapped)
 		{
+			// Ensure buffer size (robustness)
 			if (LogHistory.Num() != MaxLogHistorySize)
 			{
 				LogHistory.SetNum(MaxLogHistorySize);
 			}
 
+			// Iterate Spy Buffer in chronological order
 			int32 Start = bSpyWrapped ? SpyWriteIdx : 0;
 			int32 Count = bSpyWrapped ? SpyBuffer.Num() : SpyWriteIdx;
 
@@ -255,6 +226,7 @@ bool UInputDebugSubsystem::TickSyncLogs(float DeltaTime)
 				int32 ActualIdx = (Start + i) % SpyBuffer.Num();
 				const FInputEventLog& RawLog = SpyBuffer[ActualIdx];
 
+				// Merge Logic
 				bool bMerged = false;
 				if (LogHistoryIndex > 0 || bLogHistoryWrapped)
 				{
@@ -279,6 +251,7 @@ bool UInputDebugSubsystem::TickSyncLogs(float DeltaTime)
 
 				if (!bMerged)
 				{
+					// Ring Buffer Add
 					LogHistory[LogHistoryIndex] = MakeShared<FInputEventLog>(RawLog);
 					LogHistoryIndex++;
 					if (LogHistoryIndex >= MaxLogHistorySize)
@@ -287,29 +260,35 @@ bool UInputDebugSubsystem::TickSyncLogs(float DeltaTime)
 						bLogHistoryWrapped = true;
 					}
 				}
-				LogVersion++;
+				LogVersion++; // Update version
 			}
+
+			// Clear Spy
 			InputSpy->ResetBuffer();
 		}
 	}
 
+	// 2. Sync Overlay State from CVar
 	bool bCVarState = CVarInputFlowOverlay.GetValueOnGameThread();
 	if (bCVarState != bOverlayEnabled)
 	{
 		SetOverlayEnabled(bCVarState);
 	}
 
+	// Clean out stale focus history entries (3s retention)
 	double Now = FPlatformTime::Seconds();
 	FocusHistory.RemoveAll([Now](const FFocusHistoryEntry& Entry)
 	{
 		return !Entry.Widget.IsValid() || (Now - Entry.Timestamp) > 3.0;
 	});
 
+	// 3. Run Logic
 	if (bOverlayEnabled)
 	{
 		TickNavigationSim(DeltaTime);
 	}
 
+	// Always update snapshot data (Active Leaf info)
 	UpdateDataSnapshot();
 
 	return true;
@@ -338,7 +317,7 @@ void UInputDebugSubsystem::SetOverlayEnabled(bool bEnabled)
 
 			GetWorld()->GetGameViewport()->AddViewportWidgetContent(
 				OverlayHost.ToSharedRef(),
-				1000 
+				1000 // Z-Order
 			);
 		}
 	}
@@ -359,13 +338,16 @@ bool UInputDebugSubsystem::IsOverlayEnabled() const
 	return bOverlayEnabled;
 }
 
+// --- Data Gathering for Overlay ---
+
 void UInputDebugSubsystem::UpdateDataSnapshot()
 {
-	OverlayState = FInputOverlayState();
+	OverlayState = FInputOverlayState(); // Reset
 
 	ULocalPlayer* LP = GetGameInstance()->GetFirstGamePlayer();
 	if (!LP) return;
 
+	// 1. Snapshot CommonUI Active Leaf & Config
 	TSharedPtr<SWidget> FocusedSlateWidget = FSlateApplication::Get().GetKeyboardFocusedWidget();
 	if (FocusedSlateWidget.IsValid())
 	{
@@ -375,25 +357,38 @@ void UInputDebugSubsystem::UpdateDataSnapshot()
 
 			FUIInputConfig Config = Active->GetDesiredInputConfig().Get(FUIInputConfig());
 
+			// Input Mode String
 			switch (Config.GetInputMode())
 			{
-			case ECommonInputMode::Game: OverlayState.InputConfig = TEXT("Game"); break;
-			case ECommonInputMode::Menu: OverlayState.InputConfig = TEXT("Menu"); break;
-			case ECommonInputMode::All: OverlayState.InputConfig = TEXT("All"); break;
-			default: OverlayState.InputConfig = TEXT("Default"); break;
+			case ECommonInputMode::Game: OverlayState.InputConfig = TEXT("Game");
+				break;
+			case ECommonInputMode::Menu: OverlayState.InputConfig = TEXT("Menu");
+				break;
+			case ECommonInputMode::All: OverlayState.InputConfig = TEXT("All");
+				break;
+			default: OverlayState.InputConfig = TEXT("Default");
+				break;
 			}
 
+			// Mouse Capture String
 			switch (Config.GetMouseCaptureMode())
 			{
-			case EMouseCaptureMode::NoCapture: OverlayState.MouseCaptureMode = TEXT("No Capture"); break;
-			case EMouseCaptureMode::CapturePermanently: OverlayState.MouseCaptureMode = TEXT("Capture Perm"); break;
-			case EMouseCaptureMode::CapturePermanently_IncludingInitialMouseDown: OverlayState.MouseCaptureMode = TEXT("Capture Perm+"); break;
-			case EMouseCaptureMode::CaptureDuringMouseDown: OverlayState.MouseCaptureMode = TEXT("Capture Down"); break;
-			default: OverlayState.MouseCaptureMode = TEXT("Unknown"); break;
+			case EMouseCaptureMode::NoCapture: OverlayState.MouseCaptureMode = TEXT("No Capture");
+				break;
+			case EMouseCaptureMode::CapturePermanently: OverlayState.MouseCaptureMode = TEXT("Capture Perm");
+				break;
+			case EMouseCaptureMode::CapturePermanently_IncludingInitialMouseDown: OverlayState.MouseCaptureMode = TEXT(
+					"Capture Perm+");
+				break;
+			case EMouseCaptureMode::CaptureDuringMouseDown: OverlayState.MouseCaptureMode = TEXT("Capture Down");
+				break;
+			default: OverlayState.MouseCaptureMode = TEXT("Unknown");
+				break;
 			}
 		}
 	}
 
+	// 2. Snapshot Bound Actions (With Key Names)
 	if (UCommonUIActionRouterBase* Router = ULocalPlayer::GetSubsystem<UCommonUIActionRouterBase>(LP))
 	{
 		TArray<FUIActionBindingHandle> Bindings = Router->GatherActiveBindings();
@@ -403,6 +398,7 @@ void UInputDebugSubsystem::UpdateDataSnapshot()
 		{
 			if (!Handle.IsValid()) continue;
 
+			// Basic Display Name: "Confirm [A]"
 			FString ActionName = Handle.GetActionName().ToString();
 			FString DisplayName = Handle.GetDisplayName().ToString();
 			FString Entry = ActionName;
@@ -412,11 +408,13 @@ void UInputDebugSubsystem::UpdateDataSnapshot()
 				Entry += FString::Printf(TEXT(" [%s]"), *DisplayName);
 			}
 
+			// --- Resolve Keys ---
 			FString KeyString;
 			TSharedPtr<FUIActionBinding> BindingPtr = FUIActionBinding::FindBinding(Handle);
 
 			if (BindingPtr.IsValid())
 			{
+				// Case A: Enhanced Input (UE5 Standard)
 				if (const UInputAction* InputAction = BindingPtr->InputAction.Get())
 				{
 					if (EISub)
@@ -429,16 +427,24 @@ void UInputDebugSubsystem::UpdateDataSnapshot()
 						}
 					}
 				}
-				else if (const FCommonInputActionDataBase* LegacyData = CommonUI::GetInputActionData(BindingPtr->LegacyActionTableRow))
+				// Case B: Legacy CommonUI (Data Table)
+				else if (const FCommonInputActionDataBase* LegacyData = CommonUI::GetInputActionData(
+					BindingPtr->LegacyActionTableRow))
 				{
-					const FCommonInputTypeInfo& KbdInfo = LegacyData->GetInputTypeInfo(ECommonInputType::MouseAndKeyboard, NAME_None);
+					// Use Public API to retrieve keys safely
+
+					// 1. Keyboard
+					const FCommonInputTypeInfo& KbdInfo = LegacyData->GetInputTypeInfo(
+						ECommonInputType::MouseAndKeyboard, NAME_None);
 					FKey KbdKey = KbdInfo.GetKey();
 					if (KbdKey.IsValid())
 					{
 						KeyString += KbdKey.GetDisplayName().ToString();
 					}
 
-					const FCommonInputTypeInfo& GamepadInfo = LegacyData->GetInputTypeInfo(ECommonInputType::Gamepad, NAME_None);
+					// 2. Gamepad (Default)
+					const FCommonInputTypeInfo& GamepadInfo = LegacyData->GetInputTypeInfo(
+						ECommonInputType::Gamepad, NAME_None);
 					FKey GamepadKey = GamepadInfo.GetKey();
 					if (GamepadKey.IsValid())
 					{
@@ -457,6 +463,7 @@ void UInputDebugSubsystem::UpdateDataSnapshot()
 		}
 	}
 
+	// Default Fallbacks
 	if (OverlayState.ActiveCommonUILeaf.IsEmpty())
 	{
 		OverlayState.ActiveCommonUILeaf = TEXT("None (Viewport/PlayerController)");
@@ -464,13 +471,16 @@ void UInputDebugSubsystem::UpdateDataSnapshot()
 		OverlayState.MouseCaptureMode = TEXT("Default");
 	}
 
+	// 3. Snapshot Triggered Enhanced Input Actions
 	if (UEnhancedInputLocalPlayerSubsystem* EISub = LP->GetSubsystem<UEnhancedInputLocalPlayerSubsystem>())
 	{
 		if (UEnhancedPlayerInput* PlayerInput = EISub->GetPlayerInput())
 		{
+			// ... (Existing Accessor Hack for Context Data) ...
 			struct FInputFlowDebugAccessor : public UEnhancedPlayerInput
 			{
-				static const TMap<TObjectPtr<const UInputMappingContext>, FAppliedInputContextData>& GetContextData(const UEnhancedPlayerInput* PInput)
+				static const TMap<TObjectPtr<const UInputMappingContext>, FAppliedInputContextData>& GetContextData(
+					const UEnhancedPlayerInput* PInput)
 				{
 					return static_cast<const FInputFlowDebugAccessor*>(PInput)->GetAppliedInputContextData();
 				}
@@ -504,7 +514,7 @@ void UInputDebugSubsystem::UpdateDataSnapshot()
 }
 
 // ----------------------------------------------------------------------------------
-// Navigation Spider & Simulation
+// Navigation Spider
 // ----------------------------------------------------------------------------------
 
 void UInputDebugSubsystem::TickNavigationSim(float DeltaTime)
@@ -558,36 +568,37 @@ void UInputDebugSubsystem::OnSpyFocusChanged(const TSharedPtr<SWidget>& NewFocus
 TPair<TSharedPtr<SWidget>, ENavSimResult> UInputDebugSubsystem::SimulateNavigation(
 	const TSharedPtr<SWidget>& Source, EUINavigation Direction, int32 RealUserIndex) const
 {
-	const bool bDebugLog = true;
-
+	const bool bDebugLog = CVarInputFlowNavSpiderDebugLog.GetValueOnGameThread();
+	
+	// Basic validation
 	if (!Source.IsValid() || !Source->SupportsKeyboardFocus() || !bEnableNavigationSimulation)
 	{
+		UE_CLOG(bDebugLog, LogInputFlow, Warning,
+		        TEXT("  [NavSim] Source is invalid or does not support keyboard focus."));
 		return {nullptr, ENavSimResult::Normal};
 	}
 
 	FWidgetPath SourcePath;
 	if (!FSlateApplication::Get().FindPathToWidget(Source.ToSharedRef(), SourcePath))
 	{
+		UE_CLOG(bDebugLog, LogInputFlow, Warning, TEXT("  [NavSim] Failed to find Widget Path for Source '%s'"),
+		        *Source->ToString());
 		return {nullptr, ENavSimResult::Normal};
 	}
 
-	const FNavigationEvent VirtualNavEvent(FModifierKeysState(), RealUserIndex, Direction, ENavigationGenesis::Controller);
-	
-	// Helper to identify container widgets (ListView, TileView)
-	auto IsTableView = [](const TSharedPtr<SWidget>& InWidget, FString InTypeStr = TEXT("")) -> bool
+	const FNavigationEvent VirtualNavEvent(FModifierKeysState(), 999, Direction,
+	                                       ENavigationGenesis::Controller);
+
+	TSharedRef<SWindow> Window = SourcePath.GetDeepestWindow();
+	const FSlateLayoutTransform WindowInverse = Window->GetWindowGeometryInScreen().GetAccumulatedLayoutTransform().Inverse();
+
+	if (bDebugLog)
 	{
-		if (!InWidget.IsValid()) return false;
-		if (InTypeStr.IsEmpty()) InTypeStr = InWidget->GetTypeAsString();
-		// Must be a View
-		const bool bIsView = InTypeStr.Contains(TEXT("ListView")) || InTypeStr.Contains(TEXT("TileView")) || InTypeStr.Contains(TEXT("TreeView")) || InTypeStr.Contains(TEXT("TableView"));
-		// Must NOT be a Row or Entry 
-		const bool bIsRow = InTypeStr.Contains(TEXT("Row")) || InTypeStr.Contains(TEXT("Entry"));
-		return bIsView && !bIsRow;
-	};
+		UE_LOG(LogInputFlow, Log, TEXT("--- Simulating %s from '%s' ---"),
+		       *UEnum::GetValueAsString(Direction), *Source->ToString());
+	}
 
-	UE_CLOG(bDebugLog, LogInputFlow, Log, TEXT("--- Simulating %s from '%s' ---"),
-		   *UEnum::GetValueAsString(Direction), *Source->ToString());
-
+	// Bubbling Loop
 	for (int32 WidgetIndex = SourcePath.Widgets.Num() - 1; WidgetIndex >= 0; --WidgetIndex)
 	{
 		const FArrangedWidget& ArrangedBoundary = SourcePath.Widgets[WidgetIndex];
@@ -595,284 +606,119 @@ TPair<TSharedPtr<SWidget>, ENavSimResult> UInputDebugSubsystem::SimulateNavigati
 
 		if (!BoundaryWidget->IsEnabled()) continue;
 
-		const FString WidgetType = BoundaryWidget->GetTypeAsString();
-		const bool bIsTableViewContainer = IsTableView(BoundaryWidget, WidgetType);
-
+		// 1. Query the Widget's Navigation Rule
 		FNavigationReply Reply = FNavigationReply::Escape();
 
-		// --- TABLE VIEW INTERNAL LOGIC ---
-		if (bIsTableViewContainer)
+#if UE_WITH_SLATE_SIMULATEDNAVIGATIONMETADATA
+		// Handle UMG Designer metadata if present
+		if (TSharedPtr<FSimulatedNavigationMetaData> SimMeta = BoundaryWidget->GetMetaData<FSimulatedNavigationMetaData>())
 		{
-			const STableViewBase* TableView = static_cast<const STableViewBase*>(&BoundaryWidget.Get());
-			const bool bIsTileView = WidgetType.Contains(TEXT("TileView"));
-			const EOrientation Orient = FTableViewAccess::GetOrientation(*TableView);
-			const int32 ItemsPerLine = FTableViewAccess::GetItemsPerLine(*TableView);
-
-			// 1. Identify the current index of the source widget inside this list.
-			int32 CurrentIndex = INDEX_NONE;
-			int32 NumItems = 0;
-			
-			TSharedPtr<SListPanel> ItemsPanel = FTableViewAccess::GetItemsPanel(*TableView);
-			FChildren* Children = nullptr;
-			
-			if (ItemsPanel.IsValid())
+			if (SimMeta->IsOnNavigationConst())
 			{
-				Children = ItemsPanel->GetChildren();
-				NumItems = Children->Num(); 
-				
-				if (Source != BoundaryWidget)
-				{
-					// Search for the visual child that contains our Source.
-					// We check if the ChildRow is in the SourcePath. 
-					// Since SourcePath contains [Window...TableView, Panel, ChildRow...Source],
-					// we can just check if ChildRow exists in SourcePath's widget list.
-					for (int32 i = 0; i < Children->Num(); ++i)
-					{
-						TSharedRef<SWidget> ChildRow = Children->GetChildAt(i);
-						
-						// Efficient check: iterate SourcePath starting from current WidgetIndex
-						for (int32 k = WidgetIndex; k < SourcePath.Widgets.Num(); ++k)
-						{
-							if (SourcePath.Widgets[k].Widget == ChildRow)
-							{
-								CurrentIndex = i;
-								break;
-							}
-						}
-						
-						if (CurrentIndex != INDEX_NONE) break;
-					}
-				}
+				Reply = BoundaryWidget->OnNavigation(ArrangedBoundary.Geometry, VirtualNavEvent);
 			}
-
-			// 2. Data Source Fallback (for UObject Lists if Visual Check Failed)
-			bool bIsUObjectList = WidgetType.Contains(TEXT("UObject"));
-			if (!bIsUObjectList && InputFlowHelpers::GetOwnerUWidget(BoundaryWidget)) bIsUObjectList = true;
-
-			if (CurrentIndex == INDEX_NONE && bIsUObjectList)
+			else
 			{
-				const SListView<UObject*>* CastedList = static_cast<const SListView<UObject*>*>(TableView);
-				const TArrayView<const UObject* const> Items = CastedList->GetItems();
-				const UObject* SelectorItem = FListViewUObjectAccess::GetSelectorItem(*CastedList);
-				
-				CurrentIndex = Items.Find(SelectorItem);
-				NumItems = Items.Num();
-			}
+				EUINavigation Type = VirtualNavEvent.GetNavigationType();
+				EUINavigationRule MetaRule = SimMeta->GetBoundaryRule(Type);
+				TSharedPtr<SWidget> MetaTarget = SimMeta->GetFocusRecipient(Type).Pin();
 
-			if (CurrentIndex != INDEX_NONE)
-			{
-				int32 NextIndex = CurrentIndex;
-				bool bHandledDirection = false;
-				
-				bool bWrapHorizontal = false;
-				if (bIsTileView && bIsUObjectList)
+				switch (MetaRule)
 				{
-					bWrapHorizontal = FTileViewAccess<UObject*>::IsWrappingEnabled(*(static_cast<const STileView<UObject*>*>(TableView)));
-				}
-
-				// Standard ListView Navigation Math
-				if (Orient == Orient_Vertical)
-				{
-					if (Direction == EUINavigation::Up) 
-					{ 
-						NextIndex -= ItemsPerLine; 
-						bHandledDirection = true; 
-					}
-					else if (Direction == EUINavigation::Down) 
-					{ 
-						NextIndex += ItemsPerLine; 
-						bHandledDirection = true; 
-						// Jagged check
-						if (NextIndex >= NumItems && NumItems > 0 && !bIsTileView)
-						{
-							const int32 NumLines = FMath::CeilToInt((float)NumItems / (float)ItemsPerLine);
-							const int32 CurLine = FMath::CeilToInt((float)(CurrentIndex + 1) / (float)ItemsPerLine);
-							if (CurLine < NumLines) NextIndex = NumItems - 1;
-						}
-					}
-					else if (Direction == EUINavigation::Left) 
-					{ 
-						if (bIsTileView && (bWrapHorizontal || (CurrentIndex % ItemsPerLine) > 0))
-						{
-							NextIndex -= 1; bHandledDirection = true; 
-						}
-					} 
-					else if (Direction == EUINavigation::Right) 
-					{ 
-						if (bIsTileView && (bWrapHorizontal || (CurrentIndex % ItemsPerLine) < (ItemsPerLine - 1)))
-						{
-							NextIndex += 1; bHandledDirection = true; 
-						}
-					}
-				}
-				else // Horizontal
-				{
-					if (Direction == EUINavigation::Left) 
-					{ 
-						NextIndex -= ItemsPerLine; bHandledDirection = true; 
-					}
-					else if (Direction == EUINavigation::Right) 
-					{ 
-						NextIndex += ItemsPerLine; bHandledDirection = true; 
-						if (NextIndex >= NumItems && NumItems > 0 && !bIsTileView)
-						{
-							const int32 NumLines = FMath::CeilToInt((float)NumItems / (float)ItemsPerLine);
-							const int32 CurLine = FMath::CeilToInt((float)(CurrentIndex + 1) / (float)ItemsPerLine);
-							if (CurLine < NumLines) NextIndex = NumItems - 1;
-						}
-					}
-					else if (Direction == EUINavigation::Up) 
-					{ 
-						if (bIsTileView && (bWrapHorizontal || (CurrentIndex % ItemsPerLine) > 0))
-						{
-							NextIndex -= 1; bHandledDirection = true;
-						}
-					}
-					else if (Direction == EUINavigation::Down) 
-					{ 
-						if (bIsTileView && (bWrapHorizontal || (CurrentIndex % ItemsPerLine) < (ItemsPerLine - 1)))
-						{
-							NextIndex += 1; bHandledDirection = true; 
-						}
-					}
-				}
-				
-				// List (ItemsPerLine=1) ignores orthogonal directions usually, allowing bubble up
-				if (ItemsPerLine == 1)
-				{
-					if (Orient == Orient_Vertical && (Direction == EUINavigation::Left || Direction == EUINavigation::Right)) bHandledDirection = false; 
-					else if (Orient == Orient_Horizontal && (Direction == EUINavigation::Up || Direction == EUINavigation::Down)) bHandledDirection = false;
-				}
-
-				if (bHandledDirection)
-				{
-					// Check bounds
-					if (NextIndex >= 0 && NextIndex < NumItems)
-					{
-						// Valid move. Convert Index -> Widget.
-						
-						// 1. Try Visual Children (Best for Overlay)
-						if (Children && NextIndex < Children->Num())
-						{
-							TSharedRef<SWidget> NextWidget = Children->GetChildAt(NextIndex);
-							
-							// Resolve the row (which might be an ObjectTableRow) to the actual focusable button inside it
-							TSharedPtr<SWidget> ResolvedTarget = ResolveFocusableDescendant(NextWidget);
-							
-							UE_CLOG(bDebugLog, LogInputFlow, Log, TEXT("  [ListView Internal] Found visible neighbor row index %d: '%s'. Resolved to '%s'"), 
-								NextIndex, *NextWidget->ToString(), *ResolvedTarget->ToString());
-								
-							return {ResolvedTarget, ENavSimResult::Normal};
-						}
-						
-						// 2. Try Data Item -> Widget map
-						if (bIsUObjectList)
-						{
-							const SListView<UObject*>* CastedList = static_cast<const SListView<UObject*>*>(TableView);
-							const TArrayView<UObject* const> Items = CastedList->GetItems();
-							
-							if (Items.IsValidIndex(NextIndex))
-							{
-								UObject* Item = Items[NextIndex];
-								TSharedPtr<ITableRow> Row = CastedList->WidgetFromItem(Item);
-								if (Row.IsValid())
-								{
-									TSharedPtr<SWidget> ResolvedTarget = ResolveFocusableDescendant(Row->AsWidget());
-									return {ResolvedTarget, ENavSimResult::Normal};
-								}
-								else
-								{
-									// Item exists but widget is not generated (Offscreen)
-									// We report the List itself as handling it (Scrolling)
-									UE_CLOG(bDebugLog, LogInputFlow, Log, TEXT("  [ListView Internal] Target valid but offscreen. Scrolling."));
-									return {BoundaryWidget, ENavSimResult::Handled};
-								}
-							}
-						}
-					}
-					else
-					{
-						// Out of bounds -> Check Scrollbar or Overscroll behavior
-						TSharedPtr<SScrollBar> ScrollBar = FTableViewAccess::GetScrollBar(*TableView);
-						bool bCanScroll = false;
-						if (ScrollBar.IsValid() && ScrollBar->IsNeeded())
-						{
-							// If we are at the visual end but there is scroll distance left, we consume the event
-							if (NextIndex >= NumItems && ScrollBar->DistanceFromBottom() > 0.001f) bCanScroll = true;
-							if (NextIndex < 0 && ScrollBar->DistanceFromTop() > 0.001f) bCanScroll = true;
-						}
-
-						if (bCanScroll)
-						{
-							UE_CLOG(bDebugLog, LogInputFlow, Log, TEXT("  [ListView Internal] Offscreen navigation implies scrolling. Handled."));
-							return {BoundaryWidget, ENavSimResult::Handled};
-						}
-						
-						// Explicitly bubbled out of the list (e.g. hitting top of list and pressing Up)
-						UE_CLOG(bDebugLog, LogInputFlow, Log, TEXT("  [ListView Internal] End of list reached. Bubbling up."));
-					}
+				case EUINavigationRule::Explicit: Reply = FNavigationReply::Explicit(MetaTarget); break;
+				case EUINavigationRule::Custom:
+				case EUINavigationRule::CustomBoundary: Reply = FNavigationReply::Custom(FNavigationDelegate()); break;
+				case EUINavigationRule::Stop: Reply = FNavigationReply::Stop(); break;
+				case EUINavigationRule::Wrap: Reply = FNavigationReply::Wrap(); break;
+				case EUINavigationRule::Escape: default: Reply = FNavigationReply::Escape(); break;
 				}
 			}
 		}
-		// --- STANDARD WIDGET LOGIC ---
-		else 
+		else
+#endif
 		{
-#if UE_WITH_SLATE_SIMULATEDNAVIGATIONMETADATA
-			if (TSharedPtr<FSimulatedNavigationMetaData> SimMeta = BoundaryWidget->GetMetaData<FSimulatedNavigationMetaData>())
+			Reply = BoundaryWidget->OnNavigation(ArrangedBoundary.Geometry, VirtualNavEvent);
+		}
+		
+		// Use CommonUI Button Logic if applicable
+		if (Source->GetTypeAsString() == TEXT("ObjectTableRowT"))
+		{
+			TSharedPtr<SObjectTableRow<UObject*>> ObjectRow = StaticCastSharedPtr<SObjectTableRow<UObject*>>(Source);
+			if (ObjectRow.IsValid())
 			{
-				if (SimMeta->IsOnNavigationConst())
+				const UCommonButtonBase* CommonButton = Cast<UCommonButtonBase>(ObjectRow->GetWidgetObject());
+				if (IsValid(CommonButton))
 				{
-					Reply = BoundaryWidget->OnNavigation(ArrangedBoundary.Geometry, VirtualNavEvent);
-				}
-				else
-				{
-					EUINavigation Type = VirtualNavEvent.GetNavigationType();
-					EUINavigationRule MetaRule = SimMeta->GetBoundaryRule(Type);
-					TSharedPtr<SWidget> MetaTarget = SimMeta->GetFocusRecipient(Type).Pin();
+					const UButton* RootButton = Cast<UButton>(CommonButton->GetRootWidget());
 
-					switch (MetaRule)
+					if (!IsValid(RootButton) && IsValid(CommonButton->WidgetTree))
 					{
-					case EUINavigationRule::Explicit: Reply = FNavigationReply::Explicit(MetaTarget); break;
-					case EUINavigationRule::Custom:
-					case EUINavigationRule::CustomBoundary: Reply = FNavigationReply::Custom(FNavigationDelegate()); break;
-					case EUINavigationRule::Stop: Reply = FNavigationReply::Stop(); break;
-					case EUINavigationRule::Wrap: Reply = FNavigationReply::Wrap(); break;
-					case EUINavigationRule::Escape: default: Reply = FNavigationReply::Escape(); break;
+						CommonButton->WidgetTree->ForEachWidget([&](UWidget* Widget) {
+							// We stop searching once we find the first valid internal button
+							if (!IsValid(RootButton))
+							{
+								RootButton = Cast<UButton>(Widget);
+							}
+						});
+					}
+					if (IsValid(RootButton))
+					{
+						if (TSharedPtr<SButton> SlateCommonButton = FButtonAccess::GetSlateButton(RootButton))
+						{
+							return SimulateNavigation(StaticCastSharedPtr<SWidget>(SlateCommonButton), Direction, RealUserIndex);
+						}
 					}
 				}
-			}
-			else
-#endif
-			{
-				Reply = BoundaryWidget->OnNavigation(ArrangedBoundary.Geometry, VirtualNavEvent);
 			}
 		}
 
 		EUINavigationRule Rule = Reply.GetBoundaryRule();
 
-		// Handle Explicit / Stop / Custom
+		// 2. Handle Explicit / Stop / Custom Rules
 		if (Rule == EUINavigationRule::Explicit)
 		{
 			TSharedPtr<SWidget> ExplicitTarget = Reply.GetFocusRecipient();
-			if (ExplicitTarget.IsValid() && ExplicitTarget->IsEnabled() && ExplicitTarget->SupportsKeyboardFocus())
+
+			if (!ExplicitTarget.IsValid())
 			{
+				// FIX: Treat Explicit(nullptr) as Handled, NOT Escape.
+				// SListView and STileView return Explicit(nullptr) when they handle navigation internally 
+				// (e.g., moving selection from index 0 to 1). 
+				// 
+				// If we bubble this (Escape), the parent widget performs a Spatial Search and re-discovers 
+				// the ListView itself (as seen in your logs: Found 'TileViewT'), causing the simulation 
+				// to incorrectly predict focus returning to the container or failing to find the next item.
+				UE_CLOG(bDebugLog, LogInputFlow, Log, 
+					TEXT("  [Explicit-Null] Boundary '%s' handled navigation internally (e.g. ListView Selection). Stopping."),
+					*BoundaryWidget->ToString());
+
+				return {BoundaryWidget, ENavSimResult::Handled};
+			}
+
+			if (ExplicitTarget->IsEnabled() && ExplicitTarget->SupportsKeyboardFocus())
+			{
+				UE_CLOG(bDebugLog, LogInputFlow, Warning, TEXT("  [Explicit] Boundary '%s' -> Target '%s'"),
+					*BoundaryWidget->ToString(), *ExplicitTarget->ToString());
 				return {ExplicitTarget, ENavSimResult::Normal};
 			}
-			Rule = EUINavigationRule::Escape;
 		}
-		else if (Rule == EUINavigationRule::Stop)
+		
+		if (Rule == EUINavigationRule::Stop)
 		{
+			UE_CLOG(bDebugLog, LogInputFlow, Warning, TEXT("  [Stop] Boundary '%s' hit Stop Rule."),
+			        *BoundaryWidget->ToString());
 			return {BoundaryWidget, ENavSimResult::Stopped};
 		}
-		else if (Rule == EUINavigationRule::Custom)
+		
+		if (Rule == EUINavigationRule::Custom)
 		{
+			UE_CLOG(bDebugLog, LogInputFlow, Warning, TEXT("  [Custom] Boundary '%s' Handled."),
+			        *BoundaryWidget->ToString());
 			return {BoundaryWidget, ENavSimResult::Handled};
 		}
 
-		// Perform Spatial Search via Hittest Grid
+		// 3. Perform Spatial Search (Hittest Grid)
 		TSharedPtr<SWidget> ResultWidget = nullptr;
-		TSharedRef<SWindow> Window = SourcePath.GetDeepestWindow();
-		const FSlateLayoutTransform WindowInverse = Window->GetWindowGeometryInScreen().GetAccumulatedLayoutTransform().Inverse();
 
 		if (Direction == EUINavigation::Next || Direction == EUINavigation::Previous)
 		{
@@ -882,7 +728,6 @@ TPair<TSharedPtr<SWidget>, ENavSimResult> UInputDebugSubsystem::SimulateNavigati
 		}
 		else
 		{
-			// Transform to window space for HittestGrid
 			FArrangedWidget WindowSpaceLeaf = SourcePath.Widgets.Last();
 			WindowSpaceLeaf.Geometry.AppendTransform(WindowInverse);
 
@@ -890,57 +735,53 @@ TPair<TSharedPtr<SWidget>, ENavSimResult> UInputDebugSubsystem::SimulateNavigati
 			WindowSpaceBoundary.Geometry.AppendTransform(WindowInverse);
 
 			FScopedSwitchWorldHack SwitchWorld(SourcePath);
-			FNavigationReply GridRule = (Rule == EUINavigationRule::Wrap) ? FNavigationReply::Wrap() : FNavigationReply::Escape();
-			
+
+			FNavigationReply GridRule = (Rule == EUINavigationRule::Wrap)
+				                            ? FNavigationReply::Wrap()
+				                            : FNavigationReply::Escape();
+
 			ResultWidget = Window->GetHittestGrid().FindNextFocusableWidget(
-				WindowSpaceLeaf, Direction, GridRule, WindowSpaceBoundary, RealUserIndex
+				WindowSpaceLeaf,
+				Direction,
+				GridRule,
+				WindowSpaceBoundary,
+				RealUserIndex
 			);
-		}
 
-		// Resolve Target (Drill down if target is a TableView found spatially)
-		if (ResultWidget.IsValid() && ResultWidget != BoundaryWidget && InputFlowHelpers::IsGameWorldWidget(ResultWidget))
-		{
-			// If we found a TableView via spatial search (e.g. pressing Down into a List), 
-			// we want to point to the *entry* that will actually get focus, not the list container.
-			if (IsTableView(ResultWidget))
+			// FIX 2: Filter out Ancestors
+			// The HittestGrid often returns the Source's parent (e.g., the ListView container) 
+			// because the parent effectively overlaps the child. 
+			// We check if the ResultWidget is currently in the SourcePath. If it is, it's an ancestor
+			// (or the widget itself), and we should ignore it to find a true "neighbor".
+			if (ResultWidget.IsValid())
 			{
-				const STableViewBase* ResultTableView = static_cast<const STableViewBase*>(ResultWidget.Get());
-				TSharedPtr<SListPanel> ResultItemsPanel = FTableViewAccess::GetItemsPanel(*ResultTableView);
-				
-				if (ResultItemsPanel.IsValid())
+				if (ResultWidget == Source || SourcePath.ContainsWidget(ResultWidget.Get()))
 				{
-					FChildren* ResultChildren = ResultItemsPanel->GetChildren();
-					if (ResultChildren->Num() > 0)
-					{
-						int32 EntryIndex = 0;
-						// If coming from Bottom/Right, enter at end. Otherwise Top/Left defaults to 0.
-						if (Direction == EUINavigation::Up || Direction == EUINavigation::Left)
-						{
-							EntryIndex = ResultChildren->Num() - 1;
-						}
-						
-						TSharedRef<SWidget> EntryWidget = ResultChildren->GetChildAt(EntryIndex);
-						TSharedPtr<SWidget> ResolvedEntry = ResolveFocusableDescendant(EntryWidget);
-
-						UE_CLOG(bDebugLog, LogInputFlow, Log, TEXT("  [ResolveTarget] Target '%s' is TableView. Resolved to entry %d: '%s' -> '%s'"), 
-							*ResultWidget->ToString(), EntryIndex, *EntryWidget->ToString(), *ResolvedEntry->ToString());
-						
-						ResultWidget = ResolvedEntry;
-					}
+					UE_CLOG(bDebugLog, LogInputFlow, Verbose, 
+						TEXT("  [SpatialSearch] Found ancestor/self '%s'. Ignoring to prevent loop."), 
+						*ResultWidget->ToString());
+					ResultWidget.Reset();
 				}
 			}
 
+			UE_CLOG(bDebugLog, LogInputFlow, Log, TEXT("  [SpatialSearch] Boundary '%s' -> Target '%s'"),
+			        *BoundaryWidget->ToString(),
+			        ResultWidget.IsValid() ? *ResultWidget->ToString() : TEXT("NULL"));
+		}
+
+		// 4. Did we find a valid target?
+		if (ResultWidget.IsValid() && InputFlowHelpers::IsGameWorldWidget(ResultWidget))
+		{
 			UE_CLOG(bDebugLog, LogInputFlow, Log, TEXT("  [Search] Boundary '%s' -> Found '%s'"),
-								  *BoundaryWidget->ToString(), *ResultWidget->ToString());
+			        *BoundaryWidget->ToString(), *ResultWidget->ToString());
 			return {ResultWidget, ENavSimResult::Normal};
 		}
 
-		if (Rule == EUINavigationRule::Wrap)
-		{
-			return {BoundaryWidget, ENavSimResult::Normal};
-		}
+		UE_CLOG(bDebugLog, LogInputFlow, Verbose, TEXT("  [Escape] Boundary '%s' bubbling up."),
+		        *BoundaryWidget->ToString());
 	}
 
+	UE_CLOG(bDebugLog, LogInputFlow, Log, TEXT("  [Result] Bubbled to Root. No Target."));
 	return {nullptr, ENavSimResult::Normal};
 }
 
@@ -976,7 +817,6 @@ void UInputDebugSubsystem::ProcessSimulationQueue()
 			{
 				bool bIsTerminal = (ResultType == ENavSimResult::Handled || ResultType == ENavSimResult::Stopped);
 
-				// Filter Logic: Ignore internal links if navigation is "Normal"
 				bool bIsSameWidget = (Next == CurrentWidget);
 				bool bIsInternal = false;
 
@@ -987,7 +827,7 @@ void UInputDebugSubsystem::ProcessSimulationQueue()
 
 					if (PathToNext.ContainsWidget(CurrentWidget.Get()))
 					{
-						bIsInternal = true; // Next is a child of Current
+						bIsInternal = true; 
 					}
 					else
 					{
@@ -996,7 +836,7 @@ void UInputDebugSubsystem::ProcessSimulationQueue()
 							CurrentWidget.ToSharedRef(), PathToCurrent);
 						if (PathToCurrent.ContainsWidget(Next.Get()))
 						{
-							bIsInternal = true; // Current is a child of Next
+							bIsInternal = true; 
 						}
 					}
 				}
@@ -1055,7 +895,9 @@ void UInputDebugSubsystem::StartNewSimulation(TSharedPtr<SWidget> StartWidget)
 	}
 }
 
-// --- Configuration Accessors ---
+// ----------------------------------------------------------------------------------
+// Setters/Getters
+// ----------------------------------------------------------------------------------
 
 void UInputDebugSubsystem::SetCaptureMouseMove(bool bEnabled)
 {

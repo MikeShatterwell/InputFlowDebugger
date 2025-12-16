@@ -39,6 +39,22 @@ public:
 	UInputDebugSubsystem* GetSubsystem() const;
 
 private:
+	struct FPendingLabel
+	{
+		FVector2D OriginalPos; // Where it wanted to be
+		FVector2D CurrentPos;  // Where it is now
+		FVector2D Size;        // Calculated size of the box
+		FString Text;
+		FLinearColor Color;
+		int32 LayerId;
+	};
+
+	// Mutable because we accumulate these during OnPaint which is const
+	mutable TArray<FPendingLabel> LabelBatch;
+
+	/* Resolves collisions in the pending label batch */
+	void ResolveAndDrawLabels(const FGeometry& AllottedGeometry, FSlateWindowElementList& OutDrawElements, int32 LayerId) const;
+	
 	/** Renders the predicted navigation paths (arrows/splines from start to target widgets). */
 	void PaintNavigationSimulation(const FGeometry& AllottedGeometry, FSlateWindowElementList& OutDrawElements, int32& LayerId) const;
 

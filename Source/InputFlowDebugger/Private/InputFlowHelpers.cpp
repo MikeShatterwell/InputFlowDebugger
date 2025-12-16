@@ -37,7 +37,10 @@
 #include <Components/Widget.h>
 
 // Internal
+#include <Slate/SObjectTableRow.h>
+
 #include "InputDebugSubsystem.h"
+#include "LogInputFlow.h"
 
 const FName InputFlowHelpers::InputFlowAnalyzerTag("InputFlowAnalyzerTag");
 
@@ -366,8 +369,7 @@ bool InputFlowHelpers::IsButtonWidget(const TSharedPtr<SWidget>& Widget)
 
 FString InputFlowHelpers::TriggerEventToString(int32 EventType)
 {
-	ETriggerEvent Event = (ETriggerEvent)EventType;
-	switch (Event)
+	switch (static_cast<ETriggerEvent>(EventType))
 	{
 	case ETriggerEvent::None:      return TEXT("None");
 	case ETriggerEvent::Triggered: return TEXT("TRIGGERED");
@@ -381,8 +383,7 @@ FString InputFlowHelpers::TriggerEventToString(int32 EventType)
 
 FColor InputFlowHelpers::GetColorForTriggerEvent(int32 EventType)
 {
-	ETriggerEvent Event = (ETriggerEvent)EventType;
-	switch (Event)
+	switch (static_cast<ETriggerEvent>(EventType))
 	{
 	case ETriggerEvent::Triggered: return FColor::Green;
 	case ETriggerEvent::Ongoing:   return FColor::Yellow;
@@ -390,4 +391,130 @@ FColor InputFlowHelpers::GetColorForTriggerEvent(int32 EventType)
 	case ETriggerEvent::Started:   return FColor::Cyan;
 	default: return FColor::White;
 	}
+}
+
+FString InputFlowHelpers::NavDirToString(EUINavigation Dir)
+{
+	switch (Dir)
+	{
+	case EUINavigation::Up:       return TEXT("Up");
+	case EUINavigation::Down:     return TEXT("Down");
+	case EUINavigation::Left:     return TEXT("Left");
+	case EUINavigation::Right:    return TEXT("Right");
+	case EUINavigation::Next:     return TEXT("Next");
+	case EUINavigation::Previous: return TEXT("Previous");
+	default:                      return TEXT("Unknown");
+	}
+}
+
+FString InputFlowHelpers::NavRuleToString(EUINavigationRule Rule)
+{
+	switch (Rule)
+	{
+	case EUINavigationRule::Escape:   return TEXT("Escape");
+	case EUINavigationRule::Explicit: return TEXT("Explicit");
+	case EUINavigationRule::Wrap:     return TEXT("Wrap");
+	case EUINavigationRule::Stop:     return TEXT("Stop");
+	case EUINavigationRule::Custom:   return TEXT("Custom");
+	case EUINavigationRule::Invalid:  return TEXT("Invalid");
+	default:                          return TEXT("Unknown");
+	}
+}
+
+FString InputFlowHelpers::NavSimResultToString(ENavSimResult Result)
+{
+	switch (Result)
+	{
+	case ENavSimResult::Normal:  return TEXT("Normal");
+	case ENavSimResult::Stopped: return TEXT("Stopped");
+	case ENavSimResult::Handled: return TEXT("Handled");
+	default:                     return TEXT("Unknown");
+	}
+}
+
+FString InputFlowHelpers::WidgetDesc(const TSharedPtr<SWidget>& W)
+{
+	if (!W.IsValid()) return TEXT("None");
+	return FString::Printf(TEXT("%s | %s | Enabled=%s Focusable=%s"),
+		*InputFlowHelpers::GetWidgetDisplayName(W),
+		*W->GetTypeAsString(),
+		W->IsEnabled() ? TEXT("Y") : TEXT("N"),
+		W->SupportsKeyboardFocus() ? TEXT("Y") : TEXT("N"));
+}
+
+bool InputFlowHelpers::IsTableViewWidget(const TSharedPtr<SWidget>& InWidget, FString InTypeStr)
+{
+	if (!InWidget.IsValid()) return false;
+	if (InTypeStr.IsEmpty()) InTypeStr = InWidget->GetTypeAsString();
+
+	const bool bIsView =
+		InTypeStr.Contains(TEXT("ListView")) ||
+		InTypeStr.Contains(TEXT("TileView")) ||
+		InTypeStr.Contains(TEXT("TreeView")) ||
+		InTypeStr.Contains(TEXT("TableView"));
+
+	return bIsView && !InTypeStr.Contains(TEXT("Row"));
+}
+
+void InputFlowHelpers::LogWidgetPathVerbose(const FWidgetPath& Path, const TCHAR* Prefix)
+{
+	UE_LOG(LogInputFlow, Verbose, TEXT("%s Widgets=%d (root->leaf):"), Prefix ? Prefix : TEXT("WidgetPath"), Path.Widgets.Num());
+	for (int32 i = 0; i < Path.Widgets.Num(); ++i)
+	{
+		TSharedPtr<SWidget> W = Path.Widgets[i].Widget;
+		UE_LOG(LogInputFlow, Verbose, TEXT("  [%02d] %s"), i, *WidgetDesc(W));
+	}
+}
+
+int32 InputFlowHelpers::FindWidgetIndexInPath(const FWidgetPath& Path, const TSharedPtr<SWidget>& Widget)
+{
+	if (!Widget.IsValid()) return INDEX_NONE;
+
+	for (int32 i = 0; i < Path.Widgets.Num(); ++i)
+	{
+		if (Path.Widgets[i].Widget == Widget.ToSharedRef())
+		{
+			return i;
+		}
+	}
+	return INDEX_NONE;
+}
+
+FArrangedWidget InputFlowHelpers::ToWindowSpace(const FArrangedWidget& InArranged, const TSharedRef<SWindow>& Window)
+{
+	FArrangedWidget Out = InArranged;
+
+	const FSlateLayoutTransform WindowInverse =
+		Window->GetWindowGeometryInScreen().GetAccumulatedLayoutTransform().Inverse();
+
+	Out.Geometry.AppendTransform(WindowInverse);
+	return Out;
+}
+
+
+/** Finds the first focusable descendant using a Depth-First Search. */
+TSharedPtr<SWidget> InputFlowHelpers::ResolveFocusableDescendant(TSharedPtr<SWidget> Root)
+{
+	if (!Root.IsValid() || !Root->IsEnabled()) return nullptr;
+
+	FChildren* Children = Root->GetChildren();
+	if (Children)
+	{
+		for (int32 i = 0; i < Children->Num(); ++i)
+		{
+			TSharedRef<SWidget> Child = Children->GetChildAt(i);
+			TSharedPtr<SWidget> Result = ResolveFocusableDescendant(Child);
+			if (Result.IsValid())
+			{
+				return Result;
+			}
+		}
+	}
+
+	if (Root->SupportsKeyboardFocus())
+	{
+		return Root;
+	}
+
+	return nullptr;
 }
