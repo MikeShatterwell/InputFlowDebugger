@@ -26,8 +26,6 @@
 
 FInputFlowSpy::FInputFlowSpy() 
 {
-	UE_LOG(LogTemp, Warning, TEXT("[InputFlowDebugger] Spy Created"));
-
 	EventLog.SetNum(MaxLogSize); // Pre-allocate for ring buffer
 
 	if (FSlateApplication::IsInitialized())
@@ -591,9 +589,29 @@ bool FInputFlowSpy::HandleKeyDownEvent(FSlateApplication& SlateApp, const FKeyEv
 	if (!FocusedWidget.IsValid()) return false;
 #endif
 
-	if (FocusedWidget.IsValid()) BindButtonObservation(FocusedWidget);
+	if (FocusedWidget.IsValid()) 
+	{
+		BindButtonObservation(FocusedWidget);
+		FString SourceName = TEXT("None");
+		FString SourceType = TEXT("");
+		FString SourceState = TEXT("");
+		bool bIsBtn = false;
+		UObject* SourceObj = nullptr;
+		TArray<FInputLogRichTextPart> Parts;
+		GenerateWidgetContextParts(FocusedWidget, Parts, SourceName);
+		UWidget* UObj = InputFlowHelpers::GetOwnerUWidget(FocusedWidget);
+		SourceObj = UObj;
+		SourceType = UObj ? UObj->GetClass()->GetName() : FocusedWidget->GetTypeAsString();
+		bIsBtn = InputFlowHelpers::IsButtonWidget(FocusedWidget);
+		SourceState = GetWidgetStateDescription(FocusedWidget);
 
-	AddLog("Slate | KeyDown", InKeyEvent.GetKey().ToString(), FColor::Green);
+		AddLog("Slate | KeyDown", InKeyEvent.GetKey().ToString(), FColor::Green, SourceType, SourceName, SourceState, bIsBtn, SourceObj, Parts);
+	}
+	else
+	{
+		AddLog("Slate | KeyDown", InKeyEvent.GetKey().ToString(), FColor::Green);
+	}
+	
 	if (bCaptureFocusEvents)
 	{
 		EUINavigation NavDir = SlateApp.GetNavigationConfig()->GetNavigationDirectionFromKey(InKeyEvent);
@@ -635,7 +653,27 @@ bool FInputFlowSpy::HandleKeyUpEvent(FSlateApplication& SlateApp, const FKeyEven
 	if (!FocusedWidget.IsValid()) return false;
 #endif
 
-	AddLog("Slate | KeyUp", InKeyEvent.GetKey().ToString(), FColor::Red);
+	if (FocusedWidget.IsValid())
+	{
+		FString SourceName = TEXT("None");
+		FString SourceType = TEXT("");
+		FString SourceState = TEXT("");
+		bool bIsBtn = false;
+		UObject* SourceObj = nullptr;
+		TArray<FInputLogRichTextPart> Parts;
+		GenerateWidgetContextParts(FocusedWidget, Parts, SourceName);
+		UWidget* UObj = InputFlowHelpers::GetOwnerUWidget(FocusedWidget);
+		SourceObj = UObj;
+		SourceType = UObj ? UObj->GetClass()->GetName() : FocusedWidget->GetTypeAsString();
+		bIsBtn = InputFlowHelpers::IsButtonWidget(FocusedWidget);
+		SourceState = GetWidgetStateDescription(FocusedWidget);
+		AddLog("Slate | KeyUp", InKeyEvent.GetKey().ToString(), FColor::Red, SourceType, SourceName, SourceState, bIsBtn, SourceObj, Parts);
+	}
+	else
+	{
+		AddLog("Slate | KeyUp", InKeyEvent.GetKey().ToString(), FColor::Red);
+	}
+
 	return false; 
 }
 

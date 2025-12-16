@@ -20,6 +20,9 @@ public:
 	// Generates a human-readable name for a widget, including hierarchy context
 	// e.g. "ConfirmButton (from PopupDialog)"
 	static FString GetWidgetDisplayName(const TSharedPtr<SWidget>& Widget);
+
+	static TSharedPtr<SWidget> FindInteractiveDescendant(TSharedPtr<SWidget> Root);
+	static bool IsDescendantOf(TSharedPtr<SWidget> Child, TSharedPtr<SWidget> PotentialParent);
 	
 	// If bFindRootContext is true, it walks up the hierarchy to find the top-most container UserWidget (e.g. the Screen),
 	// rather than the immediate UserWidget (e.g. the Button Component).

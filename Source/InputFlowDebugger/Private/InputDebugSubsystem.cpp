@@ -161,7 +161,7 @@ void UInputDebugSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 	InputSpy = MakeShared<FInputFlowSpy>();
 	if (ensure(FSlateApplication::IsInitialized()))
 	{
-		FSlateApplication::Get().RegisterInputPreProcessor(InputSpy);
+		FSlateApplication::Get().RegisterInputPreProcessor(InputSpy, EInputPreProcessorType::Overlay);
 		InputSpy->OnFocusChanged().AddUObject(this, &UInputDebugSubsystem::OnSpyFocusChanged);
 	}
 

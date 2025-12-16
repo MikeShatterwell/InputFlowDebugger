@@ -143,6 +143,52 @@ FString InputFlowHelpers::GetWidgetDisplayName(const TSharedPtr<SWidget>& Widget
 	return DisplayName;
 }
 
+TSharedPtr<SWidget> InputFlowHelpers::FindInteractiveDescendant(TSharedPtr<SWidget> Root)
+{
+	if (!Root.IsValid()) return nullptr;
+
+	FChildren* Children = Root->GetChildren();
+	if (!Children) return nullptr;
+
+	for (int32 i = 0; i < Children->Num(); ++i)
+	{
+		TSharedPtr<SWidget> Child = Children->GetChildAt(i);
+		if (!Child.IsValid()) continue;
+
+		// If this child is interactive, we found our normalization target
+		if (Child->IsEnabled() && Child->SupportsKeyboardFocus())
+		{
+			// Optional: Filter out intermediate containers that might claim focus but aren't "Buttons".
+			// For now, accepting the first focusable descendant is usually the correct "Primary" element.
+			return Child;
+		}
+
+		// Recurse deeper
+		TSharedPtr<SWidget> Found = FindInteractiveDescendant(Child);
+		if (Found.IsValid())
+		{
+			return Found;
+		}
+	}
+
+	return nullptr;
+}
+
+bool InputFlowHelpers::IsDescendantOf(TSharedPtr<SWidget> Child, TSharedPtr<SWidget> PotentialParent)
+{
+	if (!Child.IsValid() || !PotentialParent.IsValid()) return false;
+	if (Child == PotentialParent) return true;
+
+	TSharedPtr<SWidget> Current = Child->GetParentWidget();
+	while (Current.IsValid())
+	{
+		if (Current == PotentialParent) return true;
+		Current = Current->GetParentWidget();
+	}
+	return false;
+}
+
+
 void InputFlowHelpers::TryOpenAsset(const TWeakObjectPtr<UObject>& ObjectWeak, const TWeakObjectPtr<UClass>& ClassWeak, bool bFindRootContext)
 {
 #if WITH_EDITOR
