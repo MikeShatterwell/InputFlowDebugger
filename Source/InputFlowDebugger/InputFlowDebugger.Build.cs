@@ -64,7 +64,8 @@ public class InputFlowDebugger : ModuleRules
 					"ToolMenus",
 					"WorkspaceMenuStructure",
 					"UMGEditor",
-					"EditorInteractiveToolsFramework"
+					"EditorInteractiveToolsFramework",
+					"SlateReflector"
 				}
 			);
 		}

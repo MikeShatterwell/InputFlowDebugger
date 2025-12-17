@@ -10,6 +10,7 @@
 #include <Widgets/Layout/SBox.h>
 #include <Widgets/Text/STextBlock.h>
 #include <Fonts/FontMeasure.h>
+#include <Widgets/Images/SImage.h>
 
 // Internal
 #include "InputDebugSubsystem.h"
@@ -34,46 +35,89 @@ namespace InputFlowStyle
 	}
 }
 
+enum class EInputFlowPanelInteraction : uint8
+{
+	None,
+	DragMove,
+	ResizeRight,
+	ResizeBottom,
+	ResizeCorner
+};
+
 class SInputFlowDraggablePanel : public SCompoundWidget
 {
 public:
 	SLATE_BEGIN_ARGS(SInputFlowDraggablePanel)
-		{
-		}
-
+		: _InitialSize(FVector2D(400, 300))
+		, _VerticalAlignment(VAlign_Top)   // Default standard
+		, _HorizontalAlignment(HAlign_Left) // Default standard
+		{}
+		SLATE_ARGUMENT(FVector2D, InitialSize)
+		SLATE_ARGUMENT(EVerticalAlignment, VerticalAlignment)
+		SLATE_ARGUMENT(EHorizontalAlignment, HorizontalAlignment)
 		SLATE_DEFAULT_SLOT(FArguments, Content)
 	SLATE_END_ARGS()
 
 	void Construct(const FArguments& InArgs)
 	{
+		CurrentSize = InArgs._InitialSize;
+		VerticalAlignment = InArgs._VerticalAlignment;     // <--- Store It
+		HorizontalAlignment = InArgs._HorizontalAlignment; // <--- Store It
+		
 		ChildSlot
 		[
-			InArgs
-			._Content
-			.Widget
+			SAssignNew(SizeBox, SBox)
+			.WidthOverride(CurrentSize.X)
+			.HeightOverride(CurrentSize.Y)
+			[
+				SNew(SOverlay)
+				+ SOverlay::Slot()
+				[
+					InArgs._Content.Widget
+				]
+				+ SOverlay::Slot()
+				.HAlign(HAlign_Right)
+				.VAlign(VAlign_Bottom)
+				.Padding(0, 0, 2, 2)
+				[
+					SNew(SImage)
+					.Image(FCoreStyle::Get().GetBrush("Window.ResizeHandle"))
+					.ColorAndOpacity(FLinearColor(1, 1, 1, 0.5f))
+					.Visibility(EVisibility::HitTestInvisible)
+				]
+			]
 		];
-		SetTag(InputFlowHelpers::InputFlowAnalyzerTag);
-		SetVisibility(EVisibility::Visible);
-	}
 
-	virtual bool SupportsKeyboardFocus() const override { return false; }
+		SetTag(InputFlowHelpers::InputFlowAnalyzerTag);
+	}
 
 	virtual FReply OnMouseButtonDown(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent) override
 	{
 		if (MouseEvent.GetEffectingButton() == EKeys::LeftMouseButton)
 		{
-			bDragging = true;
-			DragOffset = MyGeometry.AbsoluteToLocal(MouseEvent.GetScreenSpacePosition());
-			return FReply::Handled().CaptureMouse(AsShared());
+			// Fix: Convert Absolute Screen Position to Local Widget Space for Hit Test
+			FVector2D LocalPos = MyGeometry.AbsoluteToLocal(MouseEvent.GetScreenSpacePosition());
+			InteractionState = GetInteractionZone(MyGeometry, LocalPos);
+			
+			if (InteractionState != EInputFlowPanelInteraction::None)
+			{
+				DragStartAbsolute = MouseEvent.GetScreenSpacePosition();
+				if (GetRenderTransform().IsSet())
+				{
+					InitialOffset = GetRenderTransform()->GetTranslation();
+				}
+				InitialSizeCapture = CurrentSize;
+				return FReply::Handled().CaptureMouse(AsShared());
+			}
 		}
 		return FReply::Unhandled();
 	}
 
 	virtual FReply OnMouseButtonUp(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent) override
 	{
-		if (bDragging && MouseEvent.GetEffectingButton() == EKeys::LeftMouseButton)
+		if (InteractionState != EInputFlowPanelInteraction::None && MouseEvent.GetEffectingButton() == EKeys::LeftMouseButton)
 		{
-			bDragging = false;
+			InteractionState = EInputFlowPanelInteraction::None;
 			return FReply::Handled().ReleaseMouseCapture();
 		}
 		return FReply::Unhandled();
@@ -81,21 +125,140 @@ public:
 
 	virtual FReply OnMouseMove(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent) override
 	{
-		if (bDragging)
+		if (InteractionState != EInputFlowPanelInteraction::None)
 		{
-			FVector2D LocalMouse = MyGeometry.AbsoluteToLocal(MouseEvent.GetScreenSpacePosition());
-			FVector2D Delta = LocalMouse - DragOffset;
-			CurrentOffset += Delta;
-			SetRenderTransform(FSlateRenderTransform(CurrentOffset));
+			FVector2D DragDelta = MouseEvent.GetScreenSpacePosition() - DragStartAbsolute;
+			float Scale = MyGeometry.GetAccumulatedLayoutTransform().GetScale();
+			FVector2D LocalDelta = DragDelta / Scale;
+
+			if (InteractionState == EInputFlowPanelInteraction::DragMove)
+			{
+				HandleMovement(LocalDelta);
+			}
+			else
+			{
+				HandleResize(LocalDelta);
+			}
 			return FReply::Handled();
 		}
 		return FReply::Unhandled();
 	}
 
+	virtual FCursorReply OnCursorQuery(const FGeometry& MyGeometry, const FPointerEvent& CursorEvent) const override
+	{
+		// Fix: Cursor query also needs local space conversion
+		FVector2D LocalPos = MyGeometry.AbsoluteToLocal(CursorEvent.GetScreenSpacePosition());
+		EInputFlowPanelInteraction Zone = GetInteractionZone(MyGeometry, LocalPos);
+
+		switch (Zone)
+		{
+		case EInputFlowPanelInteraction::ResizeCorner: return FCursorReply::Cursor(EMouseCursor::ResizeSouthEast);
+		case EInputFlowPanelInteraction::ResizeRight:  return FCursorReply::Cursor(EMouseCursor::ResizeLeftRight);
+		case EInputFlowPanelInteraction::ResizeBottom: return FCursorReply::Cursor(EMouseCursor::ResizeUpDown);
+		case EInputFlowPanelInteraction::DragMove:     return FCursorReply::Cursor(EMouseCursor::CardinalCross);
+		default:                                       return FCursorReply::Unhandled();
+		}
+	}
+
 private:
-	bool bDragging = false;
-	FVector2D DragOffset = FVector2D::ZeroVector;
+	void HandleMovement(const FVector2D& LocalDelta)
+	{
+		FVector2D NewOffset = InitialOffset + LocalDelta;
+		NewOffset.X = FMath::Clamp(NewOffset.X, -3000.0f, 3000.0f);
+		NewOffset.Y = FMath::Clamp(NewOffset.Y, -2000.0f, 2000.0f);
+
+		CurrentOffset = NewOffset;
+		SetRenderTransform(FSlateRenderTransform(FScale2D(1.0f), CurrentOffset));
+	}
+
+	void HandleResize(const FVector2D& LocalDelta)
+	{
+		FVector2D NewSize = InitialSizeCapture;
+
+		// 1. Calculate New Size
+		if (InteractionState == EInputFlowPanelInteraction::ResizeRight || InteractionState == EInputFlowPanelInteraction::ResizeCorner)
+		{
+			NewSize.X += LocalDelta.X;
+		}
+		if (InteractionState == EInputFlowPanelInteraction::ResizeBottom || InteractionState == EInputFlowPanelInteraction::ResizeCorner)
+		{
+			NewSize.Y += LocalDelta.Y;
+		}
+
+		NewSize.X = FMath::Max(NewSize.X, 200.0f);
+		NewSize.Y = FMath::Max(NewSize.Y, 150.0f);
+
+		// 2. Apply Size
+		CurrentSize = NewSize;
+		SizeBox->SetWidthOverride(CurrentSize.X);
+		SizeBox->SetHeightOverride(CurrentSize.Y);
+
+		// 3. Compensate for Layout Alignment
+		// If we are bottom-aligned, growing height pushes the top UP. We want the top to stay fixed visually.
+		// So we move the whole widget DOWN by the amount we grew.
+		FVector2D SizeChange = CurrentSize - InitialSizeCapture;
+		FVector2D Compensation = FVector2D::ZeroVector;
+
+		// Vertical Compensation
+		if (VerticalAlignment == VAlign_Bottom)
+		{
+			Compensation.Y = SizeChange.Y;
+		}
+		else if (VerticalAlignment == VAlign_Center)
+		{
+			Compensation.Y = SizeChange.Y * 0.5f;
+		}
+
+		// Horizontal Compensation (for right-aligned panel)
+		if (HorizontalAlignment == HAlign_Right)
+		{
+			Compensation.X = SizeChange.X;
+		}
+		else if (HorizontalAlignment == HAlign_Center)
+		{
+			Compensation.X = SizeChange.X * 0.5f;
+		}
+
+		// 4. Apply New Transform (Initial + Compensation)
+		CurrentOffset = InitialOffset + Compensation;
+		SetRenderTransform(FSlateRenderTransform(FScale2D(1.0f), CurrentOffset));
+	}
+
+	EInputFlowPanelInteraction GetInteractionZone(const FGeometry& Geometry, const FVector2D& LocalMousePos) const
+	{
+		const float GripSize = 15.0f;
+		const FVector2D Size = Geometry.GetLocalSize();
+		
+		// Expanded hit test slightly
+		if (LocalMousePos.X < 0 || LocalMousePos.Y < 0 || LocalMousePos.X > Size.X + 5 || LocalMousePos.Y > Size.Y + 5)
+		{
+			return EInputFlowPanelInteraction::None;
+		}
+
+		bool bInRight = (LocalMousePos.X >= Size.X - GripSize);
+		bool bInBottom = (LocalMousePos.Y >= Size.Y - GripSize);
+
+		if (bInRight && bInBottom) return EInputFlowPanelInteraction::ResizeCorner;
+		if (bInRight) return EInputFlowPanelInteraction::ResizeRight;
+		if (bInBottom) return EInputFlowPanelInteraction::ResizeBottom;
+		
+		return EInputFlowPanelInteraction::DragMove;
+	}
+
+	EInputFlowPanelInteraction InteractionState = EInputFlowPanelInteraction::None;
+	
+	// Settings
+	EVerticalAlignment VerticalAlignment = EVerticalAlignment::VAlign_Top;
+	EHorizontalAlignment HorizontalAlignment = EHorizontalAlignment::HAlign_Left;
+
+	// Transform Data
+	FVector2D DragStartAbsolute = FVector2D::ZeroVector;
+	FVector2D InitialOffset = FVector2D::ZeroVector;
 	FVector2D CurrentOffset = FVector2D::ZeroVector;
+	FVector2D InitialSizeCapture = FVector2D::ZeroVector;
+	FVector2D CurrentSize = FVector2D::ZeroVector;
+
+	TSharedPtr<SBox> SizeBox;
 };
 
 void SInputFlowOverlay::Construct(const FArguments& InArgs)
@@ -105,6 +268,16 @@ void SInputFlowOverlay::Construct(const FArguments& InArgs)
 	SetTag(InputFlowHelpers::InputFlowAnalyzerTag);
 
 	SetVisibility(EVisibility::SelfHitTestInvisible);
+
+	// Visibility Delegate for Panels
+	auto GetPanelVisibility = [this]() -> EVisibility
+	{
+		if (DebugSubsystem.IsValid() && DebugSubsystem->GetShowOverlayPanels())
+		{
+			return EVisibility::Visible;
+		}
+		return EVisibility::Collapsed;
+	};
 
 	ChildSlot
 	[
@@ -117,19 +290,18 @@ void SInputFlowOverlay::Construct(const FArguments& InArgs)
 		.Padding(10.0f, 10.0f, 10.0f, 50.0f)
 		[
 			SNew(SInputFlowDraggablePanel)
+			.InitialSize(FVector2D(500, 300))
+			.VerticalAlignment(VAlign_Bottom)
+			.HorizontalAlignment(HAlign_Left)
+			.Visibility_Lambda(GetPanelVisibility)
 			[
-				SNew(SBox)
-				.WidthOverride(500.0f)
-				.HeightOverride(300.0f)
+				SNew(SBorder)
+				.BorderImage(InputFlowStyle::GetBrush("ToolPanel.GroupBorder"))
+				.BorderBackgroundColor(FLinearColor(0.0f, 0.0f, 0.0f, 0.85f))
+				.Padding(10.0f)
 				[
-					SNew(SBorder)
-					.BorderImage(InputFlowStyle::GetBrush("ToolPanel.GroupBorder"))
-					.BorderBackgroundColor(FLinearColor(0.0f, 0.0f, 0.0f, 0.85f))
-					.Padding(10.0f)
-					[
-						SAssignNew(LogView, SInputFlowLogView, Sub)
-						.IsOverlay(true)
-					]
+					SAssignNew(LogView, SInputFlowLogView, Sub)
+					.IsOverlay(true)
 				]
 			]
 		]
@@ -141,38 +313,30 @@ void SInputFlowOverlay::Construct(const FArguments& InArgs)
 		.Padding(0.0f, 0.0f, 10.0f, 0.0f)
 		[
 			SNew(SInputFlowDraggablePanel)
+			.InitialSize(FVector2D(400, 500))
+			.VerticalAlignment(VAlign_Center)
+			.HorizontalAlignment(HAlign_Right)
+			.Visibility_Lambda(GetPanelVisibility)
 			[
-				SNew(SBox)
-				.WidthOverride(400.0f)
+				SNew(SBorder)
+				.BorderImage(InputFlowStyle::GetBrush("ToolPanel.GroupBorder"))
+				.BorderBackgroundColor(FLinearColor(0.0f, 0.0f, 0.0f, 0.85f))
+				.Padding(10.0f)
 				[
-					SNew(SBorder)
-					.BorderImage(InputFlowStyle::GetBrush("ToolPanel.GroupBorder"))
-					.BorderBackgroundColor(FLinearColor(0.0f, 0.0f, 0.0f, 0.85f))
-					.Padding(10.0f)
+					SNew(SVerticalBox)
+
+					// Hierarchy
+					+ SVerticalBox::Slot().FillHeight(0.6f).Padding(0, 0, 0, 10)
 					[
-						SNew(SVerticalBox)
+						SAssignNew(HierarchyView, SCommonUIHierarchyView, Sub)
+						.IsOverlay(true)
+					]
 
-						// Hierarchy
-						+ SVerticalBox::Slot().AutoHeight().Padding(0, 0, 0, 10)
-						[
-							SNew(SBox)
-							.MaxDesiredHeight(300.0f)
-							[
-								SAssignNew(HierarchyView, SCommonUIHierarchyView, Sub)
-								.IsOverlay(true)
-							]
-						]
-
-						// Enhanced Input
-						+ SVerticalBox::Slot().AutoHeight()
-						[
-							SNew(SBox)
-							.MaxDesiredHeight(200.0f)
-							[
-								SAssignNew(InspectorView, SEnhancedInputInspector, Sub)
-								.IsOverlay(true)
-							]
-						]
+					// Enhanced Input
+					+ SVerticalBox::Slot().FillHeight(0.4f)
+					[
+						SAssignNew(InspectorView, SEnhancedInputInspector, Sub)
+						.IsOverlay(true)
 					]
 				]
 			]
@@ -227,7 +391,7 @@ void SInputFlowOverlay::ResolveAndDrawLabels(const FGeometry& AllottedGeometry, 
 				FPendingLabel& A = LabelBatch[i];
 				FPendingLabel& B = LabelBatch[j];
 
-				// 1. Calculate effective bounds including Gutter
+				// Calculate effective bounds including Gutter
 				// We use centers and half-extents for AABB intersection
 				FVector2D SizeA = A.Size + Gutter;
 				FVector2D SizeB = B.Size + Gutter;
@@ -249,7 +413,7 @@ void SInputFlowOverlay::ResolveAndDrawLabels(const FGeometry& AllottedGeometry, 
 				// If Overlap > 0 on BOTH axes, we have a collision
 				if (Overlap.X > 0.0f && Overlap.Y > 0.0f)
 				{
-					// 2. Resolve Collision
+					// Resolve Collision
 					// We want to push along the axis of *least* penetration (the shortest path out),
 					// BUT we bias towards Y (Vertical) because text lists read better top-to-bottom.
 

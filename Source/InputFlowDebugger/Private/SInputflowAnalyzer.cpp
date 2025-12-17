@@ -172,7 +172,14 @@ void SInputFlowAnalyzer::Construct(const FArguments& InArgs)
 								SNew(SCheckBox)
 								.IsChecked(this, &SInputFlowAnalyzer::GetOverlayState)
 								.OnCheckStateChanged(this, &SInputFlowAnalyzer::OnToggleOverlay)
-								[ SNew(STextBlock).Text(FText::FromString("Overlay Mode")) ]
+								[ SNew(STextBlock).Text(FText::FromString("Show In-Game Overlay")) ]
+							]
+							+ SHorizontalBox::Slot().AutoWidth().Padding(10, 0, 4, 0).VAlign(VAlign_Center)
+							[
+								SNew(SCheckBox)
+								.IsChecked(this, &SInputFlowAnalyzer::GetShowPanelsState)
+								.OnCheckStateChanged(this, &SInputFlowAnalyzer::OnToggleShowPanels)
+								[ SNew(STextBlock).Text(FText::FromString("Show Panels")) ]
 							]
 							+ SHorizontalBox::Slot().AutoWidth().Padding(10, 0, 4, 0).VAlign(VAlign_Center)
 							[
@@ -349,6 +356,9 @@ ECheckBoxState SInputFlowAnalyzer::GetCaptureFocusState() const { auto* S = GetA
 
 void SInputFlowAnalyzer::OnToggleOverlay(ECheckBoxState NewState) { if (auto* S = GetActiveSubsystem()) S->SetOverlayEnabled(NewState == ECheckBoxState::Checked); }
 ECheckBoxState SInputFlowAnalyzer::GetOverlayState() const { auto* S = GetActiveSubsystem(); return (S && S->IsOverlayEnabled()) ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; }
+
+void SInputFlowAnalyzer::OnToggleShowPanels(ECheckBoxState NewState) { if (auto* S = GetActiveSubsystem()) S->SetShowOverlayPanels(NewState == ECheckBoxState::Checked); }
+ECheckBoxState SInputFlowAnalyzer::GetShowPanelsState() const { auto* S = GetActiveSubsystem(); return (S && S->GetShowOverlayPanels()) ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; }
 
 void SInputFlowAnalyzer::OnToggleSpider(ECheckBoxState NewState) { if (auto* S = GetActiveSubsystem()) S->SetNavigationSimulationEnabled(NewState == ECheckBoxState::Checked); }
 ECheckBoxState SInputFlowAnalyzer::GetSpiderState() const { auto* S = GetActiveSubsystem(); return (S && S->GetNavigationSimulationEnabled()) ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; }

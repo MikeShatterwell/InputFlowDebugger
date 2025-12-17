@@ -53,6 +53,17 @@ public:
 			InItem->CaptureTime.GetMillisecond());
 
 		TSharedRef<SWidget> NameWidget = SNullWidget::NullWidget;
+		
+		// Helper to configure text blocks for overlay wrapping
+		auto ConfigureText = [&](TSharedRef<STextBlock> Block)
+		{
+			if (bInOverlay)
+			{
+				Block->SetAutoWrapText(true);
+				Block->SetWrappingPolicy(ETextWrappingPolicy::AllowPerCharacterWrapping);
+			}
+		};
+
 		// If we have rich parts, build a horizontal box of links/text
 		if (InItem->RichTextParts.Num() > 0 && !bInOverlay)
 		{
@@ -62,7 +73,6 @@ public:
 			{
 				if (Part.bIsLink)
 				{
-					// It is a link
 					Box->AddSlot()
 					.AutoWidth()
 					.VAlign(VAlign_Center)
@@ -75,7 +85,6 @@ public:
 				}
 				else
 				{
-					// Regular Text (e.g. " (from ")
 					Box->AddSlot()
 					.AutoWidth()
 					.VAlign(VAlign_Center)
@@ -83,7 +92,7 @@ public:
 						SNew(STextBlock)
 						.Text(FText::FromString(Part.Text))
 						.Font(FCoreStyle::GetDefaultFontStyle("Regular", 9))
-						.ColorAndOpacity(FLinearColor(0.5f, 0.5f, 0.5f)) // Slightly dimmed
+						.ColorAndOpacity(FLinearColor(0.5f, 0.5f, 0.5f))
 					];
 				}
 			}
@@ -105,10 +114,15 @@ public:
 			else
 			{
 				FLinearColor NameColor = bInOverlay ? FLinearColor::White : (InItem->bIsButton ? FLinearColor::Black : FLinearColor(0.3f, 0.3f, 0.3f));
-				NameWidget = SNew(STextBlock)
-					.Text(FText::FromString(InItem->WidgetName.IsEmpty() ? InItem->WidgetType : InItem->WidgetName))
+				FString DisplayText = InItem->WidgetName.IsEmpty() ? InItem->WidgetType : InItem->WidgetName;
+				
+				TSharedRef<STextBlock> TextBlock = SNew(STextBlock)
+					.Text(FText::FromString(DisplayText))
 					.Font(BaseNameFont)
 					.ColorAndOpacity(NameColor);
+				
+				ConfigureText(TextBlock);
+				NameWidget = TextBlock;
 			}
 		}
 
@@ -128,6 +142,14 @@ public:
 			];
 
 		FString CountStr = (InItem->Count > 1) ? FString::Printf(TEXT(" (%d)"), InItem->Count) : FString();
+		
+		TSharedRef<STextBlock> InputDetailsBlock = SNew(STextBlock)
+			.Text(FText::FromString(InItem->InputDetails + CountStr))
+			.ColorAndOpacity(bInOverlay ? FLinearColor::White : FLinearColor::Black)
+			.Font(FCoreStyle::GetDefaultFontStyle("Regular", 9))
+			.Justification(ETextJustify::Right);
+		
+		ConfigureText(InputDetailsBlock);
 
 		this->ChildSlot
 		[
@@ -140,16 +162,12 @@ public:
 				if (bInOverlay)
 				{
 					// Overlay Logic: Start dark with opacity, fade to transparent
-					// Age 0.0 -> Alpha 0.8
-					// Age 5.0 -> Alpha 0.0
 					float Alpha = FMath::Clamp(0.8f - (Age * 0.2f), 0.0f, 0.8f);
 					return FLinearColor(0.0f, 0.0f, 0.0f, Alpha);
 				}
 				else
 				{
 					// Editor Logic: Start White (flash), fade to transparent (showing table row color)
-					// Age 0.0 -> Alpha 1.0 (White flash)
-					// Age 1.0 -> Alpha 0.0
 					float Alpha = FMath::Clamp(1.0f - (Age / 1.0f), 0.0f, 0.4f);
 					return FLinearColor(1.0f, 1.0f, 1.0f, Alpha);
 				}
@@ -158,7 +176,7 @@ public:
 			[
 				SNew(SHorizontalBox)
 				// Time
-				+ SHorizontalBox::Slot().AutoWidth().MinWidth(70).VAlign(VAlign_Center)
+				+ SHorizontalBox::Slot().AutoWidth().MinWidth(70).VAlign(VAlign_Top) // VAlign Top for multiline
 				[
 					SNew(STextBlock)
 					.Text(FText::FromString(TimeStr))
@@ -166,7 +184,7 @@ public:
 					.Font(FCoreStyle::GetDefaultFontStyle("Mono", 8))
 				]
 				// Badge (Event Type)
-				+ SHorizontalBox::Slot().AutoWidth().MinWidth(90).Padding(4, 0).VAlign(VAlign_Center)
+				+ SHorizontalBox::Slot().AutoWidth().MinWidth(90).Padding(4, 0).VAlign(VAlign_Top)
 				[
 					SNew(SBorder)
 					.Padding(FMargin(6, 1))
@@ -180,27 +198,24 @@ public:
 						.Font(FCoreStyle::GetDefaultFontStyle("Bold", 8))
 					]
 				]
-				// Widget Info
+				// Widget Info (Middle Content)
 				+ SHorizontalBox::Slot()
 				.FillWidth(1.0f)
 				.Padding(8, 0)
-				.VAlign(VAlign_Center)
+				.VAlign(VAlign_Top)
 				[
 					MiddleContent
 				]
 				// Input Details
 				+ SHorizontalBox::Slot()
-				.AutoWidth()
-				.MinWidth(80) 
+				.AutoWidth() // In Overlay this might need Fill if text is huge, but Auto usually works with wrapping enabled
+				.MinWidth(80)
+				.MaxWidth(200) // Constraint width in overlay to force wrap
 				.HAlign(HAlign_Right)
-				.VAlign(VAlign_Center)
+				.VAlign(VAlign_Top)
 				.Padding(8, 0)
 				[
-					SNew(STextBlock)
-					.Text(FText::FromString(InItem->InputDetails + CountStr))
-					.ColorAndOpacity(bInOverlay ? FLinearColor::White : FLinearColor::Black)
-					.Font(FCoreStyle::GetDefaultFontStyle("Regular", 9))
-					.Justification(ETextJustify::Right)
+					InputDetailsBlock
 				]
 			]
 		];

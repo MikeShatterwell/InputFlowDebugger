@@ -350,12 +350,32 @@ void SCommonUIHierarchyView::UpdateTree()
 		}
 	}
 
-	// 4. Identify Active Leaf (Visual only)
-	TSharedPtr<SWidget> FocusedSlateWidget = FSlateApplication::Get().GetKeyboardFocusedWidget();
-	if (FocusedSlateWidget.IsValid())
+	// 4. Identify Active Leaf using Subsystem Data (Source of Truth)
+	const FInputOverlayState& State = DebugSubsystem->GetOverlayState();
+	FString ActiveLeafName = State.ActiveCommonUILeaf;
+
+	// Reset focus state
+	for (auto& Pair : WorkingMap)
 	{
-		UCommonActivatableWidget* FocusOwner = UCommonUIActionRouterBase::FindActivatable(FocusedSlateWidget, LocalPlayer);
-		if (FocusOwner && FocusOwner->IsActivated() && WorkingMap.Contains(FocusOwner))
+		Pair.Value->bIsFocused = false;
+		Pair.Value->bIsInActivePath = false;
+	}
+
+	if (!ActiveLeafName.IsEmpty())
+	{
+		UCommonActivatableWidget* FocusOwner = nullptr;
+		
+		// Find widget matching name
+		for (auto& Pair : WorkingMap)
+		{
+			if (Pair.Key->GetName() == ActiveLeafName)
+			{
+				FocusOwner = Pair.Key;
+				break;
+			}
+		}
+
+		if (FocusOwner)
 		{
 			WorkingMap[FocusOwner]->bIsFocused = true;
 			

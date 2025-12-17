@@ -48,6 +48,8 @@ private:
 	ECheckBoxState GetCaptureFocusState() const;
 	void OnToggleOverlay(ECheckBoxState NewState);
 	ECheckBoxState GetOverlayState() const;
+	void OnToggleShowPanels(ECheckBoxState NewState);
+	ECheckBoxState GetShowPanelsState() const;
 	void OnToggleSpider(ECheckBoxState NewState);
 	ECheckBoxState GetSpiderState() const;
 	void OnSpiderDepthChanged(int32 NewValue);

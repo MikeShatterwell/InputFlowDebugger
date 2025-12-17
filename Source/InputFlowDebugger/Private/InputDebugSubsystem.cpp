@@ -63,15 +63,6 @@ static TAutoConsoleVariable<bool> CVarInputFlowNavSpiderDebugLog(
 // Accessor Hacks
 // ----------------------------------------------------------------------------------
 
-class FTableViewAccess : public STableViewBase
-{
-public:
-	static TSharedPtr<SListPanel> GetItemsPanel(const STableViewBase& View) { return ((const FTableViewAccess&)View).ItemsPanel; }
-	static int32 GetItemsPerLine(const STableViewBase& View) { return ((const FTableViewAccess&)View).GetNumItemsPerLine(); }
-	static EOrientation GetOrientation(const STableViewBase& View) { return ((const FTableViewAccess&)View).Orientation; }
-	static const TSharedPtr<SScrollBar>& GetScrollBar(const STableViewBase& View) { return ((const FTableViewAccess&)View).ScrollBar; }
-};
-
 class FButtonAccess : public UButton
 {
 public:
@@ -81,67 +72,13 @@ public:
 		return static_cast<const FButtonAccess*>(Button)->MyButton;	}
 };
 
-// Explicit Accessor for UObject* types (Common use case in UMG / CommonUI)
-class FListViewUObjectAccess : public SListView<UObject*>
+class FInputFlowDebugAccessor : public UEnhancedPlayerInput
 {
 public:
-	static const UObject* GetSelectorItem(const STableViewBase& List) 
-	{ 
-		return ((const FListViewUObjectAccess&)List).SelectorItem; 
-	}
-	
-	static const TArray<UObject*>& GetItemsRef(const STableViewBase& List) 
-	{ 
-		const FListViewUObjectAccess* Access = static_cast<const FListViewUObjectAccess*>(&List);
-		if (Access->HasValidItemsSource())
-		{
-			// Safe access to the data view assuming standard TArray layout or ObservableArray
-			return *(const TArray<UObject*>*)(Access->GetItems().GetData()); 
-		}
-		static TArray<UObject*> Empty;
-		return Empty;
-	}
-
-	static TSharedPtr<ITableRow> GetWidgetFromItem(const STableViewBase& List, const UObject* Item)
+	static const TMap<TObjectPtr<const UInputMappingContext>, FAppliedInputContextData>& GetContextData(
+		const UEnhancedPlayerInput* PInput)
 	{
-		const FListViewUObjectAccess* Access = static_cast<const FListViewUObjectAccess*>(&List);
-		return Access->WidgetFromItem(const_cast<UObject*>(Item));
-	}
-
-	// Robustly finds the index of the item corresponding to any widget in the focus path.
-	// This fixes the issue where focus is on a row but the list's 'SelectorItem' is stale or null.
-	static int32 GetIndexForPathWidget(const STableViewBase& List, const FWidgetPath& Path, int32 BoundaryIndex)
-	{
-		const FListViewUObjectAccess* Access = static_cast<const FListViewUObjectAccess*>(&List);
-		const TArray<UObject*>& Items = GetItemsRef(List);
-
-		// Iterate down the path from the list boundary (WidgetIndex) to the Leaf.
-		// We are looking for the STableRow widget that holds the focused content.
-		for (int32 i = BoundaryIndex + 1; i < Path.Widgets.Num(); ++i)
-		{
-			TSharedPtr<SWidget> PathWidget = Path.Widgets[i].Widget;
-			
-			// We check the ItemToWidgetMap. This map contains all *generated* (visible) rows.
-			// This iteration is generally fast (only visible items).
-			for (const auto& Pair : Access->WidgetGenerator.ItemToWidgetMap)
-			{
-				if (Pair.Value->AsWidget() == PathWidget)
-				{
-					return Items.Find(Pair.Key);
-				}
-			}
-		}
-		return INDEX_NONE;
-	}
-};
-
-template <typename ItemType>
-class FTileViewAccess : public STileView<ItemType>
-{
-public:
-	static bool IsWrappingEnabled(const STableViewBase& View) 
-	{ 
-		return ((const FTileViewAccess<ItemType>&)View).bWrapHorizontalNavigation; 
+		return static_cast<const FInputFlowDebugAccessor*>(PInput)->GetAppliedInputContextData();
 	}
 };
 
@@ -333,6 +270,12 @@ void UInputDebugSubsystem::SetOverlayEnabled(bool bEnabled)
 	}
 }
 
+void UInputDebugSubsystem::SetShowOverlayPanels(bool bEnabled)
+{
+	bShowOverlayPanels = bEnabled;
+	// The Overlay Widget polls this via GetShowOverlayPanels()
+}
+
 bool UInputDebugSubsystem::IsOverlayEnabled() const
 {
 	return bOverlayEnabled;
@@ -476,16 +419,6 @@ void UInputDebugSubsystem::UpdateDataSnapshot()
 	{
 		if (UEnhancedPlayerInput* PlayerInput = EISub->GetPlayerInput())
 		{
-			// ... (Existing Accessor Hack for Context Data) ...
-			struct FInputFlowDebugAccessor : public UEnhancedPlayerInput
-			{
-				static const TMap<TObjectPtr<const UInputMappingContext>, FAppliedInputContextData>& GetContextData(
-					const UEnhancedPlayerInput* PInput)
-				{
-					return static_cast<const FInputFlowDebugAccessor*>(PInput)->GetAppliedInputContextData();
-				}
-			};
-
 			const auto& ContextMap = FInputFlowDebugAccessor::GetContextData(PlayerInput);
 			for (const auto& Pair : ContextMap)
 			{
@@ -573,29 +506,71 @@ TPair<TSharedPtr<SWidget>, ENavSimResult> UInputDebugSubsystem::SimulateNavigati
 	// Basic validation
 	if (!Source.IsValid() || !Source->SupportsKeyboardFocus() || !bEnableNavigationSimulation)
 	{
-		UE_CLOG(bDebugLog, LogInputFlow, Warning,
-		        TEXT("  [NavSim] Source is invalid or does not support keyboard focus."));
+		UE_CLOG(bDebugLog, LogInputFlow, Warning, TEXT("  [NavSim] Source is invalid or does not support keyboard focus."));
 		return {nullptr, ENavSimResult::Normal};
 	}
 
 	FWidgetPath SourcePath;
-	if (!FSlateApplication::Get().FindPathToWidget(Source.ToSharedRef(), SourcePath))
-	{
-		UE_CLOG(bDebugLog, LogInputFlow, Warning, TEXT("  [NavSim] Failed to find Widget Path for Source '%s'"),
-		        *Source->ToString());
-		return {nullptr, ENavSimResult::Normal};
-	}
+	FSlateApplication::Get().FindPathToWidget(Source.ToSharedRef(), SourcePath);
 
-	const FNavigationEvent VirtualNavEvent(FModifierKeysState(), 999, Direction,
-	                                       ENavigationGenesis::Controller);
+	const FNavigationEvent VirtualNavEvent(FModifierKeysState(), 999, Direction, ENavigationGenesis::Controller);
 
 	TSharedRef<SWindow> Window = SourcePath.GetDeepestWindow();
 	const FSlateLayoutTransform WindowInverse = Window->GetWindowGeometryInScreen().GetAccumulatedLayoutTransform().Inverse();
+	
+	UE_CLOG(bDebugLog, LogInputFlow, Log, TEXT("--- Simulating %s from '%s' ---"), *UEnum::GetValueAsString(Direction), *Source->ToString());
 
-	if (bDebugLog)
+	// -----------------------------------------------------------------------------------
+	// Identify TableView Context
+	// If the widget is inside a ListView/TileView, we want to defer to the container's logic 
+	// (which we assume is "Handled") rather than performing spatial searches from row children.
+	// These containers often manage focus internally (index changes) rather than passing focus outwards.
+	// Replicating that behavior here doesn't work well, so we just stop at the container boundary.
+	// -----------------------------------------------------------------------------------
+	int32 DeepestTableViewIndex = INDEX_NONE;
+	for (int32 i = 0; i < SourcePath.Widgets.Num(); ++i)
 	{
-		UE_LOG(LogInputFlow, Log, TEXT("--- Simulating %s from '%s' ---"),
-		       *UEnum::GetValueAsString(Direction), *Source->ToString());
+		if (InputFlowHelpers::IsTableViewWidget(SourcePath.Widgets[i].Widget))
+		{
+			DeepestTableViewIndex = i;
+		}
+	}
+
+	// -----------------------------------------------------------------------------------
+	// Special Handling: CommonUI Row Redirect
+	// If the simulation is asked to navigate from a TableRow (often what happens if the List itself has focus),
+	// but that row contains a CommonButton, simulate as if the navigation originated from the button logic.
+	// -----------------------------------------------------------------------------------
+	if (Source->GetTypeAsString() == TEXT("ObjectTableRowT"))
+	{
+		TSharedPtr<SObjectTableRow<UObject*>> ObjectRow = StaticCastSharedPtr<SObjectTableRow<UObject*>>(Source);
+		if (ObjectRow.IsValid())
+		{
+			const UCommonButtonBase* CommonButton = Cast<UCommonButtonBase>(ObjectRow->GetWidgetObject());
+			if (IsValid(CommonButton))
+			{
+				const UButton* RootButton = Cast<UButton>(CommonButton->GetRootWidget());
+
+				if (!IsValid(RootButton) && IsValid(CommonButton->WidgetTree))
+				{
+					// Fallback search for root button
+					CommonButton->WidgetTree->ForEachWidget([&](UWidget* Widget) {
+						if (!IsValid(RootButton))
+						{
+							RootButton = Cast<UButton>(Widget);
+						}
+					});
+				}
+				if (IsValid(RootButton))
+				{
+					if (TSharedPtr<SButton> SlateCommonButton = FButtonAccess::GetSlateButton(RootButton))
+					{
+						// Recursively simulate from the internal button instead of the row container
+						return SimulateNavigation(StaticCastSharedPtr<SWidget>(SlateCommonButton), Direction, RealUserIndex);
+					}
+				}
+			}
+		}
 	}
 
 	// Bubbling Loop
@@ -605,94 +580,71 @@ TPair<TSharedPtr<SWidget>, ENavSimResult> UInputDebugSubsystem::SimulateNavigati
 		const TSharedRef<SWidget>& BoundaryWidget = ArrangedBoundary.Widget;
 
 		if (!BoundaryWidget->IsEnabled()) continue;
-
-		// 1. Query the Widget's Navigation Rule
+		
 		FNavigationReply Reply = FNavigationReply::Escape();
 
-#if UE_WITH_SLATE_SIMULATEDNAVIGATIONMETADATA
-		// Handle UMG Designer metadata if present
-		if (TSharedPtr<FSimulatedNavigationMetaData> SimMeta = BoundaryWidget->GetMetaData<FSimulatedNavigationMetaData>())
+		// Calling OnNavigation on ListView/TileView widgets can cause side effects (focus/selection changes).
+		// We avoid calling it and assume they handle navigation internally or bubble.
+		if (InputFlowHelpers::IsTableViewWidget(BoundaryWidget))
 		{
-			if (SimMeta->IsOnNavigationConst())
-			{
-				Reply = BoundaryWidget->OnNavigation(ArrangedBoundary.Geometry, VirtualNavEvent);
-			}
-			else
-			{
-				EUINavigation Type = VirtualNavEvent.GetNavigationType();
-				EUINavigationRule MetaRule = SimMeta->GetBoundaryRule(Type);
-				TSharedPtr<SWidget> MetaTarget = SimMeta->GetFocusRecipient(Type).Pin();
-
-				switch (MetaRule)
-				{
-				case EUINavigationRule::Explicit: Reply = FNavigationReply::Explicit(MetaTarget); break;
-				case EUINavigationRule::Custom:
-				case EUINavigationRule::CustomBoundary: Reply = FNavigationReply::Custom(FNavigationDelegate()); break;
-				case EUINavigationRule::Stop: Reply = FNavigationReply::Stop(); break;
-				case EUINavigationRule::Wrap: Reply = FNavigationReply::Wrap(); break;
-				case EUINavigationRule::Escape: default: Reply = FNavigationReply::Escape(); break;
-				}
-			}
+			// Treat as Handled to stop simulation at the list boundary.
+			// This prevents side-effects and assumes the list handles internal nav (index changes).
+			UE_CLOG(bDebugLog, LogInputFlow, Log, 
+				TEXT("  [TableView] Boundary '%s' is a List/TileView. Treating as Handled/DeadEnd to avoid side effects."),
+				*BoundaryWidget->ToString());
+			
+			return {ConstCastSharedRef<SWidget>(BoundaryWidget), ENavSimResult::Handled};
 		}
 		else
-#endif
 		{
-			Reply = BoundaryWidget->OnNavigation(ArrangedBoundary.Geometry, VirtualNavEvent);
-		}
-		
-		// Use CommonUI Button Logic if applicable
-		if (Source->GetTypeAsString() == TEXT("ObjectTableRowT"))
-		{
-			TSharedPtr<SObjectTableRow<UObject*>> ObjectRow = StaticCastSharedPtr<SObjectTableRow<UObject*>>(Source);
-			if (ObjectRow.IsValid())
+#if UE_WITH_SLATE_SIMULATEDNAVIGATIONMETADATA
+			// Handle UMG Designer metadata if present
+			if (TSharedPtr<FSimulatedNavigationMetaData> SimMeta = BoundaryWidget->GetMetaData<FSimulatedNavigationMetaData>())
 			{
-				const UCommonButtonBase* CommonButton = Cast<UCommonButtonBase>(ObjectRow->GetWidgetObject());
-				if (IsValid(CommonButton))
+				if (SimMeta->IsOnNavigationConst())
 				{
-					const UButton* RootButton = Cast<UButton>(CommonButton->GetRootWidget());
+					Reply = BoundaryWidget->OnNavigation(ArrangedBoundary.Geometry, VirtualNavEvent);
+				}
+				else
+				{
+					EUINavigation Type = VirtualNavEvent.GetNavigationType();
+					EUINavigationRule MetaRule = SimMeta->GetBoundaryRule(Type);
+					TSharedPtr<SWidget> MetaTarget = SimMeta->GetFocusRecipient(Type).Pin();
 
-					if (!IsValid(RootButton) && IsValid(CommonButton->WidgetTree))
+					switch (MetaRule)
 					{
-						CommonButton->WidgetTree->ForEachWidget([&](UWidget* Widget) {
-							// We stop searching once we find the first valid internal button
-							if (!IsValid(RootButton))
-							{
-								RootButton = Cast<UButton>(Widget);
-							}
-						});
-					}
-					if (IsValid(RootButton))
-					{
-						if (TSharedPtr<SButton> SlateCommonButton = FButtonAccess::GetSlateButton(RootButton))
-						{
-							return SimulateNavigation(StaticCastSharedPtr<SWidget>(SlateCommonButton), Direction, RealUserIndex);
-						}
+					case EUINavigationRule::Explicit: Reply = FNavigationReply::Explicit(MetaTarget); break;
+					case EUINavigationRule::Custom:
+					case EUINavigationRule::CustomBoundary: Reply = FNavigationReply::Custom(FNavigationDelegate()); break;
+					case EUINavigationRule::Stop: Reply = FNavigationReply::Stop(); break;
+					case EUINavigationRule::Wrap: Reply = FNavigationReply::Wrap(); break;
+					case EUINavigationRule::Escape: default: Reply = FNavigationReply::Escape(); break;
 					}
 				}
+			}
+			else
+#endif
+			{
+				// Query the widget's navigation
+				Reply = BoundaryWidget->OnNavigation(ArrangedBoundary.Geometry, VirtualNavEvent);
 			}
 		}
 
 		EUINavigationRule Rule = Reply.GetBoundaryRule();
 
-		// 2. Handle Explicit / Stop / Custom Rules
 		if (Rule == EUINavigationRule::Explicit)
 		{
 			TSharedPtr<SWidget> ExplicitTarget = Reply.GetFocusRecipient();
 
 			if (!ExplicitTarget.IsValid())
 			{
-				// FIX: Treat Explicit(nullptr) as Handled, NOT Escape.
 				// SListView and STileView return Explicit(nullptr) when they handle navigation internally 
-				// (e.g., moving selection from index 0 to 1). 
-				// 
-				// If we bubble this (Escape), the parent widget performs a Spatial Search and re-discovers 
-				// the ListView itself (as seen in your logs: Found 'TileViewT'), causing the simulation 
-				// to incorrectly predict focus returning to the container or failing to find the next item.
+				// The simulation should stop here, indicating the container handled the input.
 				UE_CLOG(bDebugLog, LogInputFlow, Log, 
-					TEXT("  [Explicit-Null] Boundary '%s' handled navigation internally (e.g. ListView Selection). Stopping."),
+					TEXT("  [Explicit-Null] Boundary '%s' returned Explicit(Null). Navigation Handled internally."),
 					*BoundaryWidget->ToString());
 
-				return {BoundaryWidget, ENavSimResult::Handled};
+				return {ConstCastSharedRef<SWidget>(BoundaryWidget), ENavSimResult::Handled};
 			}
 
 			if (ExplicitTarget->IsEnabled() && ExplicitTarget->SupportsKeyboardFocus())
@@ -707,17 +659,34 @@ TPair<TSharedPtr<SWidget>, ENavSimResult> UInputDebugSubsystem::SimulateNavigati
 		{
 			UE_CLOG(bDebugLog, LogInputFlow, Warning, TEXT("  [Stop] Boundary '%s' hit Stop Rule."),
 			        *BoundaryWidget->ToString());
-			return {BoundaryWidget, ENavSimResult::Stopped};
+			return {ConstCastSharedRef<SWidget>(BoundaryWidget), ENavSimResult::Stopped};
 		}
 		
 		if (Rule == EUINavigationRule::Custom)
 		{
 			UE_CLOG(bDebugLog, LogInputFlow, Warning, TEXT("  [Custom] Boundary '%s' Handled."),
 			        *BoundaryWidget->ToString());
-			return {BoundaryWidget, ENavSimResult::Handled};
+			return {ConstCastSharedRef<SWidget>(BoundaryWidget), ENavSimResult::Handled};
 		}
 
-		// 3. Perform Spatial Search (Hittest Grid)
+		// -----------------------------------------------------------------------------------
+		// Spatial Search Guard
+		// -----------------------------------------------------------------------------------
+		// If we are inside a ListView/TileView, we skip the spatial search on children.
+		// We bubble up until we hit the container, which will return Handled (dead end).
+		// This prevents "leaking" navigation from rows to neighbors when the list itself 
+		// should manage the transition (or consume it).
+		if (DeepestTableViewIndex != INDEX_NONE && WidgetIndex > DeepestTableViewIndex)
+		{
+			UE_CLOG(bDebugLog, LogInputFlow, Verbose, 
+				TEXT("  [Skip-Spatial] Widget '%s' is inside a TableView. Bubbling to container."), 
+				*BoundaryWidget->ToString());
+			continue;
+		}
+
+		// Perform Spatial Search (Hittest Grid)
+		// If the widget returned Escape (default), we perform a spatial search from this boundary.
+		// This works for most non-virtualized widgets within a window.
 		TSharedPtr<SWidget> ResultWidget = nullptr;
 
 		if (Direction == EUINavigation::Next || Direction == EUINavigation::Previous)
@@ -748,17 +717,15 @@ TPair<TSharedPtr<SWidget>, ENavSimResult> UInputDebugSubsystem::SimulateNavigati
 				RealUserIndex
 			);
 
-			// FIX 2: Filter out Ancestors
-			// The HittestGrid often returns the Source's parent (e.g., the ListView container) 
-			// because the parent effectively overlaps the child. 
-			// We check if the ResultWidget is currently in the SourcePath. If it is, it's an ancestor
-			// (or the widget itself), and we should ignore it to find a true "neighbor".
+			// Filter out Ancestors/Self
+			// The HittestGrid can sometimes return the Source's parent (or the boundary itself)
+			// because the parent geometry overlaps the child. We want to find a distinct neighbor.
 			if (ResultWidget.IsValid())
 			{
 				if (ResultWidget == Source || SourcePath.ContainsWidget(ResultWidget.Get()))
 				{
 					UE_CLOG(bDebugLog, LogInputFlow, Verbose, 
-						TEXT("  [SpatialSearch] Found ancestor/self '%s'. Ignoring to prevent loop."), 
+						TEXT("  [SpatialSearch] Found ancestor/self '%s'. Ignoring to continue bubbling."), 
 						*ResultWidget->ToString());
 					ResultWidget.Reset();
 				}
@@ -769,7 +736,7 @@ TPair<TSharedPtr<SWidget>, ENavSimResult> UInputDebugSubsystem::SimulateNavigati
 			        ResultWidget.IsValid() ? *ResultWidget->ToString() : TEXT("NULL"));
 		}
 
-		// 4. Did we find a valid target?
+		// 5. Did we find a valid target?
 		if (ResultWidget.IsValid() && InputFlowHelpers::IsGameWorldWidget(ResultWidget))
 		{
 			UE_CLOG(bDebugLog, LogInputFlow, Log, TEXT("  [Search] Boundary '%s' -> Found '%s'"),

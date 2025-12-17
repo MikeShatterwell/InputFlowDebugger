@@ -92,6 +92,10 @@ public:
 	// --- Overlay ---
 	void SetOverlayEnabled(bool bEnabled);
 	bool IsOverlayEnabled() const;
+
+	// Controls whether the visual panels (Log, Inspector) are visible within the overlay
+	void SetShowOverlayPanels(bool bEnabled);
+	bool GetShowOverlayPanels() const { return bShowOverlayPanels; }
 	
 	void SetShowHitTestGrid(bool bEnabled) { bShowHitTestGrid = bEnabled; }
 	bool GetShowHitTestGrid() const { return bShowHitTestGrid; }
@@ -149,6 +153,7 @@ private:
 	TSharedPtr<class SWidget> OverlayHost; // Container added to viewport
 	bool bOverlayEnabled = false;
 	bool bEnableNavigationSimulation = true;
+	bool bShowOverlayPanels = true;
 	bool bShowHitTestGrid = false;
 	FInputOverlayState OverlayState;
 	TArray<FFocusHistoryEntry> FocusHistory;
