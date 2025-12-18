@@ -22,6 +22,7 @@
 #include <Widgets/Text/STextBlock.h>
 #include <Widgets/Layout/SScrollBox.h>
 #include <Widgets/Layout/SExpandableArea.h>
+#include <Widgets/Layout/SUniformGridPanel.h>
 
 // Internal
 #include "InputDebugSubsystem.h"
@@ -30,13 +31,288 @@
 #include "SEnhancedInputInspector.h"
 #include "SInputFlowLogView.h"
 
+// --------------------------------------------------------------------
+// SInputFlowStatusDashboard
+// --------------------------------------------------------------------
+
+void SInputFlowStatusDashboard::Construct(const FArguments& InArgs, UInputDebugSubsystem* InSubsystem)
+{
+	WeakSubsystem = InSubsystem;
+	auto LabelStyle = FCoreStyle::GetDefaultFontStyle("Bold", 9);
+	auto LabelColor = FLinearColor(0.6f, 0.6f, 0.6f);
+
+	ChildSlot
+	[
+		SNew(SBorder)
+		.BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush"))
+		.BorderBackgroundColor(FLinearColor(0.05f, 0.05f, 0.05f))
+		.Padding(8)
+		[
+			SNew(SVerticalBox)
+			+ SVerticalBox::Slot().AutoHeight().Padding(0, 0, 0, 2)
+			[
+				SNew(SHorizontalBox)
+				+ SHorizontalBox::Slot().AutoWidth().MinWidth(110)
+				[ SNew(STextBlock).Text(FText::FromString("Slate Focus:")).ColorAndOpacity(LabelColor) ]
+				+ SHorizontalBox::Slot().FillWidth(1.0f)
+				[ SAssignNew(SlateFocusLabel, STextBlock).ColorAndOpacity(FLinearColor::White) ]
+			]
+			+ SVerticalBox::Slot().AutoHeight().Padding(0, 0, 0, 2)
+			[
+				SNew(SHorizontalBox)
+				+ SHorizontalBox::Slot().AutoWidth().MinWidth(110)
+				[ SNew(STextBlock).Text(FText::FromString("Active Leaf:")).ColorAndOpacity(LabelColor).Font(LabelStyle) ]
+				+ SHorizontalBox::Slot().FillWidth(1.0f)
+				[ SAssignNew(ActionRouterLeafLabel, STextBlock).ColorAndOpacity(FLinearColor(0.2f, 1.0f, 0.4f)).Font(LabelStyle) ]
+			]
+			+ SVerticalBox::Slot().AutoHeight().Padding(0, 0, 0, 2)
+			[
+				SNew(SHorizontalBox)
+				+ SHorizontalBox::Slot().AutoWidth().MinWidth(110)
+				[ SNew(STextBlock).Text(FText::FromString("Input Config:")).ColorAndOpacity(LabelColor) ]
+				+ SHorizontalBox::Slot().FillWidth(1.0f)
+				[ SAssignNew(InputConfigLabel, STextBlock).ColorAndOpacity(FLinearColor(1.0f, 0.8f, 0.2f)) ]
+			]
+			+ SVerticalBox::Slot().AutoHeight().Padding(0, 0, 0, 2)
+			[
+				SNew(SHorizontalBox)
+				+ SHorizontalBox::Slot().AutoWidth().MinWidth(110)
+				[ SNew(STextBlock).Text(FText::FromString("Mouse Capture:")).ColorAndOpacity(LabelColor) ]
+				+ SHorizontalBox::Slot().FillWidth(1.0f)
+				[ SAssignNew(MouseCaptureLabel, STextBlock).ColorAndOpacity(FLinearColor(0.4f, 0.8f, 1.0f)) ]
+			]
+			+ SVerticalBox::Slot().AutoHeight()
+			[
+				SNew(SHorizontalBox)
+				+ SHorizontalBox::Slot().AutoWidth().MinWidth(110)
+				[ SNew(STextBlock).Text(FText::FromString("Input Type:")).ColorAndOpacity(LabelColor) ]
+				+ SHorizontalBox::Slot().FillWidth(1.0f)
+				[ SAssignNew(CommonInputTypeLabel, STextBlock).ColorAndOpacity(FLinearColor::White) ]
+			]
+			+ SVerticalBox::Slot().AutoHeight()
+			[
+				SNew(SExpandableArea)
+				.AreaTitle(FText::FromString("Bound Actions"))
+				.BodyContent()
+				[
+					SNew(SBox)
+					.MaxDesiredHeight(100.0f)
+					[
+						SNew(SScrollBox)
+						+ SScrollBox::Slot()
+						[
+							SAssignNew(BoundActionsLabel, STextBlock)
+							.ColorAndOpacity(FLinearColor(0.7f, 0.7f, 0.7f))
+							.Font(FCoreStyle::GetDefaultFontStyle("Mono", 8))
+						]
+					]
+				]
+			]
+		]
+	];
+}
+
+void SInputFlowStatusDashboard::Tick(const FGeometry& AllottedGeometry, const double InCurrentTime, const float InDeltaTime)
+{
+	// Refresh Subsystem reference if stale
+	if (!WeakSubsystem.IsValid())
+	{
+		WeakSubsystem = InputFlowHelpers::GetActiveDebugSubsystem();
+	}
+
+	if (SlateFocusLabel.IsValid()) SlateFocusLabel->SetText(GetFocusWidgetName());
+
+	UInputDebugSubsystem* DebugSub = WeakSubsystem.Get();
+	if (DebugSub)
+	{
+		if (CommonInputTypeLabel.IsValid()) CommonInputTypeLabel->SetText(GetCommonInputType(DebugSub));
+
+		const FInputOverlayState& State = DebugSub->GetOverlayState();
+		if (ActionRouterLeafLabel.IsValid()) ActionRouterLeafLabel->SetText(FText::FromString(State.ActiveCommonUILeaf));
+		if (InputConfigLabel.IsValid()) InputConfigLabel->SetText(FText::FromString(State.InputConfig));
+		if (MouseCaptureLabel.IsValid()) MouseCaptureLabel->SetText(FText::FromString(State.MouseCaptureMode));
+		if (BoundActionsLabel.IsValid()) BoundActionsLabel->SetText(GetActiveBoundActions(DebugSub));
+	}
+}
+
+FText SInputFlowStatusDashboard::GetFocusWidgetName() const
+{
+	TSharedPtr<SWidget> FocusWidget = FSlateApplication::Get().GetKeyboardFocusedWidget();
+	if (!FocusWidget.IsValid()) return FText::FromString("Slate Focus: None");
+
+	FString WidgetName = FocusWidget->ToString();
+	int32 AddressIndex;
+	if(WidgetName.FindChar('@', AddressIndex)) { WidgetName =  WidgetName.Left(AddressIndex); }
+	return FText::FromString(FString::Printf(TEXT("%s"), *WidgetName));
+}
+
+FText SInputFlowStatusDashboard::GetCommonInputType(UInputDebugSubsystem* Subsystem) const
+{
+	if(!Subsystem) return FText::GetEmpty();
+	if (ULocalPlayer* LP = Subsystem->GetGameInstance()->GetFirstGamePlayer())
+	{
+		if (UCommonInputSubsystem* CommonInput = UCommonInputSubsystem::Get(LP))
+		{
+			ECommonInputType CurrentInput = CommonInput->GetCurrentInputType();
+			return FText::FromString(CurrentInput == ECommonInputType::Gamepad ? TEXT("Gamepad") : TEXT("Mouse/KB"));
+		}
+	}
+	return FText::FromString(TEXT("CommonUI: N/A"));
+}
+
+FText SInputFlowStatusDashboard::GetActiveBoundActions(const UInputDebugSubsystem* Subsystem) const
+{
+	if (!Subsystem) return FText::GetEmpty();
+	const FInputOverlayState& State = Subsystem->GetOverlayState();
+	if (State.BoundActions.Num() == 0) return FText::FromString("No active bindings detected.");
+	
+	FString Combined;
+	for (const FString& S : State.BoundActions)
+	{
+		Combined += S + TEXT("\n");
+	}
+	return FText::FromString(Combined);
+}
+
+
+// --------------------------------------------------------------------
+// SInputFlowSettingsPanel
+// --------------------------------------------------------------------
+
+void SInputFlowSettingsPanel::Construct(const FArguments& InArgs, UInputDebugSubsystem* InSubsystem)
+{
+	WeakSubsystem = InSubsystem;
+	bIsOverlay = InArgs._IsOverlay;
+	
+	// Enable Tick so we can keep the Subsystem pointer fresh across PIE restarts
+	SetCanTick(true);
+
+	// Helper to create checkboxes with consistent styling
+	auto MakeCheckBox = [this](FString Label, auto GetFunc, auto SetFunc)
+	{
+		return SNew(SCheckBox)
+			.IsChecked(this, GetFunc)
+			.OnCheckStateChanged(this, SetFunc)
+			[ SNew(STextBlock).Text(FText::FromString(Label)) ];
+	};
+
+	TSharedPtr<SUniformGridPanel> VisualGrid;
+	SAssignNew(VisualGrid, SUniformGridPanel).SlotPadding(FMargin(0, 0, 10, 4));
+
+	// Construct Visualization Grid dynamically
+	int32 Col = 0;
+	// Only add "Overlay Enabled" if we are NOT in the overlay itself
+	if (!bIsOverlay)
+	{
+		VisualGrid->AddSlot(Col++, 0) [ MakeCheckBox("Overlay Enabled", &SInputFlowSettingsPanel::GetOverlayState, &SInputFlowSettingsPanel::OnToggleOverlay) ];
+	}
+	VisualGrid->AddSlot(Col++, 0) [ MakeCheckBox("Show Panels", &SInputFlowSettingsPanel::GetShowPanelsState, &SInputFlowSettingsPanel::OnToggleShowPanels) ];
+	VisualGrid->AddSlot(Col++, 0) [ MakeCheckBox("Hit Test Grid", &SInputFlowSettingsPanel::GetHitTestGridState, &SInputFlowSettingsPanel::OnToggleHitTestGrid) ];
+	
+	// Navigation Row
+	VisualGrid->AddSlot(0, 1) [ MakeCheckBox("Nav Spider", &SInputFlowSettingsPanel::GetSpiderState, &SInputFlowSettingsPanel::OnToggleSpider) ];
+	VisualGrid->AddSlot(1, 1)
+	[
+		SNew(SHorizontalBox)
+		+ SHorizontalBox::Slot().AutoWidth().Padding(0, 0, 4, 0)
+		[ SNew(STextBlock).Text(FText::FromString("Depth:")) ]
+		+ SHorizontalBox::Slot().AutoWidth().MinWidth(60)
+		[
+			SNew(SSpinBox<int32>)
+			.MinValue(1)
+			.MaxValue(5)
+			.Value(this, &SInputFlowSettingsPanel::GetSpiderDepth)
+			.OnValueChanged(this, &SInputFlowSettingsPanel::OnSpiderDepthChanged)
+		]
+	];
+
+	ChildSlot
+	[
+		SNew(SVerticalBox)
+		+ SVerticalBox::Slot().AutoHeight().Padding(4)
+		[
+			SNew(SUniformGridPanel)
+			.SlotPadding(FMargin(0, 0, 10, 4))
+			
+			// Row 0: Logging Toggles
+			+ SUniformGridPanel::Slot(0, 0) [ MakeCheckBox("Log Clicks", &SInputFlowSettingsPanel::GetCaptureClicksState, &SInputFlowSettingsPanel::OnToggleCaptureClicks) ]
+			+ SUniformGridPanel::Slot(1, 0) [ MakeCheckBox("Log Keys", &SInputFlowSettingsPanel::GetCaptureKeyEventsState, &SInputFlowSettingsPanel::OnToggleCaptureKeyEvents) ]
+			+ SUniformGridPanel::Slot(2, 0) [ MakeCheckBox("Log Hover", &SInputFlowSettingsPanel::GetCaptureHoverState, &SInputFlowSettingsPanel::OnToggleCaptureHover) ]
+			
+			// Row 1: More Logging
+			+ SUniformGridPanel::Slot(0, 1) [ MakeCheckBox("Log Move", &SInputFlowSettingsPanel::GetCaptureMoveState, &SInputFlowSettingsPanel::OnToggleCaptureMove) ]
+			+ SUniformGridPanel::Slot(1, 1) [ MakeCheckBox("Log Analog", &SInputFlowSettingsPanel::GetCaptureAnalogState, &SInputFlowSettingsPanel::OnToggleCaptureAnalog) ]
+			+ SUniformGridPanel::Slot(2, 1) [ MakeCheckBox("Log Focus", &SInputFlowSettingsPanel::GetCaptureFocusState, &SInputFlowSettingsPanel::OnToggleCaptureFocus) ]
+		]
+		+ SVerticalBox::Slot().AutoHeight().Padding(4)
+		[
+			SNew(SSeparator)
+		]
+		+ SVerticalBox::Slot().AutoHeight().Padding(4)
+		[
+			VisualGrid.ToSharedRef()
+		]
+	];
+}
+
+void SInputFlowSettingsPanel::Tick(const FGeometry& AllottedGeometry, const double InCurrentTime, const float InDeltaTime)
+{
+	// Ensure we always have a valid subsystem pointer.
+	// This is critical for the Editor Tab which persists while PIE sessions (and their subsystems) die and respawn.
+	if (!WeakSubsystem.IsValid())
+	{
+		WeakSubsystem = InputFlowHelpers::GetActiveDebugSubsystem();
+	}
+}
+
+UInputDebugSubsystem* SInputFlowSettingsPanel::GetSubsystem() const
+{
+	return WeakSubsystem.Get();
+}
+
+void SInputFlowSettingsPanel::OnToggleCaptureClicks(ECheckBoxState NewState) { if (auto* S = GetSubsystem()) S->SetCaptureClicks(NewState == ECheckBoxState::Checked); }
+ECheckBoxState SInputFlowSettingsPanel::GetCaptureClicksState() const { auto* S = GetSubsystem(); return (S && S->GetCaptureClicks()) ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; }
+
+void SInputFlowSettingsPanel::OnToggleCaptureKeyEvents(ECheckBoxState NewState) { if (auto* S = GetSubsystem()) S->SetCaptureKeyEvents(NewState == ECheckBoxState::Checked); }
+ECheckBoxState SInputFlowSettingsPanel::GetCaptureKeyEventsState() const { auto* S = GetSubsystem(); return (S && S->GetCaptureKeyEvents()) ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; }
+
+void SInputFlowSettingsPanel::OnToggleCaptureHover(ECheckBoxState NewState) { if (auto* S = GetSubsystem()) S->SetCaptureHover(NewState == ECheckBoxState::Checked); }
+ECheckBoxState SInputFlowSettingsPanel::GetCaptureHoverState() const { auto* S = GetSubsystem(); return (S && S->GetCaptureHover()) ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; }
+
+void SInputFlowSettingsPanel::OnToggleCaptureMove(ECheckBoxState NewState) { if (auto* S = GetSubsystem()) S->SetCaptureMouseMove(NewState == ECheckBoxState::Checked); }
+ECheckBoxState SInputFlowSettingsPanel::GetCaptureMoveState() const { auto* S = GetSubsystem(); return (S && S->GetCaptureMouseMove()) ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; }
+
+void SInputFlowSettingsPanel::OnToggleCaptureAnalog(ECheckBoxState NewState) { if (auto* S = GetSubsystem()) S->SetCaptureAnalog(NewState == ECheckBoxState::Checked); }
+ECheckBoxState SInputFlowSettingsPanel::GetCaptureAnalogState() const { auto* S = GetSubsystem(); return (S && S->GetCaptureAnalog()) ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; }
+
+void SInputFlowSettingsPanel::OnToggleCaptureFocus(ECheckBoxState NewState) { if (auto* S = GetSubsystem()) S->SetCaptureFocus(NewState == ECheckBoxState::Checked); }
+ECheckBoxState SInputFlowSettingsPanel::GetCaptureFocusState() const { auto* S = GetSubsystem(); return (S && S->GetCaptureFocus()) ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; }
+
+void SInputFlowSettingsPanel::OnToggleOverlay(ECheckBoxState NewState) { if (auto* S = GetSubsystem()) S->SetOverlayEnabled(NewState == ECheckBoxState::Checked); }
+ECheckBoxState SInputFlowSettingsPanel::GetOverlayState() const { auto* S = GetSubsystem(); return (S && S->IsOverlayEnabled()) ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; }
+
+void SInputFlowSettingsPanel::OnToggleShowPanels(ECheckBoxState NewState) { if (auto* S = GetSubsystem()) S->SetShowOverlayPanels(NewState == ECheckBoxState::Checked); }
+ECheckBoxState SInputFlowSettingsPanel::GetShowPanelsState() const { auto* S = GetSubsystem(); return (S && S->GetShowOverlayPanels()) ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; }
+
+void SInputFlowSettingsPanel::OnToggleSpider(ECheckBoxState NewState) { if (auto* S = GetSubsystem()) S->SetNavigationSimulationEnabled(NewState == ECheckBoxState::Checked); }
+ECheckBoxState SInputFlowSettingsPanel::GetSpiderState() const { auto* S = GetSubsystem(); return (S && S->GetNavigationSimulationEnabled()) ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; }
+
+void SInputFlowSettingsPanel::OnSpiderDepthChanged(int32 NewValue) { if (auto* S = GetSubsystem()) S->SetNavigationDepth(NewValue); }
+int32 SInputFlowSettingsPanel::GetSpiderDepth() const { if (auto* S = GetSubsystem()) return S->GetNavigationDepth(); return 1; }
+
+void SInputFlowSettingsPanel::OnToggleHitTestGrid(ECheckBoxState NewState) { if (auto* S = GetSubsystem()) S->SetShowHitTestGrid(NewState == ECheckBoxState::Checked); }
+ECheckBoxState SInputFlowSettingsPanel::GetHitTestGridState() const { auto* S = GetSubsystem(); return (S && S->GetShowHitTestGrid()) ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; }
+
+
+// --------------------------------------------------------------------
+// SInputFlowAnalyzer
+// --------------------------------------------------------------------
+
 void SInputFlowAnalyzer::Construct(const FArguments& InArgs)
 {
 	SetTag(InputFlowHelpers::InputFlowAnalyzerTag);
 
 	UInputDebugSubsystem* DebugSub = GetActiveSubsystem();
-	auto LabelStyle = FCoreStyle::GetDefaultFontStyle("Bold", 9);
-	auto LabelColor = FLinearColor(0.6f, 0.6f, 0.6f);
 
 	ChildSlot
 	[
@@ -61,72 +337,7 @@ void SInputFlowAnalyzer::Construct(const FArguments& InArgs)
 						// Dashboard
 						+ SVerticalBox::Slot().AutoHeight().Padding(4)
 						[
-							SNew(SBorder)
-							.BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush"))
-							.BorderBackgroundColor(FLinearColor(0.05f, 0.05f, 0.05f))
-							.Padding(8)
-							[
-								SNew(SVerticalBox)
-								+ SVerticalBox::Slot().AutoHeight().Padding(0, 0, 0, 2)
-								[
-									SNew(SHorizontalBox)
-									+ SHorizontalBox::Slot().AutoWidth().MinWidth(110)
-									[ SNew(STextBlock).Text(FText::FromString("Slate Focus:")).ColorAndOpacity(LabelColor) ]
-									+ SHorizontalBox::Slot().FillWidth(1.0f)
-									[ SAssignNew(SlateFocusLabel, STextBlock).ColorAndOpacity(FLinearColor::White) ]
-								]
-								+ SVerticalBox::Slot().AutoHeight().Padding(0, 0, 0, 2)
-								[
-									SNew(SHorizontalBox)
-									+ SHorizontalBox::Slot().AutoWidth().MinWidth(110)
-									[ SNew(STextBlock).Text(FText::FromString("Active Leaf:")).ColorAndOpacity(LabelColor).Font(LabelStyle) ]
-									+ SHorizontalBox::Slot().FillWidth(1.0f)
-									[ SAssignNew(ActionRouterLeafLabel, STextBlock).ColorAndOpacity(FLinearColor(0.2f, 1.0f, 0.4f)).Font(LabelStyle) ]
-								]
-								+ SVerticalBox::Slot().AutoHeight().Padding(0, 0, 0, 2)
-								[
-									SNew(SHorizontalBox)
-									+ SHorizontalBox::Slot().AutoWidth().MinWidth(110)
-									[ SNew(STextBlock).Text(FText::FromString("Input Config:")).ColorAndOpacity(LabelColor) ]
-									+ SHorizontalBox::Slot().FillWidth(1.0f)
-									[ SAssignNew(InputConfigLabel, STextBlock).ColorAndOpacity(FLinearColor(1.0f, 0.8f, 0.2f)) ]
-								]
-								+ SVerticalBox::Slot().AutoHeight().Padding(0, 0, 0, 2)
-								[
-									SNew(SHorizontalBox)
-									+ SHorizontalBox::Slot().AutoWidth().MinWidth(110)
-									[ SNew(STextBlock).Text(FText::FromString("Mouse Capture:")).ColorAndOpacity(LabelColor) ]
-									+ SHorizontalBox::Slot().FillWidth(1.0f)
-									[ SAssignNew(MouseCaptureLabel, STextBlock).ColorAndOpacity(FLinearColor(0.4f, 0.8f, 1.0f)) ]
-								]
-								+ SVerticalBox::Slot().AutoHeight()
-								[
-									SNew(SHorizontalBox)
-									+ SHorizontalBox::Slot().AutoWidth().MinWidth(110)
-									[ SNew(STextBlock).Text(FText::FromString("Input Type:")).ColorAndOpacity(LabelColor) ]
-									+ SHorizontalBox::Slot().FillWidth(1.0f)
-									[ SAssignNew(CommonInputTypeLabel, STextBlock).ColorAndOpacity(FLinearColor::White) ]
-								]
-								+ SVerticalBox::Slot().AutoHeight()
-								[
-									SNew(SExpandableArea)
-									.AreaTitle(FText::FromString("Bound Actions"))
-									.BodyContent()
-									[
-										SNew(SBox)
-										.MaxDesiredHeight(100.0f)
-										[
-											SNew(SScrollBox)
-											+ SScrollBox::Slot()
-											[
-												SAssignNew(BoundActionsLabel, STextBlock)
-												.ColorAndOpacity(FLinearColor(0.7f, 0.7f, 0.7f))
-												.Font(FCoreStyle::GetDefaultFontStyle("Mono", 8))
-											]
-										]
-									]
-								]
-							]
+							SNew(SInputFlowStatusDashboard, DebugSub)
 						]
 						+ SVerticalBox::Slot().AutoHeight() [ SNew(SSeparator) ]
 						
@@ -154,59 +365,10 @@ void SInputFlowAnalyzer::Construct(const FArguments& InArgs)
 					[
 						SNew(SVerticalBox)
 						// Config Toggles
-						+ SVerticalBox::Slot().AutoHeight().Padding(2, 2, 2, 0)
+						+ SVerticalBox::Slot().AutoHeight().Padding(2)
 						[
-							SNew(SHorizontalBox)
-							+ SHorizontalBox::Slot().AutoWidth().Padding(4,0) [ SNew(SCheckBox).IsChecked(this, &SInputFlowAnalyzer::GetCaptureClicksState).OnCheckStateChanged(this, &SInputFlowAnalyzer::OnToggleCaptureClicks) [ SNew(STextBlock).Text(FText::FromString("Log Clicks")) ] ]
-							+ SHorizontalBox::Slot().AutoWidth().Padding(4,0) [ SNew(SCheckBox).IsChecked(this, &SInputFlowAnalyzer::GetCaptureKeyEventsState).OnCheckStateChanged(this, &SInputFlowAnalyzer::OnToggleCaptureKeyEvents) [ SNew(STextBlock).Text(FText::FromString("Log Key Events")) ] ]
-							+ SHorizontalBox::Slot().AutoWidth().Padding(4,0) [ SNew(SCheckBox).IsChecked(this, &SInputFlowAnalyzer::GetCaptureHoverState).OnCheckStateChanged(this, &SInputFlowAnalyzer::OnToggleCaptureHover) [ SNew(STextBlock).Text(FText::FromString("Log Hover Events")) ] ]
-							+ SHorizontalBox::Slot().AutoWidth().Padding(4,0) [ SNew(SCheckBox).IsChecked(this, &SInputFlowAnalyzer::GetCaptureMoveState).OnCheckStateChanged(this, &SInputFlowAnalyzer::OnToggleCaptureMove) [ SNew(STextBlock).Text(FText::FromString("Log Mouse Move")) ] ]
-							+ SHorizontalBox::Slot().AutoWidth().Padding(4,0) [ SNew(SCheckBox).IsChecked(this, &SInputFlowAnalyzer::GetCaptureAnalogState).OnCheckStateChanged(this, &SInputFlowAnalyzer::OnToggleCaptureAnalog) [ SNew(STextBlock).Text(FText::FromString("Log Analog Input")) ] ]
-							+ SHorizontalBox::Slot().AutoWidth().Padding(4,0) [ SNew(SCheckBox).IsChecked(this, &SInputFlowAnalyzer::GetCaptureFocusState).OnCheckStateChanged(this, &SInputFlowAnalyzer::OnToggleCaptureFocus) [ SNew(STextBlock).Text(FText::FromString("Log Focus Events")) ] ]
-						]
-						+ SVerticalBox::Slot().AutoHeight().Padding(2, 2, 2, 4)
-						[
-							SNew(SHorizontalBox)
-							+ SHorizontalBox::Slot().AutoWidth().Padding(4, 0).VAlign(VAlign_Center)
-							[
-								SNew(SCheckBox)
-								.IsChecked(this, &SInputFlowAnalyzer::GetOverlayState)
-								.OnCheckStateChanged(this, &SInputFlowAnalyzer::OnToggleOverlay)
-								[ SNew(STextBlock).Text(FText::FromString("Show In-Game Overlay")) ]
-							]
-							+ SHorizontalBox::Slot().AutoWidth().Padding(10, 0, 4, 0).VAlign(VAlign_Center)
-							[
-								SNew(SCheckBox)
-								.IsChecked(this, &SInputFlowAnalyzer::GetShowPanelsState)
-								.OnCheckStateChanged(this, &SInputFlowAnalyzer::OnToggleShowPanels)
-								[ SNew(STextBlock).Text(FText::FromString("Show Panels")) ]
-							]
-							+ SHorizontalBox::Slot().AutoWidth().Padding(10, 0, 4, 0).VAlign(VAlign_Center)
-							[
-								SNew(SCheckBox)
-								.IsChecked(this, &SInputFlowAnalyzer::GetSpiderState)
-								.OnCheckStateChanged(this, &SInputFlowAnalyzer::OnToggleSpider)
-								[ SNew(STextBlock).Text(FText::FromString("Nav Preview")) ]
-							]
-							+ SHorizontalBox::Slot().AutoWidth().Padding(10, 0, 4, 0).VAlign(VAlign_Center)
-							[
-								SNew(SCheckBox)
-								.IsChecked(this, &SInputFlowAnalyzer::GetHitTestGridState)
-								.OnCheckStateChanged(this, &SInputFlowAnalyzer::OnToggleHitTestGrid)
-								[ SNew(STextBlock).Text(FText::FromString("Show Hit Test Grid")) ]
-							]
-							+ SHorizontalBox::Slot().AutoWidth().Padding(10, 0, 4, 0).VAlign(VAlign_Center)
-							[
-								SNew(STextBlock).Text(FText::FromString("Nav Preview Depth:"))
-							]
-							+ SHorizontalBox::Slot().AutoWidth().MinWidth(80).VAlign(VAlign_Center)
-							[
-								SNew(SSpinBox<int32>)
-								.MinValue(1)
-								.MaxValue(5)
-								.Value(this, &SInputFlowAnalyzer::GetSpiderDepth)
-								.OnValueChanged(this, &SInputFlowAnalyzer::OnSpiderDepthChanged)
-							]
+							SNew(SInputFlowSettingsPanel, DebugSub)
+								.IsOverlay(false) // Editor mode
 						]
 						+ SVerticalBox::Slot().FillHeight(1.0f)
 						[
@@ -236,30 +398,6 @@ void SInputFlowAnalyzer::Construct(const FArguments& InArgs)
 			]
 		]
 	];
-}
-
-void SInputFlowAnalyzer::Tick(const FGeometry& AllottedGeometry, const double InCurrentTime, const float InDeltaTime)
-{
-	SCompoundWidget::Tick(AllottedGeometry, InCurrentTime, InDeltaTime);
-	
-	if (IsSessionRunning())
-	{
-		if (SlateFocusLabel.IsValid()) SlateFocusLabel->SetText(GetFocusWidgetName());
-		
-		UInputDebugSubsystem* DebugSub = GetActiveSubsystem();
-		if (CommonInputTypeLabel.IsValid()) CommonInputTypeLabel->SetText(GetCommonInputType(DebugSub));
-
-		// Dashboard Update Logic (Active Leaf)
-		if (DebugSub)
-		{
-			const FInputOverlayState& State = DebugSub->GetOverlayState();
-			if (ActionRouterLeafLabel.IsValid()) ActionRouterLeafLabel->SetText(FText::FromString(State.ActiveCommonUILeaf));
-			if (InputConfigLabel.IsValid()) InputConfigLabel->SetText(FText::FromString(State.InputConfig));
-
-			if (MouseCaptureLabel.IsValid()) MouseCaptureLabel->SetText(FText::FromString(State.MouseCaptureMode));
-			if (BoundActionsLabel.IsValid()) BoundActionsLabel->SetText(GetActiveBoundActions(DebugSub));
-		}
-	}
 }
 
 UInputDebugSubsystem* SInputFlowAnalyzer::GetActiveSubsystem() const
@@ -294,77 +432,3 @@ EVisibility SInputFlowAnalyzer::GetContentVisibility() const
 {
 	return IsSessionRunning() ? EVisibility::Visible : EVisibility::Collapsed;
 }
-
-// Helpers
-FText SInputFlowAnalyzer::GetFocusWidgetName() const
-{
-	TSharedPtr<SWidget> FocusWidget = FSlateApplication::Get().GetKeyboardFocusedWidget();
-	if (!FocusWidget.IsValid()) return FText::FromString("Slate Focus: None");
-
-	FString WidgetName = FocusWidget->ToString();
-	int32 AddressIndex;
-	if(WidgetName.FindChar('@', AddressIndex)) { WidgetName =  WidgetName.Left(AddressIndex); }
-	return FText::FromString(FString::Printf(TEXT("%s"), *WidgetName));
-}
-
-FText SInputFlowAnalyzer::GetCommonInputType(UInputDebugSubsystem* Subsystem) const
-{
-	if(!Subsystem) return FText::GetEmpty();
-	if (ULocalPlayer* LP = Subsystem->GetGameInstance()->GetFirstGamePlayer())
-	{
-		if (UCommonInputSubsystem* CommonInput = UCommonInputSubsystem::Get(LP))
-		{
-			ECommonInputType CurrentInput = CommonInput->GetCurrentInputType();
-			return FText::FromString(CurrentInput == ECommonInputType::Gamepad ? TEXT("Gamepad") : TEXT("Mouse/KB"));
-		}
-	}
-	return FText::FromString(TEXT("CommonUI: N/A"));
-}
-
-FText SInputFlowAnalyzer::GetActiveBoundActions(const UInputDebugSubsystem* Subsystem) const
-{
-	if (!Subsystem) return FText::GetEmpty();
-	const FInputOverlayState& State = Subsystem->GetOverlayState();
-	if (State.BoundActions.Num() == 0) return FText::FromString("No active bindings detected.");
-	
-	FString Combined;
-	for (const FString& S : State.BoundActions)
-	{
-		Combined += S + TEXT("\n");
-	}
-	return FText::FromString(Combined);
-}
-
-// Toggles
-void SInputFlowAnalyzer::OnToggleCaptureClicks(ECheckBoxState NewState) { if (auto* S = GetActiveSubsystem()) S->SetCaptureClicks(NewState == ECheckBoxState::Checked); }
-ECheckBoxState SInputFlowAnalyzer::GetCaptureClicksState() const { auto* S = GetActiveSubsystem(); return (S && S->GetCaptureClicks()) ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; }
-
-void SInputFlowAnalyzer::OnToggleCaptureKeyEvents(ECheckBoxState NewState) { if (auto* S = GetActiveSubsystem()) S->SetCaptureKeyEvents(NewState == ECheckBoxState::Checked); }
-ECheckBoxState SInputFlowAnalyzer::GetCaptureKeyEventsState() const { auto* S = GetActiveSubsystem(); return (S && S->GetCaptureKeyEvents()) ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; }
-
-void SInputFlowAnalyzer::OnToggleCaptureHover(ECheckBoxState NewState) { if (auto* S = GetActiveSubsystem()) S->SetCaptureHover(NewState == ECheckBoxState::Checked); }
-ECheckBoxState SInputFlowAnalyzer::GetCaptureHoverState() const { auto* S = GetActiveSubsystem(); return (S && S->GetCaptureHover()) ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; }
-
-void SInputFlowAnalyzer::OnToggleCaptureMove(ECheckBoxState NewState) { if (auto* S = GetActiveSubsystem()) S->SetCaptureMouseMove(NewState == ECheckBoxState::Checked); }
-ECheckBoxState SInputFlowAnalyzer::GetCaptureMoveState() const { auto* S = GetActiveSubsystem(); return (S && S->GetCaptureMouseMove()) ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; }
-
-void SInputFlowAnalyzer::OnToggleCaptureAnalog(ECheckBoxState NewState) { if (auto* S = GetActiveSubsystem()) S->SetCaptureAnalog(NewState == ECheckBoxState::Checked); }
-ECheckBoxState SInputFlowAnalyzer::GetCaptureAnalogState() const { auto* S = GetActiveSubsystem(); return (S && S->GetCaptureAnalog()) ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; }
-
-void SInputFlowAnalyzer::OnToggleCaptureFocus(ECheckBoxState NewState) { if (auto* S = GetActiveSubsystem()) S->SetCaptureFocus(NewState == ECheckBoxState::Checked); }
-ECheckBoxState SInputFlowAnalyzer::GetCaptureFocusState() const { auto* S = GetActiveSubsystem(); return (S && S->GetCaptureFocus()) ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; }
-
-void SInputFlowAnalyzer::OnToggleOverlay(ECheckBoxState NewState) { if (auto* S = GetActiveSubsystem()) S->SetOverlayEnabled(NewState == ECheckBoxState::Checked); }
-ECheckBoxState SInputFlowAnalyzer::GetOverlayState() const { auto* S = GetActiveSubsystem(); return (S && S->IsOverlayEnabled()) ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; }
-
-void SInputFlowAnalyzer::OnToggleShowPanels(ECheckBoxState NewState) { if (auto* S = GetActiveSubsystem()) S->SetShowOverlayPanels(NewState == ECheckBoxState::Checked); }
-ECheckBoxState SInputFlowAnalyzer::GetShowPanelsState() const { auto* S = GetActiveSubsystem(); return (S && S->GetShowOverlayPanels()) ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; }
-
-void SInputFlowAnalyzer::OnToggleSpider(ECheckBoxState NewState) { if (auto* S = GetActiveSubsystem()) S->SetNavigationSimulationEnabled(NewState == ECheckBoxState::Checked); }
-ECheckBoxState SInputFlowAnalyzer::GetSpiderState() const { auto* S = GetActiveSubsystem(); return (S && S->GetNavigationSimulationEnabled()) ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; }
-
-void SInputFlowAnalyzer::OnSpiderDepthChanged(int32 NewValue) { if (auto* S = GetActiveSubsystem()) S->SetNavigationDepth(NewValue); }
-int32 SInputFlowAnalyzer::GetSpiderDepth() const { if (auto* S = GetActiveSubsystem()) return S->GetNavigationDepth(); return 1; }
-
-void SInputFlowAnalyzer::OnToggleHitTestGrid(ECheckBoxState NewState) { if (auto* S = GetActiveSubsystem()) S->SetShowHitTestGrid(NewState == ECheckBoxState::Checked); }
-ECheckBoxState SInputFlowAnalyzer::GetHitTestGridState() const { auto* S = GetActiveSubsystem(); return (S && S->GetShowHitTestGrid()) ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; }

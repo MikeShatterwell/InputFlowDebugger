@@ -38,6 +38,7 @@ public:
 	void Construct(const FArguments& InArgs, const TSharedRef<STableViewBase>& InOwnerTableView, TSharedPtr<FCommonUITreeItem> InItem, bool bInOverlay)
 	{
 		SetTag(InputFlowHelpers::InputFlowAnalyzerTag);
+		Item = InItem;
 		
 		STableRow<TSharedPtr<FCommonUITreeItem>>::Construct(
 			STableRow<TSharedPtr<FCommonUITreeItem>>::FArguments()
@@ -45,63 +46,65 @@ public:
 			InOwnerTableView
 		);
 
-		FString DisplayName = InItem->Name;
-		FLinearColor TextColor = FLinearColor::White;
-		FString BadgeText;
-		FLinearColor BadgeColor = FLinearColor::Transparent;
-
-		if (InItem->bIsFocused)
-		{
-			BadgeText = TEXT("[LEAF] ");
-			BadgeColor = FLinearColor(0.2f, 1.0f, 0.4f);
-			TextColor = FLinearColor(0.2f, 1.0f, 0.4f);
-		}
-		else if (InItem->bIsInActivePath)
-		{
-			BadgeText = TEXT("[ROUTE] ");
-			BadgeColor = FLinearColor(1.0f, 0.8f, 0.2f);
-			TextColor = FLinearColor(1.0f, 0.95f, 0.8f);
-		}
-		else if (!InItem->bIsActive)
-		{
-			TextColor = FLinearColor(1.0f, 1.0f, 1.0f, 0.35f);
-		}
-
 		if (bInOverlay)
 		{
 			SetBorderBackgroundColor(FLinearColor::Transparent);
 		}
+
+		// --- Attribute Lambdas for Dynamic Updates ---
+		auto GetDisplayName = [InItem]() { return FText::FromString(InItem->Name); };
+		
+		auto GetTextColor = [InItem]() -> FSlateColor
+		{
+			if (InItem->bIsFocused) return FLinearColor(0.2f, 1.0f, 0.4f); // Green for Leaf
+			if (InItem->bIsInActivePath) return FLinearColor(1.0f, 0.95f, 0.8f); // Gold for Path
+			if (!InItem->bIsActive) return FLinearColor(1.0f, 1.0f, 1.0f, 0.35f); // Dim for inactive
+			return FLinearColor::White;
+		};
+
+		auto GetBadgeText = [InItem]() -> FText
+		{
+			if (InItem->bIsFocused) return FText::FromString(TEXT("[LEAF] "));
+			if (InItem->bIsInActivePath) return FText::FromString(TEXT("[ROUTE] "));
+			return FText::GetEmpty();
+		};
+
+		auto GetBadgeColor = [InItem]() -> FSlateColor
+		{
+			if (InItem->bIsFocused) return FLinearColor(0.2f, 1.0f, 0.4f);
+			if (InItem->bIsInActivePath) return FLinearColor(1.0f, 0.8f, 0.2f);
+			return FLinearColor::Transparent;
+		};
+
+		auto GetBadgeVisibility = [InItem]()
+		{
+			return (InItem->bIsFocused || InItem->bIsInActivePath) ? EVisibility::Visible : EVisibility::Collapsed;
+		};
+
+		auto GetSubText = [InItem]() -> FText
+		{
+			FString SubText = InItem->InputConfig;
+			if (!InItem->DesiredFocusTarget.IsEmpty()) SubText += FString::Printf(TEXT(" | DesiredFocusTarget: %s"), *InItem->DesiredFocusTarget);
+			if (!InItem->ContainerInfo.IsEmpty()) SubText += FString::Printf(TEXT(" | %s"), *InItem->ContainerInfo);
+			return FText::FromString(SubText);
+		};
 
 		TSharedRef<SWidget> NameWidget = SNullWidget::NullWidget;
 		
 		if (InItem->Widget.IsValid() && !bInOverlay)
 		{
 			NameWidget = SNew(SHyperlink)
-				.Text(FText::FromString(DisplayName))
+				.Text_Lambda(GetDisplayName)
 				.Style(FCoreStyle::Get(), "Hyperlink")
 				.OnNavigate_Lambda([InItem]() { InputFlowHelpers::TryOpenAsset(InItem->Widget); });
 		}
 		else
 		{
 			NameWidget = SNew(STextBlock)
-				.Text(FText::FromString(DisplayName))
-				.ColorAndOpacity(TextColor)
-				.Font(FCoreStyle::GetDefaultFontStyle(InItem->bIsFocused ? "Bold" : "Regular", 9));
+				.Text_Lambda(GetDisplayName)
+				.ColorAndOpacity_Lambda(GetTextColor)
+				.Font(FCoreStyle::GetDefaultFontStyle("Regular", 9));
 		}
-
-		// --- Build Secondary Info String ---
-		FString SubText = InItem->InputConfig;
-		
-		if (!InItem->DesiredFocusTarget.IsEmpty())
-		{
-			SubText += FString::Printf(TEXT(" | DesiredFocusTarget: %s"), *InItem->DesiredFocusTarget);
-		}
-		
-		if (!InItem->ContainerInfo.IsEmpty())
-		{
-			SubText += FString::Printf(TEXT(" | %s"), *InItem->ContainerInfo);
-		}
-		// -----------------------------------
 
 		this->ChildSlot
 		[
@@ -118,8 +121,11 @@ public:
 					SNew(SHorizontalBox)
 					+ SHorizontalBox::Slot().AutoWidth()
 					[
-						SNew(STextBlock).Text(FText::FromString(BadgeText)).ColorAndOpacity(BadgeColor).Font(FCoreStyle::GetDefaultFontStyle("Bold", 8))
-						.Visibility(BadgeText.IsEmpty() ? EVisibility::Collapsed : EVisibility::Visible)
+						SNew(STextBlock)
+						.Text_Lambda(GetBadgeText)
+						.ColorAndOpacity_Lambda(GetBadgeColor)
+						.Font(FCoreStyle::GetDefaultFontStyle("Bold", 8))
+						.Visibility_Lambda(GetBadgeVisibility)
 					]
 					+ SHorizontalBox::Slot().AutoWidth()
 					[
@@ -128,12 +134,18 @@ public:
 				]
 				+ SVerticalBox::Slot().AutoHeight()
 				[
-					SNew(STextBlock).Text(FText::FromString(SubText)).ColorAndOpacity(FLinearColor(0.4f, 0.6f, 1.0f)).Font(FCoreStyle::GetDefaultFontStyle("Italic", 8))
-					.Visibility(SubText.IsEmpty() ? EVisibility::Collapsed : EVisibility::Visible)
+					SNew(STextBlock)
+					.Text_Lambda(GetSubText)
+					.ColorAndOpacity(FLinearColor(0.4f, 0.6f, 1.0f))
+					.Font(FCoreStyle::GetDefaultFontStyle("Italic", 8))
+					.Visibility_Lambda([GetSubText](){ return GetSubText().IsEmpty() ? EVisibility::Collapsed : EVisibility::Visible; })
 				]
 			]
 		];
 	}
+
+private:
+	TSharedPtr<FCommonUITreeItem> Item;
 };
 
 // -----------------------------------------------------------------------------
@@ -146,13 +158,11 @@ void SCommonUIHierarchyView::Construct(const FArguments& InArgs, UInputDebugSubs
 	DebugSubsystem = InSubsystem;
 	bIsOverlay = InArgs._IsOverlay;
 
-	// 1. Hook into static creation event (Catches new widgets being made)
 	RebuildingHandle = UCommonActivatableWidget::OnRebuilding.AddLambda([this](UCommonActivatableWidget&)
 	{
 		RequestRefresh();
 	});
     
-	// 2. Try binding to router immediately
 	BindRouterDelegates();
 
 	ChildSlot
@@ -183,17 +193,14 @@ void SCommonUIHierarchyView::Construct(const FArguments& InArgs, UInputDebugSubs
 
 void SCommonUIHierarchyView::Tick(const FGeometry& AllottedGeometry, const double InCurrentTime, const float InDeltaTime)
 {
-	// Check for Router validity periodically (in case Player Controller changes)
 	if (!BoundRouter.IsValid())
 	{
 		BindRouterDelegates();
 	}
 
-	// Throttle Logic
 	const bool bEnoughTimePassed = (InCurrentTime - LastUpdateTime) > UpdateThrottle;
-	const bool bSlowPollTime = (InCurrentTime - LastUpdateTime) > SlowPollInterval;
 
-	if ((bTreeDirty && bEnoughTimePassed) || bSlowPollTime)
+	if (bTreeDirty || bEnoughTimePassed)
 	{
 		UpdateTree();
 		LastUpdateTime = InCurrentTime;
@@ -230,7 +237,6 @@ FString SCommonUIHierarchyView::GetInputConfigString(const UCommonActivatableWid
 
 void SCommonUIHierarchyView::UpdateTree()
 {
-	// Recover subsystem if lost (re-PIE)
 	if (!DebugSubsystem.IsValid())
 	{
 		DebugSubsystem = InputFlowHelpers::GetActiveDebugSubsystem();
@@ -274,21 +280,17 @@ void SCommonUIHierarchyView::UpdateTree()
 			WidgetItemCache.Add(WeakWidget, Item);
 		}
 
+		// Update Mutable Properties (Polled by Row Widgets)
 		Item->Name = Widget->GetName();
 		Item->bIsActive = Widget->IsActivated();
-		Item->Children.Empty();
-		Item->bIsFocused = false;
-		Item->bIsInActivePath = false;
 		Item->InputConfig = GetInputConfigString(Widget);
 
-		// Resolve Desired Focus Target
 		Item->DesiredFocusTarget = TEXT("None");
 		if (UWidget* DesiredFocusTarget = Widget->GetDesiredFocusTarget())
 		{
 			Item->DesiredFocusTarget = DesiredFocusTarget->GetName();
 		}
 
-		// Resolve Container Info
 		Item->ContainerInfo.Empty();
 		UObject* CurrOuter = Widget->GetOuter();
 		while (CurrOuter)
@@ -296,20 +298,19 @@ void SCommonUIHierarchyView::UpdateTree()
 			if (UCommonActivatableWidgetContainerBase* Container = Cast<UCommonActivatableWidgetContainerBase>(CurrOuter))
 			{
 				FString ContainerType = TEXT("Container");
-				if (Container->IsA<UCommonActivatableWidgetStack>())
-				{
-					ContainerType = TEXT("Stack");
-				}
-				else if (Container->IsA<UCommonActivatableWidgetQueue>())
-				{
-					ContainerType = TEXT("Queue");
-				}
+				if (Container->IsA<UCommonActivatableWidgetStack>()) ContainerType = TEXT("Stack");
+				else if (Container->IsA<UCommonActivatableWidgetQueue>()) ContainerType = TEXT("Queue");
 				
 				Item->ContainerInfo = FString::Printf(TEXT("[%s: %s]"), *ContainerType, *Container->GetName());
 				break;
 			}
 			CurrOuter = CurrOuter->GetOuter();
 		}
+
+		// Reset Flags (will be re-evaluated below)
+		Item->Children.Empty();
+		Item->bIsFocused = false;
+		Item->bIsInActivePath = false;
 
 		WorkingMap.Add(Widget, Item);
 		ActiveItems.Add(Item);
@@ -350,24 +351,18 @@ void SCommonUIHierarchyView::UpdateTree()
 		}
 	}
 
-	// 4. Identify Active Leaf using Subsystem Data (Source of Truth)
+	// 4. Update Leaf & Path Flags based on Overlay State (Source of Truth)
 	const FInputOverlayState& State = DebugSubsystem->GetOverlayState();
 	FString ActiveLeafName = State.ActiveCommonUILeaf;
-
-	// Reset focus state
-	for (auto& Pair : WorkingMap)
-	{
-		Pair.Value->bIsFocused = false;
-		Pair.Value->bIsInActivePath = false;
-	}
 
 	if (!ActiveLeafName.IsEmpty())
 	{
 		UCommonActivatableWidget* FocusOwner = nullptr;
 		
-		// Find widget matching name
+		// Find matching widget
 		for (auto& Pair : WorkingMap)
 		{
+			// Strict name matching ensures we respect the Router's authority
 			if (Pair.Key->GetName() == ActiveLeafName)
 			{
 				FocusOwner = Pair.Key;
@@ -377,12 +372,13 @@ void SCommonUIHierarchyView::UpdateTree()
 
 		if (FocusOwner)
 		{
-			WorkingMap[FocusOwner]->bIsFocused = true;
+			WorkingMap[FocusOwner]->bIsFocused = true; // Sets "LEAF" Badge
 			
 			UCommonActivatableWidget* Current = FocusOwner;
 			while (Current)
 			{
-				if (WorkingMap.Contains(Current)) WorkingMap[Current]->bIsInActivePath = true;
+				if (WorkingMap.Contains(Current)) WorkingMap[Current]->bIsInActivePath = true; // Sets "ROUTE" Badge
+				
 				TSharedPtr<SWidget> Cached = Current->GetCachedWidget();
 				if (!Cached.IsValid()) break;
 				Current = UCommonUIActionRouterBase::FindOwningActivatable(Cached, LocalPlayer);
@@ -390,7 +386,7 @@ void SCommonUIHierarchyView::UpdateTree()
 		}
 	}
 
-	// 5. Sort & Refresh
+	// 5. Sort
 	auto SortFunc = [](const TSharedPtr<FCommonUITreeItem>& A, const TSharedPtr<FCommonUITreeItem>& B)
 	{
 		if (A->bIsInActivePath != B->bIsInActivePath) return A->bIsInActivePath > B->bIsInActivePath;
@@ -403,7 +399,7 @@ void SCommonUIHierarchyView::UpdateTree()
 	Roots = NewRoots;
 	TreeView->RequestTreeRefresh();
 
-	// 6. Enforce Expansion
+	// 6. Auto Expand
 	for (auto& Pair : WorkingMap)
 	{
 		if (Pair.Value->bIsInActivePath || Pair.Value->bIsRoot || Pair.Value->bIsActive)
@@ -415,7 +411,6 @@ void SCommonUIHierarchyView::UpdateTree()
 
 void SCommonUIHierarchyView::BindRouterDelegates()
 {
-	// Clean up old bindings if router changed
 	if (BoundRouter.IsValid())
 	{
 		BoundRouter->OnBoundActionsUpdated().Remove(ActionRouterHandle);
@@ -425,7 +420,6 @@ void SCommonUIHierarchyView::BindRouterDelegates()
 
 	if (!DebugSubsystem.IsValid()) return;
 
-	// Find the Router via the Subsystem -> GameInstance -> LocalPlayer
 	if (const UGameInstance* GI = DebugSubsystem->GetGameInstance())
 	{
 		if (const ULocalPlayer* LP = GI->GetFirstGamePlayer())
@@ -433,12 +427,8 @@ void SCommonUIHierarchyView::BindRouterDelegates()
 			if (UCommonUIActionRouterBase* Router = LP->GetSubsystem<UCommonUIActionRouterBase>())
 			{
 				BoundRouter = Router;
-                
-				// Bind to the events that signal tree state changes
 				ActionRouterHandle = Router->OnBoundActionsUpdated().AddSP(this, &SCommonUIHierarchyView::RequestRefresh);
 				ConfigChangeHandle = Router->OnActiveInputConfigChanged().AddLambda([this](const FUIInputConfig&){ RequestRefresh(); });
-                
-				// Force an update now that we have data
 				RequestRefresh();
 			}
 		}

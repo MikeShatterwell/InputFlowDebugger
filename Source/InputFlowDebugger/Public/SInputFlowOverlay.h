@@ -2,9 +2,6 @@
 
 #pragma once
 
-#include <Editor/Experimental/EditorInteractiveToolsFramework/Public/Behaviors/2DViewportBehaviorTargets.h>
-#include <Editor/Experimental/EditorInteractiveToolsFramework/Public/Behaviors/2DViewportBehaviorTargets.h>
-
 #include "CoreMinimal.h"
 #include "Widgets/SCompoundWidget.h"
 #include "Types/SlateEnums.h"
@@ -13,6 +10,7 @@ class UInputDebugSubsystem;
 class SInputFlowLogView;
 class SCommonUIHierarchyView;
 class SEnhancedInputInspector;
+class SOverlay; // Forward declaration
 
 /**
  * An overlay widget that renders debug visualization for the Input Flow Analyzer.
@@ -81,6 +79,9 @@ private:
 private:
 	/** Pointer to the debug subsystem providing data */
 	TWeakObjectPtr<UInputDebugSubsystem> DebugSubsystem;
+	
+	/** The root overlay container that holds the draggable panels */
+	TSharedPtr<SOverlay> RootOverlay;
 
 	/** Child widgets for the overlay panels */
 	TSharedPtr<SInputFlowLogView> LogView;

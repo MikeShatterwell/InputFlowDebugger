@@ -25,7 +25,8 @@ struct FCommonUITreeItem : public TSharedFromThis<FCommonUITreeItem>
 	bool bIsRoot = false;
 	bool bIsFocused = false;      
 	bool bIsInActivePath = false; 
-	bool bIsActive = false;       
+	bool bIsActive = false;
+	bool bIsLeaf = false;
 
 	TArray<TSharedPtr<FCommonUITreeItem>> Children;
 };
@@ -64,7 +65,6 @@ private:
 	bool bTreeDirty = true; 
 	float LastUpdateTime = 0.0f;
 	float UpdateThrottle = 0.1f; 
-	float SlowPollInterval = 2.0f; 
 
 	TSharedPtr<STreeView<TSharedPtr<FCommonUITreeItem>>> TreeView;
 	TArray<TSharedPtr<FCommonUITreeItem>> Roots;

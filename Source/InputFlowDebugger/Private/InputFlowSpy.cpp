@@ -33,6 +33,7 @@ FInputFlowSpy::FInputFlowSpy()
 		FocusChangedHandle = FSlateApplication::Get().OnFocusChanging().AddRaw(this, &FInputFlowSpy::OnFocusChanging);
 	}
 }
+
 FInputFlowSpy::~FInputFlowSpy()
 {
 	ObservedButtons.Empty();
@@ -49,6 +50,7 @@ void FInputFlowSpy::ResetBuffer()
 	WriteIndex = 0;
 	bWrapped = false;
 }
+
 void FInputFlowSpy::AddLog(const FString& Type, const FString& InputDetails, FColor Color, const FString& WidgetType, const FString& WidgetName, const FString& WidgetState, bool bIsButton, UObject* InSourceObject, const TArray<FInputLogRichTextPart>& InParts)
 {
 	FInputEventLog& NewLog = EventLog[WriteIndex];

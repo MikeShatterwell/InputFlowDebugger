@@ -12,27 +12,51 @@ class UInputDebugSubsystem;
 class SInputFlowLogView;
 class SCommonUIHierarchyView;
 class SEnhancedInputInspector;
+class STextBlock;
 
-class SInputFlowAnalyzer : public SCompoundWidget
+/**
+ * A reusable dashboard widget that displays current focus, input config, and bound actions.
+ * Used in both the Editor Window and the In-Game Overlay.
+ */
+class SInputFlowStatusDashboard : public SCompoundWidget
 {
 public:
-	SLATE_BEGIN_ARGS(SInputFlowAnalyzer) {}
+	SLATE_BEGIN_ARGS(SInputFlowStatusDashboard) {}
 	SLATE_END_ARGS()
-	
-	void Construct(const FArguments& InArgs);
+
+	void Construct(const FArguments& InArgs, UInputDebugSubsystem* InSubsystem);
 	virtual void Tick(const FGeometry& AllottedGeometry, const double InCurrentTime, const float InDeltaTime) override;
 
 private:
-	UInputDebugSubsystem* GetActiveSubsystem() const;
-	bool IsSessionRunning() const;
-	EVisibility GetOverlayVisibility() const;
-	EVisibility GetContentVisibility() const;
-	
-	// Dashboard helpers
 	FText GetFocusWidgetName() const;
 	FText GetCommonInputType(UInputDebugSubsystem* Subsystem) const;
 	FText GetActiveBoundActions(const UInputDebugSubsystem* Subsystem) const;
 
+	TSharedPtr<STextBlock> MouseCaptureLabel;
+	TSharedPtr<STextBlock> CommonInputTypeLabel;
+	TSharedPtr<STextBlock> SlateFocusLabel;
+	TSharedPtr<STextBlock> ActionRouterLeafLabel;
+	TSharedPtr<STextBlock> InputConfigLabel;
+	TSharedPtr<STextBlock> BoundActionsLabel;
+
+	TWeakObjectPtr<UInputDebugSubsystem> WeakSubsystem;
+};
+
+/**
+ * A reusable settings panel containing toggles for logging, visualization, and simulation.
+ * Used in both the Editor Window and the In-Game Overlay.
+ */
+class SInputFlowSettingsPanel : public SCompoundWidget
+{
+public:
+	SLATE_BEGIN_ARGS(SInputFlowSettingsPanel) {}
+		SLATE_ARGUMENT(bool, IsOverlay)
+	SLATE_END_ARGS()
+
+	void Construct(const FArguments& InArgs, UInputDebugSubsystem* InSubsystem);
+	void Tick(const FGeometry& AllottedGeometry, const double InCurrentTime, const float InDeltaTime) override;
+
+private:
 	// Toggle Handlers
 	void OnToggleCaptureClicks(ECheckBoxState NewState);
 	ECheckBoxState GetCaptureClicksState() const;
@@ -54,20 +78,32 @@ private:
 	ECheckBoxState GetSpiderState() const;
 	void OnSpiderDepthChanged(int32 NewValue);
 	int32 GetSpiderDepth() const;
-	
 	void OnToggleHitTestGrid(ECheckBoxState NewState);
 	ECheckBoxState GetHitTestGridState() const;
 
-	// Header elements
-	TSharedPtr<STextBlock> MouseCaptureLabel;
-	TSharedPtr<STextBlock> CommonInputTypeLabel;
-	TSharedPtr<STextBlock> SlateFocusLabel;
-	TSharedPtr<STextBlock> ActionRouterLeafLabel;
-	TSharedPtr<STextBlock> InputConfigLabel;
+	UInputDebugSubsystem* GetSubsystem() const;
+	TWeakObjectPtr<UInputDebugSubsystem> WeakSubsystem;
+	bool bIsOverlay = false;
+};
 
-	TSharedPtr<STextBlock> BoundActionsLabel;
+/**
+ * The main Editor Dock Tab widget.
+ * Composes the Dashboard, Settings, Log, Hierarchy, and Inspector into a single layout.
+ */
+class SInputFlowAnalyzer : public SCompoundWidget
+{
+public:
+	SLATE_BEGIN_ARGS(SInputFlowAnalyzer) {}
+	SLATE_END_ARGS()
+	
+	void Construct(const FArguments& InArgs);
 
-	// Composed Widgets
+private:
+	UInputDebugSubsystem* GetActiveSubsystem() const;
+	bool IsSessionRunning() const;
+	EVisibility GetOverlayVisibility() const;
+	EVisibility GetContentVisibility() const;
+
 	TSharedPtr<SInputFlowLogView> LogView;
 	TSharedPtr<SCommonUIHierarchyView> HierarchyView;
 	TSharedPtr<SEnhancedInputInspector> InspectorView;

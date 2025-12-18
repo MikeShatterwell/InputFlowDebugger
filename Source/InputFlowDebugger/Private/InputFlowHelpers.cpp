@@ -44,6 +44,77 @@
 
 const FName InputFlowHelpers::InputFlowAnalyzerTag("InputFlowAnalyzerTag");
 
+void InputFlowHelpers::SolveAABBCollisions(TArray<FInputFlowPhysicsItem>& Items, const FVector2D& Boundary,
+	const int32 Iterations)
+{
+	const FVector2D Gutter(4.0f, 4.0f);
+
+	for (int32 Iter = 0; Iter < Iterations; ++Iter)
+	{
+		bool bAnyMoved = false;
+
+		for (int32 i = 0; i < Items.Num(); ++i)
+		{
+			// Constraint to Boundary
+			if (!Items[i].bIsFixed)
+			{
+				Items[i].Position.X = FMath::Clamp(Items[i].Position.X, 0.0f, Boundary.X - Items[i].Size.X);
+				Items[i].Position.Y = FMath::Clamp(Items[i].Position.Y, 0.0f, Boundary.Y - Items[i].Size.Y);
+			}
+
+			for (int32 j = i + 1; j < Items.Num(); ++j)
+			{
+				FInputFlowPhysicsItem& A = Items[i];
+				FInputFlowPhysicsItem& B = Items[j];
+
+				if (A.bIsFixed && B.bIsFixed) continue;
+
+				FVector2D CenterA = A.Position + (A.Size * 0.5f);
+				FVector2D CenterB = B.Position + (B.Size * 0.5f);
+				FVector2D SizeA = A.Size + Gutter;
+				FVector2D SizeB = B.Size + Gutter;
+
+				const FVector2D Delta = CenterA - CenterB;
+				const FVector2D AbsDelta = FVector2D(FMath::Abs(Delta.X), FMath::Abs(Delta.Y));
+				const FVector2D HalfExtentsA = SizeA * 0.5f;
+				const FVector2D HalfExtentsB = SizeB * 0.5f;
+
+				FVector2D Overlap;
+				Overlap.X = (HalfExtentsA.X + HalfExtentsB.X) - AbsDelta.X;
+				Overlap.Y = (HalfExtentsA.Y + HalfExtentsB.Y) - AbsDelta.Y;
+
+				if (Overlap.X > 0.0f && Overlap.Y > 0.0f)
+				{
+					// Resolve along shallowest axis
+					const bool bResolveX = Overlap.X < Overlap.Y;
+					FVector2D Push = FVector2D::ZeroVector;
+
+					if (bResolveX)
+						Push.X = (Delta.X > 0 ? Overlap.X : -Overlap.X);
+					else
+						Push.Y = (Delta.Y > 0 ? Overlap.Y : -Overlap.Y);
+
+					if (A.bIsFixed)
+					{
+						B.Position -= Push;
+					}
+					else if (B.bIsFixed)
+					{
+						A.Position += Push;
+					}
+					else
+					{
+						A.Position += Push * 0.5f;
+						B.Position -= Push * 0.5f;
+					}
+					bAnyMoved = true;
+				}
+			}
+		}
+		if (!bAnyMoved) break;
+	}
+}
+
 const FSlateBrush* InputFlowHelpers::GetBackgroundBrush(bool bIsOverlay)
 {
 	if (bIsOverlay)

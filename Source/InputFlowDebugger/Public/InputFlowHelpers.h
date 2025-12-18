@@ -11,9 +11,25 @@
 // Internal
 #include "InputDebugSubsystem.h"
 
+struct FInputFlowPhysicsItem
+{
+	FVector2D Position;
+	FVector2D Size;
+	FVector2D TargetPosition; // Where it wants to be
+	FVector2D Velocity = FVector2D::ZeroVector;
+	bool bIsFixed = false; // If true, acts as a wall (e.g. pinned panels)
+};
+
 class InputFlowHelpers
 {
 public:
+	/** * iteratively resolves overlaps between items using a simple impulse solver.
+	 * @param Items - List of items to resolve
+	 * @param Boundary - The area to constrain items within (e.g. Viewport size)
+	 * @param Iterations - Precision
+	 */
+	static void SolveAABBCollisions(TArray<FInputFlowPhysicsItem>& Items, const FVector2D& Boundary, int32 Iterations = 10);
+
 	static const FSlateBrush* GetBackgroundBrush(bool bIsOverlay);
 	static UInputDebugSubsystem* GetActiveDebugSubsystem();
 	
