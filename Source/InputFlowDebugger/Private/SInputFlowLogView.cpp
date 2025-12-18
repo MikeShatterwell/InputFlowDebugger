@@ -145,7 +145,7 @@ public:
 		
 		TSharedRef<STextBlock> InputDetailsBlock = SNew(STextBlock)
 			.Text(FText::FromString(InItem->InputDetails + CountStr))
-			.ColorAndOpacity(bInOverlay ? FLinearColor::White : FLinearColor::Black)
+			.ColorAndOpacity(FLinearColor::White)
 			.Font(FCoreStyle::GetDefaultFontStyle("Regular", 9))
 			.Justification(ETextJustify::Right);
 		
@@ -162,7 +162,7 @@ public:
 				if (bInOverlay)
 				{
 					// Overlay Logic: Start dark with opacity, fade to transparent
-					float Alpha = FMath::Clamp(0.8f - (Age * 0.2f), 0.0f, 0.8f);
+					float Alpha = FMath::Clamp(0.8f - (Age * 0.2f), 0.0f, 0.4f);
 					return FLinearColor(0.0f, 0.0f, 0.0f, Alpha);
 				}
 				else

@@ -45,6 +45,21 @@ DECLARE_DELEGATE_RetVal_OneParam(TArray<FSlateRect>, FOnGetSnapTargets, const SW
 class SInputFlowDraggablePanel : public SCompoundWidget
 {
 public:
+	// Simple bitmask for resizing directions
+	enum EResizeDirection
+	{
+		None = 0,
+		Left = 1 << 0,
+		Right = 1 << 1,
+		Top = 1 << 2,
+		Bottom = 1 << 3,
+		
+		TopLeft = Top | Left,
+		TopRight = Top | Right,
+		BottomLeft = Bottom | Left,
+		BottomRight = Bottom | Right
+	};
+
 	SLATE_BEGIN_ARGS(SInputFlowDraggablePanel)
 		: _InitialPosition(FVector2D(100, 100))
 		, _InitialSize(FVector2D(400, 300))
@@ -62,7 +77,6 @@ public:
 		CurrentSize = InArgs._InitialSize;
 		GetSnapTargetsDelegate = InArgs._OnGetSnapTargets;
 		
-		// Store requested position; we apply it once we have geometry to determine the best anchor
 		PendingInitialPosition = InArgs._InitialPosition;
 
 		ChildSlot
@@ -73,7 +87,7 @@ public:
 			[
 				SNew(SBorder)
 				.BorderImage(FCoreStyle::Get().GetBrush("ToolPanel.GroupBorder")) 
-				.BorderBackgroundColor(FLinearColor(0.0f, 0.0f, 0.0f, 0.9f))
+				.BorderBackgroundColor(FLinearColor(0.0f, 0.0f, 0.0f, 0.5f))
 				.Padding(0)
 				[
 					SNew(SVerticalBox)
@@ -99,14 +113,7 @@ public:
 						InArgs._Content.Widget
 					]
 
-					// Resize Handle
-					+ SVerticalBox::Slot().AutoHeight().VAlign(VAlign_Bottom).HAlign(HAlign_Right).Padding(0, 0, 1, 1)
-					[
-						SNew(SImage)
-						.Image(FCoreStyle::Get().GetBrush("Window.ResizeHandle"))
-						.ColorAndOpacity(FLinearColor(1, 1, 1, 0.5f))
-						.Visibility(EVisibility::HitTestInvisible)
-					]
+					// REMOVED: Scaling Icon SImage
 				]
 			]
 		];
@@ -119,7 +126,6 @@ public:
 		OverlaySlot = InSlot;
 	}
 
-	// Helper to get the rect based on current visual state for OTHER panels to snap to
 	FSlateRect GetComputedRect(const FVector2D& ParentSize) const
 	{
 		FVector2D LayoutPos = GetLayoutPosition(ParentSize, OverlaySlot ? OverlaySlot->GetHorizontalAlignment() : HAlign_Left, OverlaySlot ? OverlaySlot->GetVerticalAlignment() : VAlign_Top);
@@ -133,20 +139,33 @@ public:
 
 	virtual void Tick(const FGeometry& AllottedGeometry, const double InCurrentTime, const float InDeltaTime) override
 	{
-		// One-time initialization of anchor based on InitialPosition
 		if (!bAnchorInitialized && OverlaySlot)
 		{
 			TSharedPtr<SWidget> Parent = GetParentWidget();
 			if (Parent.IsValid())
 			{
 				FVector2D ParentSize = Parent->GetPaintSpaceGeometry().GetLocalSize();
-				if (ParentSize.X > 1.0f) // Wait for valid layout
+				if (ParentSize.X > 1.0f) 
 				{
 					UpdateAnchorAndOffset(PendingInitialPosition, ParentSize);
 					bAnchorInitialized = true;
 				}
 			}
 		}
+	}
+
+	// Helper to determine resize zone from mouse position
+	uint8 CheckResizeDirection(const FVector2D& LocalMouse, const FVector2D& LocalSize) const
+	{
+		const float Margin = 8.0f; // Resize handle thickness
+		uint8 Direction = None;
+
+		if (LocalMouse.X < Margin) Direction |= Left;
+		if (LocalMouse.X > LocalSize.X - Margin) Direction |= Right;
+		if (LocalMouse.Y < Margin) Direction |= Top;
+		if (LocalMouse.Y > LocalSize.Y - Margin) Direction |= Bottom;
+
+		return Direction;
 	}
 
 	virtual FReply OnMouseButtonDown(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent) override
@@ -156,42 +175,47 @@ public:
 			FVector2D LocalMouse = MyGeometry.AbsoluteToLocal(MouseEvent.GetScreenSpacePosition());
 			FVector2D Size = MyGeometry.GetLocalSize();
 
-			// Resize Zone (Bottom Right corner, 20x20)
-			if (LocalMouse.X > Size.X - 20 && LocalMouse.Y > Size.Y - 20)
+			// 1. Check Resize Zone (All edges)
+			uint8 ResizeDir = CheckResizeDirection(LocalMouse, Size);
+			if (ResizeDir != None)
 			{
 				bResizing = true;
+				CurrentResizeDir = ResizeDir;
 				DragStartMousePos = MouseEvent.GetScreenSpacePosition();
 				InitialDragSize = CurrentSize;
 				
-				// Capture current visual state for resizing compensation
-				// This ensures we know where the Top-Left was BEFORE resizing started
 				TSharedPtr<SWidget> Parent = GetParentWidget();
 				if (Parent && OverlaySlot)
 				{
 					FVector2D ParentSize = Parent->GetPaintSpaceGeometry().GetLocalSize();
 					FVector2D LayoutPos = GetLayoutPosition(ParentSize, OverlaySlot->GetHorizontalAlignment(), OverlaySlot->GetVerticalAlignment());
+					
+					// Cache the visual position at start of drag
 					if (GetRenderTransform().IsSet())
 					{
 						DragStartVisualPos = LayoutPos + GetRenderTransform()->GetTranslation();
-						return FReply::Handled().CaptureMouse(AsShared());
 					}
+					else
+					{
+						DragStartVisualPos = LayoutPos;
+					}
+					return FReply::Handled().CaptureMouse(AsShared());
 				}
 			}
 			
-			// Drag Zone (Title Bar - Top 28px)
-			if (LocalMouse.Y < 28)
+			// 2. Drag Zone (Title Bar - Top 28px)
+			// Ensure we aren't clicking the Top Resize Edge
+			if (LocalMouse.Y < 28 && LocalMouse.Y >= 8.0f)
 			{
 				bDragging = true;
 				DragStartMousePos = MouseEvent.GetScreenSpacePosition();
 				
-				// Capture current visual state
 				TSharedPtr<SWidget> Parent = GetParentWidget();
 				if (Parent)
 				{
 					FGeometry ParentGeo = Parent->GetPaintSpaceGeometry();
 					FVector2D ParentSize = ParentGeo.GetLocalSize();
 					
-					// Calculate current visual top-left relative to parent
 					FVector2D LayoutPos = GetLayoutPosition(ParentSize, OverlaySlot->GetHorizontalAlignment(), OverlaySlot->GetVerticalAlignment());
 					if (GetRenderTransform().IsSet())
 					{
@@ -215,6 +239,7 @@ public:
 		{
 			bDragging = false;
 			bResizing = false;
+			CurrentResizeDir = None;
 			return FReply::Handled().ReleaseMouseCapture();
 		}
 		return FReply::Unhandled();
@@ -222,101 +247,136 @@ public:
 
 	virtual FReply OnMouseMove(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent) override
 	{
-		if (bDragging || bResizing)
+		if (bDragging)
 		{
-			if (bDragging)
+			const float Scale = MyGeometry.GetAccumulatedLayoutTransform().GetScale();
+			const FVector2D MouseDelta = (MouseEvent.GetScreenSpacePosition() - DragStartMousePos) / Scale;
+			
+			// Calculate new visual position directly
+			FVector2D NewVisualPos = DragStartVisualPos + MouseDelta;
+
+			TSharedPtr<SWidget> Parent = GetParentWidget();
+			if (Parent.IsValid())
 			{
-				const float Scale = MyGeometry.GetAccumulatedLayoutTransform().GetScale();
-				const FVector2D MouseDelta = (MouseEvent.GetScreenSpacePosition() - DragStartMousePos) / Scale;
-				
-				// Raw new visual position
-				FVector2D NewVisualPos = DragStartVisualPos + MouseDelta;
+				FVector2D ParentSize = Parent->GetPaintSpaceGeometry().GetLocalSize();
+				const float SnapDist = 15.0f;
 
-				TSharedPtr<SWidget> Parent = GetParentWidget();
-				if (Parent.IsValid())
+				// --- 1. SIBLING SNAPPING (Bidirectional) ---
+				if (GetSnapTargetsDelegate.IsBound())
 				{
-					FVector2D ParentSize = Parent->GetPaintSpaceGeometry().GetLocalSize();
-					const float SnapDist = 15.0f; // px threshold
-
-					// --- 1. SIBLING SNAPPING (Bidirectional) ---
-					if (GetSnapTargetsDelegate.IsBound())
+					TArray<FSlateRect> Targets = GetSnapTargetsDelegate.Execute(this);
+					for (const FSlateRect& Target : Targets)
 					{
-						TArray<FSlateRect> Targets = GetSnapTargetsDelegate.Execute(this);
-						for (const FSlateRect& Target : Targets)
-						{
-							// HORIZONTAL SNAPS
-							// A. Adjacency (My Right -> Target Left)
-							if (FMath::IsNearlyEqual(NewVisualPos.X + CurrentSize.X, Target.Left, SnapDist)) 
-								NewVisualPos.X = Target.Left - CurrentSize.X;
-							// B. Adjacency (My Left -> Target Right)
-							else if (FMath::IsNearlyEqual(NewVisualPos.X, Target.Right, SnapDist)) 
-								NewVisualPos.X = Target.Right;
-							// C. Alignment (Left -> Left)
-							else if (FMath::IsNearlyEqual(NewVisualPos.X, Target.Left, SnapDist)) 
-								NewVisualPos.X = Target.Left;
-							// D. Alignment (Right -> Right)
-							else if (FMath::IsNearlyEqual(NewVisualPos.X + CurrentSize.X, Target.Right, SnapDist)) 
-								NewVisualPos.X = Target.Right - CurrentSize.X;
+						// Horizontal
+						if (FMath::IsNearlyEqual(NewVisualPos.X + CurrentSize.X, Target.Left, SnapDist)) 
+							NewVisualPos.X = Target.Left - CurrentSize.X;
+						else if (FMath::IsNearlyEqual(NewVisualPos.X, Target.Right, SnapDist)) 
+							NewVisualPos.X = Target.Right;
+						else if (FMath::IsNearlyEqual(NewVisualPos.X, Target.Left, SnapDist)) 
+							NewVisualPos.X = Target.Left;
+						else if (FMath::IsNearlyEqual(NewVisualPos.X + CurrentSize.X, Target.Right, SnapDist)) 
+							NewVisualPos.X = Target.Right - CurrentSize.X;
 
-							// VERTICAL SNAPS
-							// A. Adjacency (My Bottom -> Target Top)
-							if (FMath::IsNearlyEqual(NewVisualPos.Y + CurrentSize.Y, Target.Top, SnapDist)) 
-								NewVisualPos.Y = Target.Top - CurrentSize.Y;
-							// B. Adjacency (My Top -> Target Bottom)
-							else if (FMath::IsNearlyEqual(NewVisualPos.Y, Target.Bottom, SnapDist)) 
-								NewVisualPos.Y = Target.Bottom;
-							// C. Alignment (Top -> Top)
-							else if (FMath::IsNearlyEqual(NewVisualPos.Y, Target.Top, SnapDist)) 
-								NewVisualPos.Y = Target.Top;
-							// D. Alignment (Bottom -> Bottom)
-							else if (FMath::IsNearlyEqual(NewVisualPos.Y + CurrentSize.Y, Target.Bottom, SnapDist)) 
-								NewVisualPos.Y = Target.Bottom - CurrentSize.Y;
-						}
+						// Vertical
+						if (FMath::IsNearlyEqual(NewVisualPos.Y + CurrentSize.Y, Target.Top, SnapDist)) 
+							NewVisualPos.Y = Target.Top - CurrentSize.Y;
+						else if (FMath::IsNearlyEqual(NewVisualPos.Y, Target.Bottom, SnapDist)) 
+							NewVisualPos.Y = Target.Bottom;
+						else if (FMath::IsNearlyEqual(NewVisualPos.Y, Target.Top, SnapDist)) 
+							NewVisualPos.Y = Target.Top;
+						else if (FMath::IsNearlyEqual(NewVisualPos.Y + CurrentSize.Y, Target.Bottom, SnapDist)) 
+							NewVisualPos.Y = Target.Bottom - CurrentSize.Y;
 					}
-
-					// --- 2. PARENT EDGE SNAPPING ---
-					// Snap Left/Top
-					if (FMath::Abs(NewVisualPos.X) < SnapDist) NewVisualPos.X = 0.0f;
-					if (FMath::Abs(NewVisualPos.Y) < SnapDist) NewVisualPos.Y = 0.0f;
-					// Snap Right/Bottom
-					if (FMath::Abs((NewVisualPos.X + CurrentSize.X) - ParentSize.X) < SnapDist) 
-						NewVisualPos.X = ParentSize.X - CurrentSize.X;
-					if (FMath::Abs((NewVisualPos.Y + CurrentSize.Y) - ParentSize.Y) < SnapDist) 
-						NewVisualPos.Y = ParentSize.Y - CurrentSize.Y;
-
-					// --- 3. HARD CLAMP (Keep inside) ---
-					NewVisualPos.X = FMath::Clamp(NewVisualPos.X, 0.0f, ParentSize.X - CurrentSize.X);
-					NewVisualPos.Y = FMath::Clamp(NewVisualPos.Y, 0.0f, ParentSize.Y - 20.0f);
-
-					// --- 4. UPDATE ANCHOR & OFFSET ---
-					// Now that we have the final "snapped" visual position, determine the best quadrant anchor
-					UpdateAnchorAndOffset(NewVisualPos, ParentSize);
 				}
+
+				// --- 2. PARENT EDGE SNAPPING ---
+				if (FMath::Abs(NewVisualPos.X) < SnapDist) NewVisualPos.X = 0.0f;
+				if (FMath::Abs(NewVisualPos.Y) < SnapDist) NewVisualPos.Y = 0.0f;
+				if (FMath::Abs((NewVisualPos.X + CurrentSize.X) - ParentSize.X) < SnapDist) 
+					NewVisualPos.X = ParentSize.X - CurrentSize.X;
+				if (FMath::Abs((NewVisualPos.Y + CurrentSize.Y) - ParentSize.Y) < SnapDist) 
+					NewVisualPos.Y = ParentSize.Y - CurrentSize.Y;
+
+				// --- 3. HARD CLAMP ---
+				NewVisualPos.X = FMath::Clamp(NewVisualPos.X, 0.0f, ParentSize.X - CurrentSize.X);
+				NewVisualPos.Y = FMath::Clamp(NewVisualPos.Y, 0.0f, ParentSize.Y - 20.0f);
+
+				// --- 4. UPDATE ANCHOR ---
+				UpdateAnchorAndOffset(NewVisualPos, ParentSize);
 			}
-			else if (bResizing)
+			return FReply::Handled();
+		}
+		else if (bResizing && CurrentResizeDir != None)
+		{
+			float Scale = MyGeometry.GetAccumulatedLayoutTransform().GetScale();
+			FVector2D MouseDelta = (MouseEvent.GetScreenSpacePosition() - DragStartMousePos) / Scale;
+			
+			FVector2D NewSize = InitialDragSize;
+			FVector2D TargetVisualPos = DragStartVisualPos; // Start with original pos, modify if Top/Left sizing
+
+			// --- Apply Resize Logic per Edge ---
+			if (CurrentResizeDir & Right)
 			{
-				float Scale = MyGeometry.GetAccumulatedLayoutTransform().GetScale();
-				FVector2D MouseDelta = (MouseEvent.GetScreenSpacePosition() - DragStartMousePos) / Scale;
-				
-				CurrentSize = InitialDragSize + MouseDelta;
-				CurrentSize.X = FMath::Max(CurrentSize.X, 200.0f);
-				CurrentSize.Y = FMath::Max(CurrentSize.Y, 100.0f);
-				
-				SizeBox->SetWidthOverride(CurrentSize.X);
-				SizeBox->SetHeightOverride(CurrentSize.Y);
-
-				// Compensate for alignment shifts so the top-left corner stays pinned visually
-				// If we are anchored Right/Bottom, expanding size shifts the layout position Left/Top.
-				// We offset the RenderTransform to negate this shift.
-				TSharedPtr<SWidget> Parent = GetParentWidget();
-				if (Parent.IsValid() && OverlaySlot)
-				{
-					const FVector2D& ParentSize = Parent->GetPaintSpaceGeometry().GetLocalSize();
-					const FVector2D& NewLayoutPos = GetLayoutPosition(ParentSize, OverlaySlot->GetHorizontalAlignment(), OverlaySlot->GetVerticalAlignment());
-					const FVector2D NewOffset = DragStartVisualPos - NewLayoutPos;
-					SetRenderTransform(FSlateRenderTransform(NewOffset));
-				}
+				NewSize.X += MouseDelta.X;
 			}
+			if (CurrentResizeDir & Bottom)
+			{
+				NewSize.Y += MouseDelta.Y;
+			}
+			if (CurrentResizeDir & Left)
+			{
+				NewSize.X -= MouseDelta.X;
+				// If we grow Left, we must shift the Visual Position Left by the same amount
+				// to keep the Right edge stationary.
+				TargetVisualPos.X += MouseDelta.X;
+			}
+			if (CurrentResizeDir & Top)
+			{
+				NewSize.Y -= MouseDelta.Y;
+				TargetVisualPos.Y += MouseDelta.Y;
+			}
+
+			// --- Min Size Constraints ---
+			const FVector2D MinSize(200.0f, 100.0f);
+			
+			// If clamping size, we must also clamp the positional shift for Top/Left
+			if (NewSize.X < MinSize.X)
+			{
+				if (CurrentResizeDir & Left)
+				{
+					// Revert position shift if we hit the limit
+					float Overflow = MinSize.X - NewSize.X;
+					TargetVisualPos.X -= Overflow; 
+				}
+				NewSize.X = MinSize.X;
+			}
+			if (NewSize.Y < MinSize.Y)
+			{
+				if (CurrentResizeDir & Top)
+				{
+					float Overflow = MinSize.Y - NewSize.Y;
+					TargetVisualPos.Y -= Overflow;
+				}
+				NewSize.Y = MinSize.Y;
+			}
+
+			// Apply
+			CurrentSize = NewSize;
+			SizeBox->SetWidthOverride(CurrentSize.X);
+			SizeBox->SetHeightOverride(CurrentSize.Y);
+
+			// Update Position to compensate for Layout/Resize shifts
+			TSharedPtr<SWidget> Parent = GetParentWidget();
+			if (Parent.IsValid() && OverlaySlot)
+			{
+				const FVector2D& ParentSize = Parent->GetPaintSpaceGeometry().GetLocalSize();
+				const FVector2D& NewLayoutPos = GetLayoutPosition(ParentSize, OverlaySlot->GetHorizontalAlignment(), OverlaySlot->GetVerticalAlignment());
+				
+				// Calculate required offset to achieve TargetVisualPos
+				const FVector2D NewOffset = TargetVisualPos - NewLayoutPos;
+				SetRenderTransform(FSlateRenderTransform(NewOffset));
+			}
+
 			return FReply::Handled();
 		}
 		return FReply::Unhandled();
@@ -324,20 +384,26 @@ public:
 	
 	virtual FCursorReply OnCursorQuery(const FGeometry& MyGeometry, const FPointerEvent& CursorEvent) const override
 	{
-		if (bResizing) return FCursorReply::Cursor(EMouseCursor::ResizeSouthEast);
+		// Always check if dragging first
 		if (bDragging) return FCursorReply::Cursor(EMouseCursor::CardinalCross);
 
 		FVector2D LocalMouse = MyGeometry.AbsoluteToLocal(CursorEvent.GetScreenSpacePosition());
 		FVector2D Size = MyGeometry.GetLocalSize();
 
-		if (LocalMouse.X > Size.X - 20 && LocalMouse.Y > Size.Y - 20) return FCursorReply::Cursor(EMouseCursor::ResizeSouthEast);
-		if (LocalMouse.Y < 28) return FCursorReply::Cursor(EMouseCursor::CardinalCross);
+		uint8 Dir = bResizing ? CurrentResizeDir : CheckResizeDirection(LocalMouse, Size);
+
+		if (Dir == TopLeft || Dir == BottomRight) return FCursorReply::Cursor(EMouseCursor::ResizeSouthEast);
+		if (Dir == TopRight || Dir == BottomLeft) return FCursorReply::Cursor(EMouseCursor::ResizeSouthWest);
+		if (Dir & Top || Dir & Bottom) return FCursorReply::Cursor(EMouseCursor::ResizeUpDown);
+		if (Dir & Left || Dir & Right) return FCursorReply::Cursor(EMouseCursor::ResizeLeftRight);
+
+		// If hovering Title Bar (but not edges)
+		if (LocalMouse.Y < 28 && LocalMouse.Y >= 8.0f) return FCursorReply::Cursor(EMouseCursor::CardinalCross);
 
 		return FCursorReply::Unhandled();
 	}
 
 private:
-	// Determines the layout position (0,0 of the widget) based on current alignment settings
 	FVector2D GetLayoutPosition(const FVector2D& ParentSize, EHorizontalAlignment HAlign, EVerticalAlignment VAlign) const
 	{
 		FVector2D Pos(0,0);
@@ -350,8 +416,6 @@ private:
 		return Pos;
 	}
 
-	// Calculates the best anchor (Quadrant) based on position center vs parent center
-	// avoiding visual jumps by updating RenderTransform Offset
 	void UpdateAnchorAndOffset(const FVector2D& VisualTopLeft, const FVector2D& ParentSize)
 	{
 		if (!OverlaySlot) return;
@@ -361,11 +425,9 @@ private:
 		EHorizontalAlignment NewH = (Center.X > ParentSize.X * 0.5f) ? HAlign_Right : HAlign_Left;
 		EVerticalAlignment NewV = (Center.Y > ParentSize.Y * 0.5f) ? VAlign_Bottom : VAlign_Top;
 
-		// Update Slot Alignment
 		OverlaySlot->SetHorizontalAlignment(NewH);
 		OverlaySlot->SetVerticalAlignment(NewV);
 
-		// Calculate new Render Transform so the widget stays visually static despite anchor change
 		FVector2D NewLayoutPos = GetLayoutPosition(ParentSize, NewH, NewV);
 		FVector2D NewOffset = VisualTopLeft - NewLayoutPos;
 
@@ -380,6 +442,7 @@ private:
 	
 	bool bDragging = false;
 	bool bResizing = false;
+	uint8 CurrentResizeDir = None; // State tracker for active resize operation
 	
 	FVector2D DragStartMousePos;
 	FVector2D DragStartVisualPos;

@@ -59,7 +59,7 @@ public:
 		[
 			SNew(SBorder)
 			.Padding(2)
-			.BorderImage(bInOverlay ? FCoreStyle::Get().GetBrush("NoBrush") : FCoreStyle::Get().GetBrush("WhiteBrush"))
+			.BorderImage(InputFlowHelpers::GetBackgroundBrush(bInOverlay))
 			.BorderBackgroundColor(bInOverlay ? FLinearColor(0,0,0,0.2f) : FLinearColor(0.1f, 0.1f, 0.1f))
 			[
 				SNew(SHorizontalBox)

@@ -32,6 +32,10 @@ FInputFlowSpy::FInputFlowSpy()
 	{
 		FocusChangedHandle = FSlateApplication::Get().OnFocusChanging().AddRaw(this, &FInputFlowSpy::OnFocusChanging);
 	}
+
+#if WITH_SLATE_DEBUGGING
+	FSlateDebugging::InputEvent.AddRaw(this, &FInputFlowSpy::OnSlateInputEvent);
+#endif
 }
 
 FInputFlowSpy::~FInputFlowSpy()
@@ -43,6 +47,10 @@ FInputFlowSpy::~FInputFlowSpy()
 		FSlateApplication::Get().OnFocusChanging().Remove(FocusChangedHandle);
 		FocusChangedHandle.Reset();
 	}
+
+#if WITH_SLATE_DEBUGGING
+	FSlateDebugging::InputEvent.RemoveAll(this);
+#endif
 }
 
 void FInputFlowSpy::ResetBuffer()
@@ -255,7 +263,7 @@ FString FInputFlowSpy::GetWidgetDisplayName(const TSharedPtr<SWidget>& Widget) c
 TSharedPtr<SWidget> FInputFlowSpy::FindInterestingWidget(FSlateApplication& SlateApp, const FVector2D& CursorPos) const
 {
 	FWidgetPath WidgetsUnderCursor = SlateApp.LocateWindowUnderMouse(CursorPos, SlateApp.GetInteractiveTopLevelWindows());
-    
+	
 	if (WidgetsUnderCursor.IsValid() && WidgetsUnderCursor.Widgets.Num() > 0)
 	{
 		if (!InputFlowHelpers::IsGameWorldWidget(WidgetsUnderCursor.Widgets.Last().Widget))
@@ -441,6 +449,127 @@ void FInputFlowSpy::OnGenericButtonEvent(FString EventName, TWeakObjectPtr<UComm
 
 		AddLog(FString::Printf(TEXT("CommonUI | Button %s"), *EventName), "", FColor::Cyan, WidgetType, Name, State, true, Btn, Parts);
 	}
+}
+
+void FInputFlowSpy::OnSlateInputEvent(const FSlateDebuggingInputEventArgs& EventArgs)
+{
+#if WITH_SLATE_DEBUGGING
+	// 1. We only care about events that were actually CONSUMED (Handled)
+	if (!EventArgs.Reply.IsEventHandled())
+	{
+		return;
+	}
+
+	// 2. Filter based on configuration booleans
+	const ESlateDebuggingInputEvent EventType = EventArgs.InputEventType;
+	FString InputDetail;
+	FString Modifiers;
+	
+	// -- Case A: Key Events --
+	if (EventType == ESlateDebuggingInputEvent::KeyDown || EventType == ESlateDebuggingInputEvent::KeyUp)
+	{
+		if (!bCaptureKeyEvents) return;
+
+		const FKeyEvent* KeyEvent = static_cast<const FKeyEvent*>(EventArgs.InputEvent);
+		InputDetail = KeyEvent->GetKey().ToString();
+
+		if (KeyEvent->IsControlDown()) Modifiers += TEXT("Ctrl+");
+		if (KeyEvent->IsShiftDown()) Modifiers += TEXT("Shift+");
+		if (KeyEvent->IsAltDown()) Modifiers += TEXT("Alt+");
+		if (KeyEvent->IsCommandDown()) Modifiers += TEXT("Cmd+");
+	}
+	// -- Case B: Mouse Clicks & Wheel --
+	else if (EventType == ESlateDebuggingInputEvent::MouseButtonDown || 
+			 EventType == ESlateDebuggingInputEvent::MouseButtonUp || 
+			 EventType == ESlateDebuggingInputEvent::MouseButtonDoubleClick ||
+			 EventType == ESlateDebuggingInputEvent::MouseWheel)
+	{
+		if (!bCaptureMouseClicks) return;
+
+		const FPointerEvent* PointerEvent = static_cast<const FPointerEvent*>(EventArgs.InputEvent);
+		
+		if (EventType == ESlateDebuggingInputEvent::MouseWheel)
+		{
+			InputDetail = FString::Printf(TEXT("Wheel (%+.1f)"), PointerEvent->GetWheelDelta());
+		}
+		else
+		{
+			InputDetail = PointerEvent->GetEffectingButton().ToString();
+		}
+
+		// Mouse events also have modifiers
+		if (PointerEvent->IsControlDown()) Modifiers += TEXT("Ctrl+");
+		if (PointerEvent->IsShiftDown()) Modifiers += TEXT("Shift+");
+		if (PointerEvent->IsAltDown()) Modifiers += TEXT("Alt+");
+	}
+	// -- Case C: Analog --
+	else if (EventType == ESlateDebuggingInputEvent::AnalogInput)
+	{
+		if (!bCaptureAnalog) return;
+		
+		const FAnalogInputEvent* AnalogEvent = static_cast<const FAnalogInputEvent*>(EventArgs.InputEvent);
+		if (FMath::Abs(AnalogEvent->GetAnalogValue()) < 0.15f) return;
+		
+		InputDetail = FString::Printf(TEXT("%s (%.2f)"), *AnalogEvent->GetKey().ToString(), AnalogEvent->GetAnalogValue());
+	}
+	else
+	{
+		return;
+	}
+
+	// Prepend modifiers to detail (e.g., "Ctrl+S" instead of "S")
+	if (!Modifiers.IsEmpty())
+	{
+		InputDetail = Modifiers + InputDetail;
+	}
+
+	// Check for Reply Side Effects (Capture/Focus)
+	FString SideEffects;
+	if (EventArgs.Reply.GetMouseCaptor().IsValid())
+	{
+		SideEffects += TEXT(" [Captures Mouse]");
+	}
+	if (EventArgs.Reply.ShouldSetUserFocus())
+	{
+		SideEffects += TEXT(" [Sets Focus]");
+	}
+	// Slate often passes extra info in AdditionalContent (e.g. Navigation Genesis)
+	if (!EventArgs.AdditionalContent.IsEmpty())
+	{
+		SideEffects += FString::Printf(TEXT(" (%s)"), *EventArgs.AdditionalContent);
+	}
+
+	// 3. Log the Consumption
+	const TSharedPtr<SWidget> Handler = EventArgs.HandlerWidget;
+	if (Handler.IsValid())
+	{
+		TArray<FInputLogRichTextPart> Parts;
+		FString Name;
+		
+		GenerateWidgetContextParts(Handler, Parts, Name);
+		
+		FString WidgetType = Handler->GetTypeAsString();
+		if (UWidget* UObj = InputFlowHelpers::GetOwnerUWidget(Handler))
+		{
+			WidgetType = UObj->GetClass()->GetName();
+		}
+
+		// Combine detail with side effects
+		FString FinalDetail = InputDetail + SideEffects;
+
+		AddLog(
+			TEXT("Slate | Handled Event"), 
+			FinalDetail, 
+			FColor::Emerald, 
+			WidgetType, 
+			Name, 
+			TEXT("CONSUMED"), 
+			InputFlowHelpers::IsButtonWidget(Handler), 
+			InputFlowHelpers::GetOwnerUWidget(Handler), 
+			Parts
+		);
+	}
+#endif
 }
 
 // ---------------------------

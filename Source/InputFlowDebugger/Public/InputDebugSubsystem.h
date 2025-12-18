@@ -18,7 +18,7 @@ UENUM(BlueprintType)
 enum class ENavSimResult : uint8
 {
 	Normal,     // Found a neighbor
-	Handled,    // Widget consumed the event via Custom Delegate
+	Handled,    // Widget consumed the event via Custom Delegate (or is a ListView/TileView which handles navigation internally)
 	Stopped     // Widget blocked navigation via Stop Rule
 };
 

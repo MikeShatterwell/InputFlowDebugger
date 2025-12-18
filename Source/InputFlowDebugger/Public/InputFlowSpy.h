@@ -10,6 +10,11 @@
 #include <Framework/Application/IInputProcessor.h>
 #include <Framework/Application/SlateApplication.h>
 
+// SlateCore
+#if WITH_SLATE_DEBUGGING
+#include "Debugging/SlateDebugging.h"
+#endif
+
 class UWidget;
 class UCommonButtonBase;
 
@@ -116,6 +121,9 @@ private:
 	// Callbacks matching CommonUI delegates
 	void OnButtonSelectionChanged(bool bSelected, TWeakObjectPtr<UCommonButtonBase> ButtonWeak);
 	void OnGenericButtonEvent(FString EventName, TWeakObjectPtr<UCommonButtonBase> ButtonWeak);
+
+	// Slate Debugging callback for logging Handled events
+	void OnSlateInputEvent(const FSlateDebuggingInputEventArgs& EventArgs);
 
 	FOnInputFlowFocusChanged OnFocusChangedDelegate;
 
