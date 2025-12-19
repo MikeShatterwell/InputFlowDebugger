@@ -72,14 +72,21 @@ private:
 	ECheckBoxState GetCaptureFocusState() const;
 	void OnToggleOverlay(ECheckBoxState NewState);
 	ECheckBoxState GetOverlayState() const;
-	void OnToggleShowPanels(ECheckBoxState NewState);
-	ECheckBoxState GetShowPanelsState() const;
+	void OnToggleCaptureHandledEvents(ECheckBoxState NewState);
+	ECheckBoxState GetCaptureHandledEventState() const;
 	void OnToggleSpider(ECheckBoxState NewState);
 	ECheckBoxState GetSpiderState() const;
 	void OnSpiderDepthChanged(int32 NewValue);
 	int32 GetSpiderDepth() const;
 	void OnToggleHitTestGrid(ECheckBoxState NewState);
 	ECheckBoxState GetHitTestGridState() const;
+	
+	void OnToggleShowLog(ECheckBoxState NewState);
+	ECheckBoxState GetShowLogState() const;
+	void OnToggleShowHierarchy(ECheckBoxState NewState);
+	ECheckBoxState GetShowHierarchyState() const;
+	void OnToggleShowDashboard(ECheckBoxState NewState);
+	ECheckBoxState GetShowDashboardState() const;
 
 	UInputDebugSubsystem* GetSubsystem() const;
 	TWeakObjectPtr<UInputDebugSubsystem> WeakSubsystem;

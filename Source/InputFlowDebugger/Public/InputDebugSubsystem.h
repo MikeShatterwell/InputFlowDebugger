@@ -70,6 +70,10 @@ public:
 	uint32 GetLogVersion() const { return LogVersion; }
 
 	// --- Spy Configuration ---
+	// Log Filtering
+	void SetShowHandledEvents(bool bEnabled);
+	bool GetShowHandledEvents() const;
+	
 	void SetCaptureMouseMove(bool bEnabled);
 	bool GetCaptureMouseMove() const;
 
@@ -90,13 +94,23 @@ public:
 	// -------------------------
 
 	// --- Overlay ---
+	// Panel Visibility Toggles
 	void SetOverlayEnabled(bool bEnabled);
-	bool IsOverlayEnabled() const;
+	bool GetIsOverlayEnabled() const { return bOverlayEnabled; }
 
-	// Controls whether the visual panels (Log, Inspector) are visible within the overlay
-	void SetShowOverlayPanels(bool bEnabled);
-	bool GetShowOverlayPanels() const { return bShowOverlayPanels; }
-	
+	void SetShowSettingsPanel(bool bEnabled) { bShowSettingsPanel = bEnabled; }
+	bool GetShowSettingsPanel() const { return bShowSettingsPanel; }
+
+	void SetShowLogPanel(bool bEnabled) { bShowLogPanel = bEnabled; }
+	bool GetShowLogPanel() const { return bShowLogPanel; }
+
+	void SetShowHierarchyPanel(bool bEnabled) { bShowHierarchyPanel = bEnabled; }
+	bool GetShowHierarchyPanel() const { return bShowHierarchyPanel; }
+
+	void SetShowDashboardPanel(bool bEnabled) { bShowDashboardPanel = bEnabled; }
+	bool GetShowDashboardPanel() const { return bShowDashboardPanel; }
+
+	// Hit Test Grid
 	void SetShowHitTestGrid(bool bEnabled) { bShowHitTestGrid = bEnabled; }
 	bool GetShowHitTestGrid() const { return bShowHitTestGrid; }
 	// -------------------------
@@ -151,12 +165,19 @@ private:
 	// Overlay State
 	TSharedPtr<SInputFlowOverlay> OverlayWidget;
 	TSharedPtr<class SWidget> OverlayHost; // Container added to viewport
-	bool bOverlayEnabled = false;
-	bool bEnableNavigationSimulation = true;
-	bool bShowOverlayPanels = true;
-	bool bShowHitTestGrid = false;
 	FInputOverlayState OverlayState;
 	TArray<FFocusHistoryEntry> FocusHistory;
+	bool bOverlayEnabled = false;
+	bool bEnableNavigationSimulation = true;
+	
+	// Panel Visibility State
+	bool bShowSettingsPanel = true;
+	bool bShowLogPanel = true;
+	bool bShowHierarchyPanel = true;
+	bool bShowDashboardPanel = true;
+
+	bool bShowHitTestGrid = false;
+	bool bShowHandledEvents = false;
 
 	// Simulation Results
 	TWeakPtr<SWidget> FocusedWidget;

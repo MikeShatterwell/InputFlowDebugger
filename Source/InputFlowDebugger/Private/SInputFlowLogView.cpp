@@ -24,7 +24,7 @@ public:
 	SLATE_BEGIN_ARGS(SInputLogTableRow) {}
 	SLATE_END_ARGS()
 
-	void Construct(const FArguments& InArgs, const TSharedRef<STableViewBase>& InOwnerTableView, TSharedPtr<FInputEventLog> InItem, bool bInOverlay)
+	void Construct(const FArguments& InArgs, const TSharedRef<STableViewBase>& InOwnerTableView, TSharedPtr<FInputEventLog> InItem, bool bInOverlay, bool bIsSameFrameAsPrev)
 	{
 		SetTag(InputFlowHelpers::InputFlowAnalyzerTag);
 		
@@ -33,7 +33,9 @@ public:
 		STableRow<TSharedPtr<FInputEventLog>>::Construct(
 			STableRow<TSharedPtr<FInputEventLog>>::FArguments()
 			.Style(FAppStyle::Get(), StyleName)
-			.ShowSelection(!bInOverlay),
+			.ShowSelection(!bInOverlay)
+			// Remove padding to allow visual merging of rows
+			.Padding(bIsSameFrameAsPrev ? FMargin(0, 0, 0, 2) : FMargin(0, 2, 0, 2)),
 			InOwnerTableView
 		);
 		
@@ -48,7 +50,8 @@ public:
 		FLinearColor BadgeColor = InItem->Color;
 		FString TypeStr = InItem->EventType;
 		
-		FString TimeStr = FString::Printf(TEXT("%s.%03d"), 
+		// If same frame as previous, hide the timestamp to group visually
+		FString TimeStr = bIsSameFrameAsPrev ? TEXT("") : FString::Printf(TEXT("%s.%03d"), 
 			*InItem->CaptureTime.ToString(TEXT("%H:%M:%S")), 
 			InItem->CaptureTime.GetMillisecond());
 
@@ -161,13 +164,11 @@ public:
 				
 				if (bInOverlay)
 				{
-					// Overlay Logic: Start dark with opacity, fade to transparent
-					float Alpha = FMath::Clamp(0.8f - (Age * 0.2f), 0.0f, 0.4f);
+					float Alpha = FMath::Clamp(0.5f - (Age * 0.2f), 0.0f, 0.2f);
 					return FLinearColor(0.0f, 0.0f, 0.0f, Alpha);
 				}
 				else
 				{
-					// Editor Logic: Start White (flash), fade to transparent (showing table row color)
 					float Alpha = FMath::Clamp(1.0f - (Age / 1.0f), 0.0f, 0.4f);
 					return FLinearColor(1.0f, 1.0f, 1.0f, Alpha);
 				}
@@ -265,10 +266,7 @@ void SInputFlowLogView::Construct(const FArguments& InArgs, UInputDebugSubsystem
 	}
 	else
 	{
-		ToolbarWidget = SNew(STextBlock)
-			.Text(FText::FromString("Input Event Log"))
-			.Font(FCoreStyle::GetDefaultFontStyle("Bold", 10))
-			.ColorAndOpacity(FLinearColor::Green);
+		ToolbarWidget = SNullWidget::NullWidget; // Title handled by panel header now
 	}
 
 	ChildSlot
@@ -276,6 +274,7 @@ void SInputFlowLogView::Construct(const FArguments& InArgs, UInputDebugSubsystem
 		SNew(SBorder)
 		.BorderImage(InputFlowHelpers::GetBackgroundBrush(bIsOverlay))
 		.Padding(bIsOverlay ? 0.0f : 2.0f)
+		.BorderBackgroundColor(bIsOverlay ? FLinearColor::Transparent : FLinearColor::White)
 		[
 			SNew(SVerticalBox)
 			+ SVerticalBox::Slot().AutoHeight().Padding(2)
@@ -353,11 +352,8 @@ void SInputFlowLogView::UpdateLogView()
 
 	SourceData.Reset();
 	const bool bFilter = !LogFilterText.IsEmpty();
+	const bool bShowHandled = DebugSubsystem->GetShowHandledEvents();
 
-	// Iterate Ring Buffer Chronologically
-	// If wrapped: [WriteIdx -> End] then [0 -> WriteIdx-1]
-	// If not wrapped: [0 -> WriteIdx-1]
-	
 	int32 Start = bWrapped ? WriteIdx : 0;
 	int32 TotalItems = bWrapped ? Buffer.Num() : WriteIdx;
 
@@ -373,8 +369,13 @@ void SInputFlowLogView::UpdateLogView()
 		if (!Buffer.IsValidIndex(CurrIdx)) continue;
 		
 		const TSharedPtr<FInputEventLog>& Log = Buffer[CurrIdx];
-
 		if (!Log.IsValid()) continue; 
+
+		// "Handled" Filter
+		if (!bShowHandled && Log->EventType.Contains("Handled"))
+		{
+			continue;
+		}
 
 		if (bFilter)
 		{
@@ -395,5 +396,23 @@ void SInputFlowLogView::UpdateLogView()
 
 TSharedRef<ITableRow> SInputFlowLogView::GenerateRow(TSharedPtr<FInputEventLog> Item, const TSharedRef<STableViewBase>& OwnerTable)
 {
-	return SNew(SInputLogTableRow, OwnerTable, Item, bIsOverlay);
+	// Calculate if this frame is visually grouped with the previous one
+	bool bIsSameFrame = false;
+	
+	// We need to look up the index of this Item in SourceData
+	int32 Idx = SourceData.Find(Item);
+	if (Idx > 0)
+	{
+		TSharedPtr<FInputEventLog> Prev = SourceData[Idx - 1];
+		if (Prev.IsValid())
+		{
+			// If events are within 0.01s (10ms) of each other, consider them same frame/burst
+			if (FMath::Abs(Item->TimeSeconds - Prev->TimeSeconds) < 0.01)
+			{
+				bIsSameFrame = true;
+			}
+		}
+	}
+
+	return SNew(SInputLogTableRow, OwnerTable, Item, bIsOverlay, bIsSameFrame);
 }

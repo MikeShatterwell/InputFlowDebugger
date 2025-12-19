@@ -41,6 +41,7 @@ namespace InputFlowStyle
 // --------------------------------------------------------------------
 
 DECLARE_DELEGATE_RetVal_OneParam(TArray<FSlateRect>, FOnGetSnapTargets, const SWidget* /*Requestor*/);
+DECLARE_DELEGATE(FOnClosePanel);
 
 class SInputFlowDraggablePanel : public SCompoundWidget
 {
@@ -69,6 +70,7 @@ public:
 		SLATE_ARGUMENT(FVector2D, InitialSize)
 		SLATE_ARGUMENT(FString, Title)
 		SLATE_EVENT(FOnGetSnapTargets, OnGetSnapTargets)
+		SLATE_EVENT(FOnClosePanel, OnClose)
 		SLATE_DEFAULT_SLOT(FArguments, Content)
 	SLATE_END_ARGS()
 
@@ -91,29 +93,43 @@ public:
 				.Padding(0)
 				[
 					SNew(SVerticalBox)
-					
 					// Header / Title Bar (Draggable Area)
 					+ SVerticalBox::Slot().AutoHeight()
-					[
-						SNew(SBorder)
-						.BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush"))
-						.BorderBackgroundColor(FLinearColor(0.1f, 0.1f, 0.1f, 1.0f))
-						.Padding(FMargin(8, 4))
-						[
-							SNew(STextBlock)
-							.Text(FText::FromString(InArgs._Title))
-							.Font(FCoreStyle::GetDefaultFontStyle("Bold", 9))
-							.ColorAndOpacity(FLinearColor(0.8f, 0.8f, 0.8f))
-						]
-					]
+										[
+											SNew(SBorder)
+											.BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush"))
+											.BorderBackgroundColor(FLinearColor(0.1f, 0.1f, 0.1f, 0.8f))
+											.Padding(FMargin(4, 2))
+											[
+												SNew(SHorizontalBox)
+												+ SHorizontalBox::Slot().FillWidth(1.0f).VAlign(VAlign_Center)
+												[
+													SNew(STextBlock)
+													.Text(FText::FromString(InArgs._Title))
+													.Font(FCoreStyle::GetDefaultFontStyle("Bold", 9))
+													.ColorAndOpacity(FLinearColor(0.8f, 0.8f, 0.8f))
+												]
+												+ SHorizontalBox::Slot().AutoWidth().Padding(4, 0, 0, 0)
+												[
+													SNew(SButton)
+													.ButtonStyle(FCoreStyle::Get(), "HoverHintOnly")
+													.ContentPadding(2)
+													.OnClicked_Lambda([Close = InArgs._OnClose]() { if (Close.ExecuteIfBound()) return FReply::Handled(); return FReply::Unhandled(); })
+													[
+														SNew(STextBlock)
+														.Text(FText::FromString("X"))
+														.Font(FCoreStyle::GetDefaultFontStyle("Bold", 8))
+														.ColorAndOpacity(FLinearColor(0.8f, 0.3f, 0.3f))
+													]
+												]
+											]
+										]
 
 					// Content
 					+ SVerticalBox::Slot().FillHeight(1.0f).Padding(4)
 					[
 						InArgs._Content.Widget
 					]
-
-					// REMOVED: Scaling Icon SImage
 				]
 			]
 		];
@@ -464,15 +480,6 @@ void SInputFlowOverlay::Construct(const FArguments& InArgs)
 
 	SetVisibility(EVisibility::SelfHitTestInvisible);
 
-	auto GetPanelVisibility = [this]() -> EVisibility
-	{
-		if (DebugSubsystem.IsValid() && DebugSubsystem->GetShowOverlayPanels())
-		{
-			return EVisibility::Visible;
-		}
-		return EVisibility::Collapsed;
-	};
-
 	// Snapping Delegate: Returns rects of all sibling panels
 	auto GetSnapTargets = [this](const SWidget* Requestor) -> TArray<FSlateRect>
 	{
@@ -515,13 +522,18 @@ void SInputFlowOverlay::Construct(const FArguments& InArgs)
 	};
 
 	// 1. Settings Panel
+	const FString SettingsPanelTitle = TEXT("Settings");
 	AddPanel(
 		SNew(SInputFlowDraggablePanel)
-		.Title(TEXT("Settings"))
+		.Title(SettingsPanelTitle)
 		.InitialPosition(FVector2D(20, 20)) 
 		.InitialSize(FVector2D(320, 150))
 		.OnGetSnapTargets_Lambda(GetSnapTargets)
-		.Visibility_Lambda(GetPanelVisibility)
+		.OnClose_Lambda([Sub](){ if(Sub) Sub->SetShowSettingsPanel(false); })
+		.Visibility_Lambda([this]() -> EVisibility
+		{
+			return GetSubsystem() && GetSubsystem()->GetShowSettingsPanel() ? EVisibility::Visible : EVisibility::Collapsed;
+		})
 		[
 			SNew(SInputFlowSettingsPanel, Sub).IsOverlay(true)
 		]
@@ -534,7 +546,11 @@ void SInputFlowOverlay::Construct(const FArguments& InArgs)
 		.InitialPosition(FVector2D(1400, 20))
 		.InitialSize(FVector2D(400, 220))
 		.OnGetSnapTargets_Lambda(GetSnapTargets)
-		.Visibility_Lambda(GetPanelVisibility)
+		.OnClose_Lambda([Sub](){ if(Sub) Sub->SetShowDashboardPanel(false); })
+		.Visibility_Lambda([this]() -> EVisibility
+		{
+			return GetSubsystem() && GetSubsystem()->GetShowDashboardPanel() ? EVisibility::Visible : EVisibility::Collapsed;
+		})
 		[
 			SNew(SInputFlowStatusDashboard, Sub)
 		]
@@ -547,20 +563,28 @@ void SInputFlowOverlay::Construct(const FArguments& InArgs)
 		.InitialPosition(FVector2D(20, 700)) 
 		.InitialSize(FVector2D(500, 300))
 		.OnGetSnapTargets_Lambda(GetSnapTargets)
-		.Visibility_Lambda(GetPanelVisibility)
+		.OnClose_Lambda([Sub](){ if(Sub) Sub->SetShowLogPanel(false); })
+		.Visibility_Lambda([this]() -> EVisibility
+		{
+			return GetSubsystem() && GetSubsystem()->GetShowLogPanel() ? EVisibility::Visible : EVisibility::Collapsed;
+		})
 		[
 			SAssignNew(LogView, SInputFlowLogView, Sub).IsOverlay(true)
 		]
 	);
 
-	// 4. Inspectors
+	// 4. Hierarchy
 	AddPanel(
 		SNew(SInputFlowDraggablePanel)
 		.Title(TEXT("Hierarchy & Actions"))
 		.InitialPosition(FVector2D(1400, 300))
 		.InitialSize(FVector2D(400, 500))
 		.OnGetSnapTargets_Lambda(GetSnapTargets)
-		.Visibility_Lambda(GetPanelVisibility)
+		.OnClose_Lambda([Sub](){ if(Sub) Sub->SetShowHierarchyPanel(false); })
+		.Visibility_Lambda([this]() -> EVisibility
+		{
+			return GetSubsystem() && GetSubsystem()->GetShowHierarchyPanel() ? EVisibility::Visible : EVisibility::Collapsed;
+		})
 		[
 			SNew(SVerticalBox)
 			+ SVerticalBox::Slot().FillHeight(0.6f).Padding(0, 0, 0, 4)

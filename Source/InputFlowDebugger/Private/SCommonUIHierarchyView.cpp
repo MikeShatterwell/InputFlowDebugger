@@ -169,6 +169,7 @@ void SCommonUIHierarchyView::Construct(const FArguments& InArgs, UInputDebugSubs
 	[
 		SNew(SBorder)
 		.BorderImage(InputFlowHelpers::GetBackgroundBrush(bIsOverlay))
+		.BorderBackgroundColor(bIsOverlay ? FLinearColor(0.0f, 0.0f, 0.0f, 0.6f) : FLinearColor::White)
 		.Padding(0.0f)
 		[
 			SNew(SVerticalBox)

@@ -454,6 +454,11 @@ void FInputFlowSpy::OnGenericButtonEvent(FString EventName, TWeakObjectPtr<UComm
 void FInputFlowSpy::OnSlateInputEvent(const FSlateDebuggingInputEventArgs& EventArgs)
 {
 #if WITH_SLATE_DEBUGGING
+	if (!bCaptureHandledEvents)
+	{
+		return;
+	}
+
 	// 1. We only care about events that were actually CONSUMED (Handled)
 	if (!EventArgs.Reply.IsEventHandled())
 	{
@@ -533,7 +538,7 @@ void FInputFlowSpy::OnSlateInputEvent(const FSlateDebuggingInputEventArgs& Event
 	{
 		SideEffects += TEXT(" [Sets Focus]");
 	}
-	// Slate often passes extra info in AdditionalContent (e.g. Navigation Genesis)
+	// Slate often passes extra info in AdditionalContent
 	if (!EventArgs.AdditionalContent.IsEmpty())
 	{
 		SideEffects += FString::Printf(TEXT(" (%s)"), *EventArgs.AdditionalContent);

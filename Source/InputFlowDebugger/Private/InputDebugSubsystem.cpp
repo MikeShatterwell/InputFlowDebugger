@@ -270,17 +270,6 @@ void UInputDebugSubsystem::SetOverlayEnabled(bool bEnabled)
 	}
 }
 
-void UInputDebugSubsystem::SetShowOverlayPanels(bool bEnabled)
-{
-	bShowOverlayPanels = bEnabled;
-	// The Overlay Widget polls this via GetShowOverlayPanels()
-}
-
-bool UInputDebugSubsystem::IsOverlayEnabled() const
-{
-	return bOverlayEnabled;
-}
-
 // --- Data Gathering for Overlay ---
 
 void UInputDebugSubsystem::UpdateDataSnapshot()
@@ -865,6 +854,16 @@ void UInputDebugSubsystem::StartNewSimulation(TSharedPtr<SWidget> StartWidget)
 // ----------------------------------------------------------------------------------
 // Setters/Getters
 // ----------------------------------------------------------------------------------
+
+void UInputDebugSubsystem::SetShowHandledEvents(bool bEnabled)
+{
+	if (InputSpy) InputSpy->bCaptureHandledEvents = bEnabled;
+}
+
+bool UInputDebugSubsystem::GetShowHandledEvents() const
+{
+	return InputSpy ? InputSpy->bCaptureHandledEvents : false;
+}
 
 void UInputDebugSubsystem::SetCaptureMouseMove(bool bEnabled)
 {
