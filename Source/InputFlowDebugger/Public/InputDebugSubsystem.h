@@ -17,7 +17,8 @@
 UENUM(BlueprintType)
 enum class ENavSimResult : uint8
 {
-	Normal,     // Found a neighbor
+	Normal,     // Found a neighbor via spatial hit test
+	Explicit,   // Widget has a specific target via Explicit Rule
 	Handled,    // Widget consumed the event via Custom Delegate (or is a ListView/TileView which handles navigation internally)
 	Stopped     // Widget blocked navigation via Stop Rule
 };
@@ -106,6 +107,9 @@ public:
 
 	void SetShowHierarchyPanel(bool bEnabled) { bShowHierarchyPanel = bEnabled; }
 	bool GetShowHierarchyPanel() const { return bShowHierarchyPanel; }
+	
+	void SetShowEnhancedInputPanel(bool bEnabled) { bShowEnhancedInputPanel = bEnabled; }
+	bool GetShowEnhancedInputPanel() const { return bShowEnhancedInputPanel; }
 
 	void SetShowDashboardPanel(bool bEnabled) { bShowDashboardPanel = bEnabled; }
 	bool GetShowDashboardPanel() const { return bShowDashboardPanel; }
@@ -141,7 +145,7 @@ private:
 	void StartNewSimulation(TSharedPtr<SWidget> StartWidget);
 	
 	// Single step simulation
-	TPair<TSharedPtr<SWidget>, ENavSimResult> SimulateNavigation(const TSharedPtr<SWidget>& Source, EUINavigation Direction, int32 RealUserIndex) const;
+	TPair<TSharedPtr<SWidget>, ENavSimResult> SimulateNavigation(const TSharedPtr<SWidget>& Source, EUINavigation Direction, int32 UserIndex) const;
 
 	// Helper to process a chunk of the queue
 	void ProcessSimulationQueue();
@@ -174,6 +178,7 @@ private:
 	bool bShowSettingsPanel = true;
 	bool bShowLogPanel = true;
 	bool bShowHierarchyPanel = true;
+	bool bShowEnhancedInputPanel = true;
 	bool bShowDashboardPanel = true;
 
 	bool bShowHitTestGrid = false;

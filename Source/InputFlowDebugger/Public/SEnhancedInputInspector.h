@@ -9,6 +9,8 @@
 #include <Widgets/SCompoundWidget.h>
 #include <Widgets/Views/STreeView.h>
 
+#if WITH_PLUGIN_ENHANCEDINPUT
+
 class UInputDebugSubsystem;
 class UEnhancedPlayerInput;
 class UInputMappingContext;
@@ -51,3 +53,5 @@ private:
 	TSharedPtr<STreeView<TSharedPtr<FEnhancedInputInfoItem>>> TreeView;
 	TArray<TSharedPtr<FEnhancedInputInfoItem>> SourceData;
 };
+
+#endif

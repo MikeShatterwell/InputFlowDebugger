@@ -23,11 +23,12 @@
 // --- CONSTANTS FOR STYLING ---
 namespace InputFlowStyle
 {
-	constexpr FLinearColor Color_Focus = FLinearColor(0.2f, 0.8f, 0.2f); // Emerald
-	constexpr FLinearColor Color_NavNormal = FLinearColor(1.0f, 0.7f, 0.2f); // Amber
-	constexpr FLinearColor Color_NavHandled = FLinearColor(0.2f, 0.6f, 1.0f); // Soft Blue
-	constexpr FLinearColor Color_NavBlocked = FLinearColor(1.0f, 0.3f, 0.3f); // Soft Red
-	constexpr FLinearColor Color_Void = FLinearColor(0.5f, 0.5f, 0.5f); // Grey
+	constexpr FLinearColor Color_Focus = FLinearColor(0.2f, 0.8f, 0.2f);
+	constexpr FLinearColor Color_NavNormal = FLinearColor(1.0f, 0.7f, 0.2f);
+	constexpr FLinearColor Color_NavExplicit = FLinearColor(0.9f, 0.7f, 0.8f);
+	constexpr FLinearColor Color_NavHandled = FLinearColor(0.2f, 0.6f, 1.0f);
+	constexpr FLinearColor Color_NavBlocked = FLinearColor(1.0f, 0.3f, 0.3f);
+	constexpr FLinearColor Color_Void = FLinearColor(0.5f, 0.5f, 0.5f);
 	constexpr FLinearColor Color_LabelBg = FLinearColor(0.05f, 0.05f, 0.05f, 0.85f); // Dark Overlay
 
 	static const FSlateBrush* GetBrush(FName BrushName)
@@ -37,7 +38,7 @@ namespace InputFlowStyle
 }
 
 // --------------------------------------------------------------------
-// ENHANCED DRAGGABLE PANEL WITH SNAPPING & ANCHORING
+// DRAGGABLE PANEL WITH SNAPPING & ANCHORING
 // --------------------------------------------------------------------
 
 DECLARE_DELEGATE_RetVal_OneParam(TArray<FSlateRect>, FOnGetSnapTargets, const SWidget* /*Requestor*/);
@@ -80,6 +81,8 @@ public:
 		GetSnapTargetsDelegate = InArgs._OnGetSnapTargets;
 		
 		PendingInitialPosition = InArgs._InitialPosition;
+		
+		SetTag(InputFlowHelpers::InputFlowAnalyzerTag);
 
 		ChildSlot
 		[
@@ -95,35 +98,36 @@ public:
 					SNew(SVerticalBox)
 					// Header / Title Bar (Draggable Area)
 					+ SVerticalBox::Slot().AutoHeight()
-										[
-											SNew(SBorder)
-											.BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush"))
-											.BorderBackgroundColor(FLinearColor(0.1f, 0.1f, 0.1f, 0.8f))
-											.Padding(FMargin(4, 2))
-											[
-												SNew(SHorizontalBox)
-												+ SHorizontalBox::Slot().FillWidth(1.0f).VAlign(VAlign_Center)
-												[
-													SNew(STextBlock)
-													.Text(FText::FromString(InArgs._Title))
-													.Font(FCoreStyle::GetDefaultFontStyle("Bold", 9))
-													.ColorAndOpacity(FLinearColor(0.8f, 0.8f, 0.8f))
-												]
-												+ SHorizontalBox::Slot().AutoWidth().Padding(4, 0, 0, 0)
-												[
-													SNew(SButton)
-													.ButtonStyle(FCoreStyle::Get(), "HoverHintOnly")
-													.ContentPadding(2)
-													.OnClicked_Lambda([Close = InArgs._OnClose]() { if (Close.ExecuteIfBound()) return FReply::Handled(); return FReply::Unhandled(); })
-													[
-														SNew(STextBlock)
-														.Text(FText::FromString("X"))
-														.Font(FCoreStyle::GetDefaultFontStyle("Bold", 8))
-														.ColorAndOpacity(FLinearColor(0.8f, 0.3f, 0.3f))
-													]
-												]
-											]
-										]
+					[
+						SNew(SBorder)
+						.BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush"))
+						.BorderBackgroundColor(FLinearColor(0.1f, 0.1f, 0.1f, 0.8f))
+						.Padding(FMargin(4, 2))
+						[
+							SNew(SHorizontalBox)
+							+ SHorizontalBox::Slot().FillWidth(1.0f).VAlign(VAlign_Center)
+							[
+								SNew(STextBlock)
+								.Text(FText::FromString(InArgs._Title))
+								.Font(FCoreStyle::GetDefaultFontStyle("Bold", 9))
+								.ColorAndOpacity(FLinearColor(0.8f, 0.8f, 0.8f))
+							]
+							+ SHorizontalBox::Slot().AutoWidth().Padding(4, 0, 0, 0)
+							[
+								SNew(SButton)
+								.ButtonStyle(FCoreStyle::Get(), "HoverHintOnly")
+								.ContentPadding(2)
+								.IsFocusable(false)
+								.OnClicked_Lambda([Close = InArgs._OnClose]() { if (Close.ExecuteIfBound()) return FReply::Handled(); return FReply::Unhandled(); })
+								[
+									SNew(STextBlock)
+									.Text(FText::FromString("X"))
+									.Font(FCoreStyle::GetDefaultFontStyle("Bold", 8))
+									.ColorAndOpacity(FLinearColor(0.8f, 0.3f, 0.3f))
+								]
+							]
+						]
+					]
 
 					// Content
 					+ SVerticalBox::Slot().FillHeight(1.0f).Padding(4)
@@ -527,7 +531,7 @@ void SInputFlowOverlay::Construct(const FArguments& InArgs)
 		SNew(SInputFlowDraggablePanel)
 		.Title(SettingsPanelTitle)
 		.InitialPosition(FVector2D(20, 20)) 
-		.InitialSize(FVector2D(320, 150))
+		.InitialSize(FVector2D(500, 200))
 		.OnGetSnapTargets_Lambda(GetSnapTargets)
 		.OnClose_Lambda([Sub](){ if(Sub) Sub->SetShowSettingsPanel(false); })
 		.Visibility_Lambda([this]() -> EVisibility
@@ -561,7 +565,7 @@ void SInputFlowOverlay::Construct(const FArguments& InArgs)
 		SNew(SInputFlowDraggablePanel)
 		.Title(TEXT("Input Event Log"))
 		.InitialPosition(FVector2D(20, 700)) 
-		.InitialSize(FVector2D(500, 300))
+		.InitialSize(FVector2D(800, 300))
 		.OnGetSnapTargets_Lambda(GetSnapTargets)
 		.OnClose_Lambda([Sub](){ if(Sub) Sub->SetShowLogPanel(false); })
 		.Visibility_Lambda([this]() -> EVisibility
@@ -574,9 +578,10 @@ void SInputFlowOverlay::Construct(const FArguments& InArgs)
 	);
 
 	// 4. Hierarchy
+#if WITH_PLUGIN_COMMONUI
 	AddPanel(
 		SNew(SInputFlowDraggablePanel)
-		.Title(TEXT("Hierarchy & Actions"))
+		.Title(TEXT("CommonUI Hierarchy"))
 		.InitialPosition(FVector2D(1400, 300))
 		.InitialSize(FVector2D(400, 500))
 		.OnGetSnapTargets_Lambda(GetSnapTargets)
@@ -589,14 +594,33 @@ void SInputFlowOverlay::Construct(const FArguments& InArgs)
 			SNew(SVerticalBox)
 			+ SVerticalBox::Slot().FillHeight(0.6f).Padding(0, 0, 0, 4)
 			[
-				SAssignNew(HierarchyView, SCommonUIHierarchyView, Sub).IsOverlay(true)
-			]
-			+ SVerticalBox::Slot().FillHeight(0.4f)
-			[
-				SAssignNew(InspectorView, SEnhancedInputInspector, Sub).IsOverlay(true)
+				SAssignNew(CommonUIHierarchyView, SCommonUIHierarchyView, Sub).IsOverlay(true)
 			]
 		]
 	);
+#endif
+
+#if WITH_PLUGIN_ENHANCEDINPUT
+	AddPanel(
+	SNew(SInputFlowDraggablePanel)
+	.Title(TEXT("Enhanced Input Inspector"))
+	.InitialPosition(FVector2D(1800, 400))
+	.InitialSize(FVector2D(400, 500))
+	.OnGetSnapTargets_Lambda(GetSnapTargets)
+	.OnClose_Lambda([Sub](){ if(Sub) Sub->SetShowHierarchyPanel(false); })
+	.Visibility_Lambda([this]() -> EVisibility
+	{
+		return GetSubsystem() && GetSubsystem()->GetShowEnhancedInputPanel() ? EVisibility::Visible : EVisibility::Collapsed;
+	})
+	[
+		SNew(SVerticalBox)
+		+ SVerticalBox::Slot().FillHeight(0.6f).Padding(0, 0, 0, 4)
+		[
+			SAssignNew(EnhancedInputInspectorView, SEnhancedInputInspector, Sub).IsOverlay(true)
+		]
+	]
+);
+#endif
 }
 
 UInputDebugSubsystem* SInputFlowOverlay::GetSubsystem() const
@@ -715,9 +739,14 @@ void SInputFlowOverlay::PaintNavigationSimulation(const FGeometry& AllottedGeome
 		TSharedPtr<SWidget> End = Link.EndWidget.Pin();
 		if (!Start) continue;
 
+		const bool bIsNormal = (Link.ResultType == ENavSimResult::Normal);
+		const bool bIsStopped = (Link.ResultType == ENavSimResult::Stopped);
+		const bool bIsHandled = (Link.ResultType == ENavSimResult::Handled);
+		const bool bIsExplicit = (Link.ResultType == ENavSimResult::Explicit);
+
 		float Alpha = (MaxDepth == 1) ? 1.0f : FMath::Clamp(1.5f - ((float)Link.DepthStep / MaxDepth), 0.2f, 1.0f);
 
-		if (Link.ResultType == ENavSimResult::Normal && End.IsValid())
+		if (bIsNormal && End.IsValid())
 		{
 			FLinearColor LinkColor = InputFlowStyle::Color_NavNormal.CopyWithNewOpacity(Alpha);
 			FString EndName = InputFlowHelpers::GetWidgetDisplayName(End);
@@ -726,13 +755,35 @@ void SInputFlowOverlay::PaintNavigationSimulation(const FGeometry& AllottedGeome
 			DrawWidgetHighlight(End, LinkColor, Label, AllottedGeometry, OutDrawElements, LayerId);
 			DrawConnectionSpline(AllottedGeometry, Start, End, Link.Direction, LinkColor, OutDrawElements, LayerId);
 		}
-		else
+		else if (Link.ResultType == ENavSimResult::Stopped || Link.ResultType == ENavSimResult::Handled || Link.ResultType == ENavSimResult::Explicit)
 		{
-			bool bIsStopped = (Link.ResultType == ENavSimResult::Stopped);
-			FLinearColor Color = (bIsStopped ? InputFlowStyle::Color_NavBlocked : InputFlowStyle::Color_NavHandled).CopyWithNewOpacity(Alpha);
-			FString BlockerName = End.IsValid() ? InputFlowHelpers::GetWidgetDisplayName(End) : TEXT("Unknown");
-			FString StatusLabel = FString::Printf(TEXT("%s %s\n%s"), *UEnum::GetValueAsString(Link.Direction), bIsStopped ? TEXT("BLOCKED By") : TEXT("HANDLED By"), *BlockerName);
-			DrawDirectionalIndicator(AllottedGeometry, Start->GetPaintSpaceGeometry(), Link.Direction, StatusLabel, Color, OutDrawElements, LayerId);
+			// FLinearColor Color = (bIsStopped ? InputFlowStyle::Color_NavBlocked : InputFlowStyle::Color_NavHandled).CopyWithNewOpacity(Alpha);
+			if (bIsHandled)
+			{
+				FLinearColor Color = InputFlowStyle::Color_NavHandled.CopyWithNewOpacity(Alpha);
+				FString HandlerName = End.IsValid() ? InputFlowHelpers::GetWidgetDisplayName(End) : TEXT("Unknown");
+				FString StatusLabel = FString::Printf(TEXT("%s HANDLED By\n%s"), *UEnum::GetValueAsString(Link.Direction), *HandlerName);
+				DrawDirectionalIndicator(AllottedGeometry, Start->GetPaintSpaceGeometry(), Link.Direction, StatusLabel, Color, OutDrawElements, LayerId);
+				continue;
+			}
+			if (bIsStopped)
+			{
+				FLinearColor Color = InputFlowStyle::Color_NavBlocked.CopyWithNewOpacity(Alpha);
+				FString BlockerName = End.IsValid() ? InputFlowHelpers::GetWidgetDisplayName(End) : TEXT("Unknown");
+				FString StatusLabel = FString::Printf(TEXT("%s STOPPED By\n%s"), *UEnum::GetValueAsString(Link.Direction), *BlockerName);
+				DrawDirectionalIndicator(AllottedGeometry, Start->GetPaintSpaceGeometry(), Link.Direction, StatusLabel, Color, OutDrawElements, LayerId);
+				continue;
+			}
+			if (bIsExplicit)
+			{
+				FLinearColor Color = InputFlowStyle::Color_NavExplicit.CopyWithNewOpacity(Alpha);
+				FString TargetName = End.IsValid() ? InputFlowHelpers::GetWidgetDisplayName(End) : TEXT("Unknown");
+				FString StatusLabel = FString::Printf(TEXT("%s EXPLICIT To\n%s"), *UEnum::GetValueAsString(Link.Direction), *TargetName);
+				DrawDirectionalIndicator(AllottedGeometry, Start->GetPaintSpaceGeometry(), Link.Direction, StatusLabel, Color, OutDrawElements, LayerId);
+				DrawConnectionSpline(AllottedGeometry, Start, End, Link.Direction, Color.CopyWithNewOpacity(0.25f), OutDrawElements, LayerId);
+				DrawWidgetHighlight(End, Color, TargetName, AllottedGeometry, OutDrawElements, LayerId);
+				continue;
+			}
 		}
 	}
 }

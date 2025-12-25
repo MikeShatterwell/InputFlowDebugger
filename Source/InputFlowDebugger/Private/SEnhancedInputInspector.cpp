@@ -2,6 +2,8 @@
 
 #include "SEnhancedInputInspector.h"
 
+#if WITH_PLUGIN_ENHANCEDINPUT
+
 // Engine
 #include <Engine/GameInstance.h>
 #include <Engine/LocalPlayer.h>
@@ -368,3 +370,5 @@ void SEnhancedInputInspector::OnGetChildren(TSharedPtr<FEnhancedInputInfoItem> I
 		OutChildren = Item->Children;
 	}
 }
+
+#endif //WITH_PLUGIN_ENHANCEDINPUT

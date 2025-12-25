@@ -3,8 +3,10 @@
 #include "InputFlowSpy.h"
 
 // CommonUI
+#if WITH_PLUGIN_COMMONUI
 #include <CommonActivatableWidget.h>
 #include <CommonButtonBase.h>
+#endif
 
 // Editor
 #if WITH_EDITOR
@@ -40,7 +42,9 @@ FInputFlowSpy::FInputFlowSpy()
 
 FInputFlowSpy::~FInputFlowSpy()
 {
+#if WITH_PLUGIN_COMMONUI
 	ObservedButtons.Empty();
+#endif
 
 	if (FSlateApplication::IsInitialized() && FocusChangedHandle.IsValid())
 	{
@@ -130,7 +134,9 @@ void FInputFlowSpy::GenerateWidgetContextParts(const TSharedPtr<SWidget>& Widget
 	// Walk hierarchy
 	TSharedPtr<SWidget> Walker = Widget;
 	UUserWidget* ImmediateUserParent = nullptr;
+#if WITH_PLUGIN_COMMONUI
 	UCommonActivatableWidget* ActivatableParent = nullptr;
+#endif // WITH_PLUGIN_COMMONUI
 
 	while (Walker.IsValid())
 	{
@@ -141,11 +147,13 @@ void FInputFlowSpy::GenerateWidgetContextParts(const TSharedPtr<SWidget>& Widget
 		
 		if (WalkerObj && WalkerObj != Owner)
 		{
+#if WITH_PLUGIN_COMMONUI
 			if (UCommonActivatableWidget* FoundActivatable = Cast<UCommonActivatableWidget>(WalkerObj))
 			{
 				ActivatableParent = FoundActivatable;
 				break;
 			}
+#endif // WITH_PLUGIN_COMMONUI
 			
 			if (!ImmediateUserParent && WalkerObj->IsA<UUserWidget>())
 			{
@@ -155,6 +163,7 @@ void FInputFlowSpy::GenerateWidgetContextParts(const TSharedPtr<SWidget>& Widget
 	}
 
 	// Build context parts: " (from X in Y)"
+#if WITH_PLUGIN_COMMONUI
 	if (ImmediateUserParent && ActivatableParent)
 	{
 		if (ImmediateUserParent == ActivatableParent)
@@ -180,8 +189,10 @@ void FInputFlowSpy::GenerateWidgetContextParts(const TSharedPtr<SWidget>& Widget
 		OutParts.Add(FInputLogRichTextPart(ActivatableParent->GetName(), ActivatableParent, false));
 		OutParts.Add(FInputLogRichTextPart(TEXT(")")));
 		OutFlatName += FString::Printf(TEXT(" (from %s)"), *ActivatableParent->GetName());
+		return;
 	}
-	else if (ImmediateUserParent)
+#endif // WITH_PLUGIN_COMMONUI
+	if (ImmediateUserParent)
 	{
 		OutParts.Add(FInputLogRichTextPart(TEXT(" (from ")));
 		OutParts.Add(FInputLogRichTextPart(ImmediateUserParent->GetName(), ImmediateUserParent, false));
@@ -213,7 +224,9 @@ FString FInputFlowSpy::GetWidgetDisplayName(const TSharedPtr<SWidget>& Widget) c
 	TSharedPtr<SWidget> Walker = Widget;
 	
 	UUserWidget* ImmediateUserParent = nullptr;
+#if WITH_PLUGIN_COMMONUI
 	UCommonActivatableWidget* ActivatableParent = nullptr;
+#endif // WITH_PLUGIN_COMMONUI
 
 	while (Walker.IsValid())
 	{
@@ -224,11 +237,13 @@ FString FInputFlowSpy::GetWidgetDisplayName(const TSharedPtr<SWidget>& Widget) c
 		
 		if (WalkerObj && WalkerObj != Owner)
 		{
+#if WITH_PLUGIN_COMMONUI
 			if (UCommonActivatableWidget* FoundActivatable = Cast<UCommonActivatableWidget>(WalkerObj))
 			{
 				ActivatableParent = FoundActivatable;
 				break;
 			}
+#endif // WITH_PLUGIN_COMMONUI 
 			
 			if (!ImmediateUserParent && WalkerObj->IsA<UUserWidget>())
 			{
@@ -236,7 +251,7 @@ FString FInputFlowSpy::GetWidgetDisplayName(const TSharedPtr<SWidget>& Widget) c
 			}
 		}
 	}
-
+#if WITH_PLUGIN_COMMONUI
 	if (ImmediateUserParent && ActivatableParent)
 	{
 		if (ImmediateUserParent == ActivatableParent)
@@ -251,8 +266,10 @@ FString FInputFlowSpy::GetWidgetDisplayName(const TSharedPtr<SWidget>& Widget) c
 	else if (ActivatableParent)
 	{
 		DisplayName += FString::Printf(TEXT(" (from %s)"), *ActivatableParent->GetName());
+		return DisplayName;
 	}
-	else if (ImmediateUserParent)
+#endif // WITH_PLUGIN_COMMONUI
+	if (ImmediateUserParent)
 	{
 		DisplayName += FString::Printf(TEXT(" (from %s)"), *ImmediateUserParent->GetName());
 	}
@@ -279,13 +296,19 @@ TSharedPtr<SWidget> FInputFlowSpy::FindInterestingWidget(FSlateApplication& Slat
 			if (const UWidget* UObj = InputFlowHelpers::GetOwnerUWidget(SlateWidget))
 			{
 				if (!IsValid(UObj) || UObj->IsUnreachable()) continue;
-				
+
+#if WITH_PLUGIN_COMMONUI
 				if (UObj->IsA<UCommonButtonInternalBase>())
 				{
 					continue;
 				}
 
-				if (UObj->IsA<UCommonButtonBase>() || UObj->IsA<UButton>())
+				if (UObj->IsA<UCommonButtonBase>())
+				{
+					return SlateWidget;
+				}
+#endif // WITH_PLUGIN_COMMONUI
+				if (UObj->IsA<UButton>())
 				{
 					return SlateWidget;
 				}
@@ -334,7 +357,7 @@ FString FInputFlowSpy::GetWidgetStateDescription(const TSharedPtr<SWidget>& Widg
 		TSharedPtr<FReflectionMetaData> MetaData = Widget->GetMetaData<FReflectionMetaData>();
 		if (MetaData.IsValid()) AssociatedUWidget = Cast<UWidget>(MetaData->SourceObject.Get());
 	}
-
+#if WITH_PLUGIN_COMMONUI
 	if (AssociatedUWidget)
 	{
 		if (UCommonButtonBase* CommonBtn = Cast<UCommonButtonBase>(AssociatedUWidget))
@@ -356,6 +379,7 @@ FString FInputFlowSpy::GetWidgetStateDescription(const TSharedPtr<SWidget>& Widg
 			}
 		}
 	}
+#endif // WITH_PLUGIN_COMMONUI
 
 	if (States.Num() == 1) return TEXT("Normal");
 	
@@ -370,6 +394,7 @@ void FInputFlowSpy::BindButtonObservation(const TSharedPtr<SWidget>& Widget)
 	if (!InputFlowHelpers::IsGameWorldWidget(Widget)) return;
 
 	UWidget* Owner = InputFlowHelpers::GetOwnerUWidget(Widget);
+#if WITH_PLUGIN_COMMONUI
 	if (UCommonButtonBase* Btn = Cast<UCommonButtonBase>(Owner))
 	{
 		// Check if we already observe this button
@@ -383,20 +408,26 @@ void FInputFlowSpy::BindButtonObservation(const TSharedPtr<SWidget>& Widget)
 			Btn->OnIsSelectedChanged().AddSP(this, &FInputFlowSpy::OnButtonSelectionChanged, WeakBtn);
 
 			// Logic Events
-			Btn->OnClicked().AddSP(this, &FInputFlowSpy::OnGenericButtonEvent, FString(TEXT("Clicked")), WeakBtn);
-			Btn->OnDoubleClicked().AddSP(this, &FInputFlowSpy::OnGenericButtonEvent, FString(TEXT("DoubleClicked")), WeakBtn);
-			Btn->OnPressed().AddSP(this, &FInputFlowSpy::OnGenericButtonEvent, FString(TEXT("Pressed")), WeakBtn);
-			Btn->OnReleased().AddSP(this, &FInputFlowSpy::OnGenericButtonEvent, FString(TEXT("Released")), WeakBtn);
-			Btn->OnHovered().AddSP(this, &FInputFlowSpy::OnGenericButtonEvent, FString(TEXT("Hovered")), WeakBtn);
-			Btn->OnUnhovered().AddSP(this, &FInputFlowSpy::OnGenericButtonEvent, FString(TEXT("Unhovered")), WeakBtn);
-			Btn->OnFocusReceived().AddSP(this, &FInputFlowSpy::OnGenericButtonEvent, FString(TEXT("FocusReceived")), WeakBtn);
-			Btn->OnFocusLost().AddSP(this, &FInputFlowSpy::OnGenericButtonEvent, FString(TEXT("FocusLost")), WeakBtn);
-			Btn->OnLockClicked().AddSP(this, &FInputFlowSpy::OnGenericButtonEvent, FString(TEXT("LockClicked")), WeakBtn);
-			Btn->OnLockDoubleClicked().AddSP(this, &FInputFlowSpy::OnGenericButtonEvent, FString(TEXT("LockDoubleClicked")), WeakBtn);
+			Btn->OnClicked().AddSP(this, &FInputFlowSpy::OnCommonUIButtonEvent, FString(TEXT("Clicked")), WeakBtn);
+			Btn->OnDoubleClicked().AddSP(this, &FInputFlowSpy::OnCommonUIButtonEvent, FString(TEXT("DoubleClicked")), WeakBtn);
+			Btn->OnPressed().AddSP(this, &FInputFlowSpy::OnCommonUIButtonEvent, FString(TEXT("Pressed")), WeakBtn);
+			Btn->OnReleased().AddSP(this, &FInputFlowSpy::OnCommonUIButtonEvent, FString(TEXT("Released")), WeakBtn);
+			Btn->OnHovered().AddSP(this, &FInputFlowSpy::OnCommonUIButtonEvent, FString(TEXT("Hovered")), WeakBtn);
+			Btn->OnUnhovered().AddSP(this, &FInputFlowSpy::OnCommonUIButtonEvent, FString(TEXT("Unhovered")), WeakBtn);
+			Btn->OnFocusReceived().AddSP(this, &FInputFlowSpy::OnCommonUIButtonEvent, FString(TEXT("FocusReceived")), WeakBtn);
+			Btn->OnFocusLost().AddSP(this, &FInputFlowSpy::OnCommonUIButtonEvent, FString(TEXT("FocusLost")), WeakBtn);
+			Btn->OnLockClicked().AddSP(this, &FInputFlowSpy::OnCommonUIButtonEvent, FString(TEXT("LockClicked")), WeakBtn);
+			Btn->OnLockDoubleClicked().AddSP(this, &FInputFlowSpy::OnCommonUIButtonEvent, FString(TEXT("LockDoubleClicked")), WeakBtn);
 		}
 	}
+#endif // WITH_PLUGIN_COMMONUI
+	// TODO: Add support for UButton
+	/*if (UButton* Btn = Cast<UButton>(Owner))
+	{
+		Btn->OnClicked.AddUniqueDynamic(this, &FInputFlowSpy::OnUButtonClicked);
+	}*/
 }
-
+#if WITH_PLUGIN_COMMONUI
 void FInputFlowSpy::OnButtonSelectionChanged(bool bSelected, TWeakObjectPtr<UCommonButtonBase> ButtonWeak)
 {
 	if (UCommonButtonBase* Btn = ButtonWeak.Get())
@@ -415,14 +446,13 @@ void FInputFlowSpy::OnButtonSelectionChanged(bool bSelected, TWeakObjectPtr<UCom
 	}
 }
 
-void FInputFlowSpy::OnGenericButtonEvent(FString EventName, TWeakObjectPtr<UCommonButtonBase> ButtonWeak)
+void FInputFlowSpy::OnCommonUIButtonEvent(FString EventName, TWeakObjectPtr<UCommonButtonBase> ButtonWeak)
 {
 	if (EventName == TEXT("Hovered") || EventName == TEXT("Unhovered") && !bCaptureHover)
 	{
 		return;
 	}
-	if (
-		(EventName == TEXT("Pressed")
+	if ((EventName == TEXT("Pressed")
 			|| EventName == TEXT("Released")
 			|| EventName == TEXT("Clicked")
 			|| EventName == TEXT("DoubleClicked")
@@ -450,6 +480,7 @@ void FInputFlowSpy::OnGenericButtonEvent(FString EventName, TWeakObjectPtr<UComm
 		AddLog(FString::Printf(TEXT("CommonUI | Button %s"), *EventName), "", FColor::Cyan, WidgetType, Name, State, true, Btn, Parts);
 	}
 }
+#endif // WITH_PLUGIN_COMMONUI
 
 void FInputFlowSpy::OnSlateInputEvent(const FSlateDebuggingInputEventArgs& EventArgs)
 {

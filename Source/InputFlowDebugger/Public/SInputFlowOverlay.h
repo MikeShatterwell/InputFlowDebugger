@@ -10,7 +10,7 @@ class UInputDebugSubsystem;
 class SInputFlowLogView;
 class SCommonUIHierarchyView;
 class SEnhancedInputInspector;
-class SOverlay; // Forward declaration
+class SOverlay;
 
 /**
  * An overlay widget that renders debug visualization for the Input Flow Analyzer.
@@ -85,6 +85,7 @@ private:
 
 	/** Child widgets for the overlay panels */
 	TSharedPtr<SInputFlowLogView> LogView;
-	TSharedPtr<SCommonUIHierarchyView> HierarchyView;
-	TSharedPtr<SEnhancedInputInspector> InspectorView;
+
+	TSharedPtr<SCommonUIHierarchyView> CommonUIHierarchyView;
+	TSharedPtr<SEnhancedInputInspector> EnhancedInputInspectorView;
 };

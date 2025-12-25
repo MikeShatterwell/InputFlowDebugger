@@ -1,6 +1,9 @@
 ﻿// Copyright Mike Desrosiers, All Rights Reserved.
 
 using UnrealBuildTool;
+using System.IO;
+using EpicGames.Core;
+using Microsoft.Extensions.Logging;
 
 public class InputFlowDebugger : ModuleRules
 {
@@ -22,12 +25,11 @@ public class InputFlowDebugger : ModuleRules
 			);
 			
 		
+		// Add engine modules that are statically linked with this module
 		PublicDependencyModuleNames.AddRange(
 			new string[]
 			{
 				"Core",
-				"EnhancedInput",
-				// ... add other public dependencies that you statically link with here ...
 			}
 			);
 			
@@ -40,11 +42,8 @@ public class InputFlowDebugger : ModuleRules
 				"Slate",
 				"SlateCore",
 				"InputCore",
+				"GameplayTags",
 				"UMG",
-				"CommonInput",
-				"CommonUI",
-				"GameplayTags"
-				// ... add private dependencies that you statically link with here ...	
 			}
 			);
 		
@@ -55,6 +54,7 @@ public class InputFlowDebugger : ModuleRules
 				// ... add any modules that your module loads dynamically here ...
 			}
 			);
+
 		if (Target.bBuildEditor)
 		{
 			PrivateDependencyModuleNames.AddRange(
@@ -68,6 +68,67 @@ public class InputFlowDebugger : ModuleRules
 					"SlateReflector"
 				}
 			);
+		}
+
+		// -------------------------------------------------------------------------
+		// Selective Inclusion Logic
+		// -------------------------------------------------------------------------
+		
+		ILogger Logger = Target.Logger;
+
+		// Check the Project file to see which plugins are enabled in the current project
+		if (Target.ProjectFile != null)
+		{
+			Logger.LogDebug("Project file found: {File}", Target.ProjectFile.FullName);
+			
+			// Read the .uproject file directly
+			JsonObject RawObject = JsonObject.Read(Target.ProjectFile);
+			
+			JsonObject[] PluginList;
+			if (RawObject.TryGetObjectArrayField("Plugins", out PluginList))
+			{
+				foreach (JsonObject ReferenceObject in PluginList)
+				{
+					string PluginName;
+					if (!ReferenceObject.TryGetStringField("Name", out PluginName)) continue;
+
+					bool IsPluginEnabled = false;
+					if (!ReferenceObject.TryGetBoolField("Enabled", out IsPluginEnabled)) IsPluginEnabled = false;
+
+					Logger.LogDebug(
+						"Found Plugin named {PluginName}, Enabled: {Enabled}",
+						PluginName,
+						IsPluginEnabled ? "Yes" : "No"
+					);
+
+					if (IsPluginEnabled)
+					{
+						if (PluginName == "EnhancedInput")
+						{
+							PublicDependencyModuleNames.Add("EnhancedInput");
+						}
+						else if (PluginName == "CommonUI")
+						{
+							PrivateDependencyModuleNames.AddRange(
+								new string[]
+								{
+									"CommonUI",
+									"CommonInput", 
+								}
+							);
+						}
+					}
+
+					var Symbol = $"WITH_PLUGIN_{PluginName.ToUpper()}={(IsPluginEnabled ? 1 : 0)}";
+					PublicDefinitions.Add(Symbol);
+
+					Logger.LogDebug("Adding symbol definition {SymbolDef}", Symbol);
+				}
+			}
+		}
+		else
+		{
+			Logger.LogDebug("No Project file found (Target.ProjectFile is null). Skipping selective plugin inclusion.");
 		}
 	}
 }

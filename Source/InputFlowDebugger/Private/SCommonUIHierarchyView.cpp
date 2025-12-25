@@ -2,6 +2,8 @@
 
 #include "SCommonUIHierarchyView.h"
 
+#if WITH_PLUGIN_COMMONUI
+
 // CommonUI
 #include <CommonActivatableWidget.h>
 #include <Input/CommonUIActionRouterBase.h>
@@ -450,3 +452,5 @@ void SCommonUIHierarchyView::OnGetChildren(TSharedPtr<FCommonUITreeItem> Item, T
 {
 	OutChildren = Item->Children;
 }
+
+#endif // WITH_PLUGIN_COMMONUI

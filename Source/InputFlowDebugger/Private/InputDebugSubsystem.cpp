@@ -7,43 +7,43 @@
 #include "SInputFlowOverlay.h"
 
 // Core
-#include "Containers/Ticker.h"
+#include <Containers/Ticker.h>
 
 // Engine
-#include "Engine/GameInstance.h"
-#include "Engine/GameViewportClient.h"
+#include <Engine/GameInstance.h>
+#include <Engine/GameViewportClient.h>
 
 // EnhancedInput
-#include "EnhancedInputSubsystems.h"
-#include "EnhancedPlayerInput.h"
-#include "InputMappingContext.h"
-#include "InputAction.h"
+#if WITH_PLUGIN_ENHANCEDINPUT
+#include <EnhancedInputSubsystems.h>
+#include <EnhancedPlayerInput.h>
+#include <InputMappingContext.h>
+#include <InputAction.h>
+#endif // WITH_PLUGIN_ENHANCEDINPUT
 
 // Slate
-#include "Framework/Application/SlateApplication.h"
-#include "Widgets/Views/STableViewBase.h"
+#include <Framework/Application/SlateApplication.h>
+#include <Widgets/Views/STableViewBase.h>
+#include <Slate/SObjectTableRow.h>
 
 // SlateCore
-#include "Input/HittestGrid.h"
-#include "Widgets/SWindow.h"
-#include "Widgets/SWeakWidget.h"
+#include <Input/HittestGrid.h>
+#include <Widgets/SWindow.h>
+#include <Widgets/SWeakWidget.h>
 
 // UMG
 #include <Blueprint/WidgetTree.h>
+#include <Components/Button.h>
 
 // CommonUI
+#if WITH_PLUGIN_COMMONUI
 #include <CommonButtonBase.h>
-#include <SCommonButtonTableRow.h>
-#include <Components/PanelWidget.h>
-#include <Runtime/Slate/Private/Widgets/Views/SListPanel.h>
-#include <Slate/SObjectTableRow.h>
-#include <Widgets/Views/STileView.h>
-
-#include "CommonInputSubsystem.h"
-#include "CommonActivatableWidget.h"
-#include "CommonUITypes.h"
-#include "Input/CommonUIActionRouterBase.h"
-#include "Input/UIActionBinding.h"
+#include <CommonInputSubsystem.h>
+#include <CommonActivatableWidget.h>
+#include <CommonUITypes.h>
+#include <Input/CommonUIActionRouterBase.h>
+#include <Input/UIActionBinding.h>
+#endif // WITH_PLUGIN_COMMONUI
 
 static TAutoConsoleVariable<bool> CVarInputFlowOverlay(
 	TEXT("InputFlow.Overlay"),
@@ -72,6 +72,7 @@ public:
 		return static_cast<const FButtonAccess*>(Button)->MyButton;	}
 };
 
+#if WITH_PLUGIN_ENHANCEDINPUT
 class FInputFlowDebugAccessor : public UEnhancedPlayerInput
 {
 public:
@@ -81,6 +82,7 @@ public:
 		return static_cast<const FInputFlowDebugAccessor*>(PInput)->GetAppliedInputContextData();
 	}
 };
+#endif // WITH_PLUGIN_ENHANCEDINPUT
 
 // ----------------------------------------------------------------------------------
 // UInputDebugSubsystem Implementation
@@ -279,8 +281,9 @@ void UInputDebugSubsystem::UpdateDataSnapshot()
 	ULocalPlayer* LP = GetGameInstance()->GetFirstGamePlayer();
 	if (!LP) return;
 
-	// 1. Snapshot CommonUI Active Leaf & Config
+	// Snapshot CommonUI Active Leaf & Config
 	TSharedPtr<SWidget> FocusedSlateWidget = FSlateApplication::Get().GetKeyboardFocusedWidget();
+#if WITH_PLUGIN_COMMONUI
 	if (FocusedSlateWidget.IsValid())
 	{
 		if (UCommonActivatableWidget* Active = UCommonUIActionRouterBase::FindActivatable(FocusedSlateWidget, LP))
@@ -320,11 +323,13 @@ void UInputDebugSubsystem::UpdateDataSnapshot()
 		}
 	}
 
-	// 2. Snapshot Bound Actions (With Key Names)
+	// Snapshot Bound Actions (With Key Names)
 	if (UCommonUIActionRouterBase* Router = ULocalPlayer::GetSubsystem<UCommonUIActionRouterBase>(LP))
 	{
 		TArray<FUIActionBindingHandle> Bindings = Router->GatherActiveBindings();
+#if WITH_PLUGIN_ENHANCEDINPUT
 		UEnhancedInputLocalPlayerSubsystem* EISub = LP->GetSubsystem<UEnhancedInputLocalPlayerSubsystem>();
+#endif
 
 		for (const FUIActionBindingHandle& Handle : Bindings)
 		{
@@ -346,11 +351,13 @@ void UInputDebugSubsystem::UpdateDataSnapshot()
 
 			if (BindingPtr.IsValid())
 			{
-				// Case A: Enhanced Input (UE5 Standard)
+				// Case A: Enhanced Input 
+#if WITH_PLUGIN_ENHANCEDINPUT
 				if (const UInputAction* InputAction = BindingPtr->InputAction.Get())
 				{
 					if (EISub)
 					{
+						KeyString += TEXT("EInput: ");
 						TArray<FKey> Keys = EISub->QueryKeysMappedToAction(InputAction);
 						for (const FKey& Key : Keys)
 						{
@@ -359,11 +366,12 @@ void UInputDebugSubsystem::UpdateDataSnapshot()
 						}
 					}
 				}
+#endif // WITH_PLUGIN_ENHANCEDINPUT
 				// Case B: Legacy CommonUI (Data Table)
 				else if (const FCommonInputActionDataBase* LegacyData = CommonUI::GetInputActionData(
 					BindingPtr->LegacyActionTableRow))
 				{
-					// Use Public API to retrieve keys safely
+					KeyString += TEXT("CommonUI: ");
 
 					// 1. Keyboard
 					const FCommonInputTypeInfo& KbdInfo = LegacyData->GetInputTypeInfo(
@@ -394,6 +402,7 @@ void UInputDebugSubsystem::UpdateDataSnapshot()
 			OverlayState.BoundActions.AddUnique(Entry);
 		}
 	}
+#endif // WITH_PLUGIN_COMMONUI
 
 	// Default Fallbacks
 	if (OverlayState.ActiveCommonUILeaf.IsEmpty())
@@ -403,7 +412,8 @@ void UInputDebugSubsystem::UpdateDataSnapshot()
 		OverlayState.MouseCaptureMode = TEXT("Default");
 	}
 
-	// 3. Snapshot Triggered Enhanced Input Actions
+	// Snapshot Triggered Enhanced Input Actions
+#if WITH_PLUGIN_ENHANCEDINPUT
 	if (UEnhancedInputLocalPlayerSubsystem* EISub = LP->GetSubsystem<UEnhancedInputLocalPlayerSubsystem>())
 	{
 		if (UEnhancedPlayerInput* PlayerInput = EISub->GetPlayerInput())
@@ -433,6 +443,7 @@ void UInputDebugSubsystem::UpdateDataSnapshot()
 			}
 		}
 	}
+#endif // WITH_PLUGIN_ENHANCEDINPUT
 }
 
 // ----------------------------------------------------------------------------------
@@ -488,7 +499,7 @@ void UInputDebugSubsystem::OnSpyFocusChanged(const TSharedPtr<SWidget>& NewFocus
 }
 
 TPair<TSharedPtr<SWidget>, ENavSimResult> UInputDebugSubsystem::SimulateNavigation(
-	const TSharedPtr<SWidget>& Source, EUINavigation Direction, int32 RealUserIndex) const
+	const TSharedPtr<SWidget>& Source, EUINavigation Direction, int32 UserIndex) const
 {
 	const bool bDebugLog = CVarInputFlowNavSpiderDebugLog.GetValueOnGameThread();
 	
@@ -529,8 +540,10 @@ TPair<TSharedPtr<SWidget>, ENavSimResult> UInputDebugSubsystem::SimulateNavigati
 	// Special Handling: CommonUI Row Redirect
 	// If the simulation is asked to navigate from a TableRow (often what happens if the List itself has focus),
 	// but that row contains a CommonButton, simulate as if the navigation originated from the button logic.
+	// CONSIDER REMOVING THIS
 	// -----------------------------------------------------------------------------------
-	if (Source->GetTypeAsString() == TEXT("ObjectTableRowT"))
+#if WITH_PLUGIN_COMMONUI
+	/*if (Source->GetTypeAsString() == TEXT("ObjectTableRowT"))
 	{
 		TSharedPtr<SObjectTableRow<UObject*>> ObjectRow = StaticCastSharedPtr<SObjectTableRow<UObject*>>(Source);
 		if (ObjectRow.IsValid())
@@ -555,12 +568,13 @@ TPair<TSharedPtr<SWidget>, ENavSimResult> UInputDebugSubsystem::SimulateNavigati
 					if (TSharedPtr<SButton> SlateCommonButton = FButtonAccess::GetSlateButton(RootButton))
 					{
 						// Recursively simulate from the internal button instead of the row container
-						return SimulateNavigation(StaticCastSharedPtr<SWidget>(SlateCommonButton), Direction, RealUserIndex);
+						return SimulateNavigation(StaticCastSharedPtr<SWidget>(SlateCommonButton), Direction, UserIndex);
 					}
 				}
 			}
 		}
-	}
+	}*/
+#endif // WITH_PLUGIN_COMMONUI
 
 	// Bubbling Loop
 	for (int32 WidgetIndex = SourcePath.Widgets.Num() - 1; WidgetIndex >= 0; --WidgetIndex)
@@ -640,7 +654,7 @@ TPair<TSharedPtr<SWidget>, ENavSimResult> UInputDebugSubsystem::SimulateNavigati
 			{
 				UE_CLOG(bDebugLog, LogInputFlow, Warning, TEXT("  [Explicit] Boundary '%s' -> Target '%s'"),
 					*BoundaryWidget->ToString(), *ExplicitTarget->ToString());
-				return {ExplicitTarget, ENavSimResult::Normal};
+				return {ExplicitTarget, ENavSimResult::Explicit};
 			}
 		}
 		
@@ -673,11 +687,11 @@ TPair<TSharedPtr<SWidget>, ENavSimResult> UInputDebugSubsystem::SimulateNavigati
 			continue;
 		}
 
-		// Perform Spatial Search (Hittest Grid)
+		// Prepare for Spatial Search (Hittest Grid)
 		// If the widget returned Escape (default), we perform a spatial search from this boundary.
 		// This works for most non-virtualized widgets within a window.
 		TSharedPtr<SWidget> ResultWidget = nullptr;
-
+		
 		if (Direction == EUINavigation::Next || Direction == EUINavigation::Previous)
 		{
 			FWeakWidgetPath WeakSource(SourcePath);
@@ -698,26 +712,63 @@ TPair<TSharedPtr<SWidget>, ENavSimResult> UInputDebugSubsystem::SimulateNavigati
 				                            ? FNavigationReply::Wrap()
 				                            : FNavigationReply::Escape();
 
-			ResultWidget = Window->GetHittestGrid().FindNextFocusableWidget(
-				WindowSpaceLeaf,
-				Direction,
-				GridRule,
-				WindowSpaceBoundary,
-				RealUserIndex
-			);
+			// -----------------------------------------------------------------------
+			// Step-Over Logic
+			// If we find a non-game widget (debugger overlay), we try to "step over" it
+			// by using that widget as the new start point for the search.
+			// Otherwise, the simulation incorrectly lands on the overlay widget.
+			// -----------------------------------------------------------------------
+			constexpr int32 MaxStepOver = 16;
+			FArrangedWidget SearchStartBoundary = WindowSpaceBoundary;
 
-			// Filter out Ancestors/Self
-			// The HittestGrid can sometimes return the Source's parent (or the boundary itself)
-			// because the parent geometry overlaps the child. We want to find a distinct neighbor.
-			if (ResultWidget.IsValid())
+			for (int32 StepOverCount = 0; StepOverCount <= MaxStepOver; ++StepOverCount)
 			{
-				if (ResultWidget == Source || SourcePath.ContainsWidget(ResultWidget.Get()))
+				ResultWidget = Window->GetHittestGrid().FindNextFocusableWidget(
+					WindowSpaceLeaf,
+					Direction,
+					GridRule,
+					SearchStartBoundary,
+					UserIndex
+				);
+
+				// Ancestor/Self Filter
+				if (ResultWidget.IsValid())
 				{
-					UE_CLOG(bDebugLog, LogInputFlow, Verbose, 
-						TEXT("  [SpatialSearch] Found ancestor/self '%s'. Ignoring to continue bubbling."), 
-						*ResultWidget->ToString());
-					ResultWidget.Reset();
+					if (ResultWidget == Source || SourcePath.ContainsWidget(ResultWidget.Get()))
+					{
+						UE_CLOG(bDebugLog, LogInputFlow, Verbose, 
+							TEXT("  [SpatialSearch] Found ancestor/self '%s'. Ignoring to continue bubbling."), 
+							*ResultWidget->ToString());
+						ResultWidget.Reset();
+						break; // Stop stepping, normal behavior (bubble up)
+					}
 				}
+
+				// Non-Game World Filter (Step Over)
+				if (ResultWidget.IsValid() && !InputFlowHelpers::IsGameWorldWidget(ResultWidget))
+				{
+					if (StepOverCount < MaxStepOver)
+					{
+						UE_CLOG(bDebugLog, LogInputFlow, Verbose, 
+							TEXT("  [StepOver] Found non-game widget '%s'. Attempting to step over..."), 
+							*ResultWidget->ToString());
+
+						FWidgetPath ObstaclePath;
+						// Find the geometry of the obstacle to search from it
+						FSlateApplication::Get().FindPathToWidget(ResultWidget.ToSharedRef(), ObstaclePath);
+						
+						if (ObstaclePath.IsValid())
+						{
+							SearchStartBoundary = ObstaclePath.Widgets.Last();
+							SearchStartBoundary.Geometry.AppendTransform(WindowInverse);
+							continue; // Loop again from obstacle
+						}
+					}
+					// If failed to find path or max steps reached, we accept the result 
+					// (and likely bubble up due to GameWorld check later)
+				}
+				
+				break; // Valid result or null
 			}
 
 			UE_CLOG(bDebugLog, LogInputFlow, Log, TEXT("  [SpatialSearch] Boundary '%s' -> Target '%s'"),
@@ -770,10 +821,7 @@ void UInputDebugSubsystem::ProcessSimulationQueue()
 			ENavSimResult ResultType = SimResult.Value;
 
 			if (Next.IsValid() && InputFlowHelpers::IsGameWorldWidget(Next))
-			{
-				bool bIsTerminal = (ResultType == ENavSimResult::Handled || ResultType == ENavSimResult::Stopped);
-
-				bool bIsSameWidget = (Next == CurrentWidget);
+			{bool bIsSameWidget = (Next == CurrentWidget);
 				bool bIsInternal = false;
 
 				if (!bIsSameWidget && ResultType == ENavSimResult::Normal)
@@ -802,8 +850,10 @@ void UInputDebugSubsystem::ProcessSimulationQueue()
 					continue;
 				}
 
-				bool bIsVisited = VisitedWidgets.Contains(Next);
-				bool bShouldRecord = bIsTerminal || !bIsVisited;
+				const bool bIsTerminal = (ResultType == ENavSimResult::Handled || ResultType == ENavSimResult::Stopped);
+				const bool bIsVisited = VisitedWidgets.Contains(Next);
+				const bool bIsExplicit = (ResultType == ENavSimResult::Explicit);
+				const bool bShouldRecord = bIsTerminal || bIsExplicit || !bIsVisited;
 
 				if (bShouldRecord)
 				{
@@ -852,7 +902,7 @@ void UInputDebugSubsystem::StartNewSimulation(TSharedPtr<SWidget> StartWidget)
 }
 
 // ----------------------------------------------------------------------------------
-// Setters/Getters
+// Spy Setters/Getters
 // ----------------------------------------------------------------------------------
 
 void UInputDebugSubsystem::SetShowHandledEvents(bool bEnabled)

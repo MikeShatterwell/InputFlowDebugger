@@ -3,7 +3,9 @@
 #include "SInputFlowAnalyzer.h"
 
 // CommonUI
+#if WITH_PLUGIN_COMMONUI
 #include <CommonInputSubsystem.h>
+#endif
 
 // Editor
 #if WITH_EDITOR
@@ -30,6 +32,49 @@
 #include "SCommonUIHierarchyView.h"
 #include "SEnhancedInputInspector.h"
 #include "SInputFlowLogView.h"
+
+// --------------------------------------------------------------------
+// Focus-Controllable SpinBox
+// --------------------------------------------------------------------
+// Standard SSpinBox does not allow toggling SupportsKeyboardFocus via arguments.
+class SInputFlowSpinBox : public SSpinBox<int32>
+{
+public:
+	SLATE_BEGIN_ARGS(SInputFlowSpinBox)
+		: _MinValue(1)
+		, _MaxValue(100)
+		, _Value(1)
+	{}
+	SLATE_ATTRIBUTE(TOptional<int32>, MinValue)
+	SLATE_ATTRIBUTE(TOptional<int32>, MaxValue)
+	SLATE_ATTRIBUTE(int32, Value)
+	SLATE_EVENT(FOnValueChanged, OnValueChanged)
+SLATE_END_ARGS()
+
+void Construct(const FArguments& InArgs)
+	{
+		SSpinBox<int32>::Construct(SSpinBox<int32>::FArguments()
+			.MinValue(InArgs._MinValue)
+			.MaxValue(InArgs._MaxValue)
+			.Value(InArgs._Value)
+			.OnValueChanged(InArgs._OnValueChanged)
+		);
+	}
+
+	virtual bool SupportsKeyboardFocus() const override
+	{
+		// Only support focus if explicitly allowed
+		return bCanSupportFocus && SSpinBox<int32>::SupportsKeyboardFocus();
+	}
+
+	void SetCanSupportFocus(bool bInCanSupport)
+	{
+		bCanSupportFocus = bInCanSupport;
+	}
+
+private:
+	bool bCanSupportFocus = true;
+};
 
 // --------------------------------------------------------------------
 // SInputFlowStatusDashboard
@@ -151,11 +196,13 @@ FText SInputFlowStatusDashboard::GetCommonInputType(UInputDebugSubsystem* Subsys
 	if(!Subsystem) return FText::GetEmpty();
 	if (ULocalPlayer* LP = Subsystem->GetGameInstance()->GetFirstGamePlayer())
 	{
+#if WITH_PLUGIN_COMMONUI
 		if (UCommonInputSubsystem* CommonInput = UCommonInputSubsystem::Get(LP))
 		{
 			ECommonInputType CurrentInput = CommonInput->GetCurrentInputType();
 			return FText::FromString(CurrentInput == ECommonInputType::Gamepad ? TEXT("Gamepad") : TEXT("Mouse/KB"));
 		}
+#endif
 	}
 	return FText::FromString(TEXT("CommonUI: N/A"));
 }
@@ -191,6 +238,7 @@ void SInputFlowSettingsPanel::Construct(const FArguments& InArgs, UInputDebugSub
 	auto MakeCheckBox = [this](FString Label, auto GetFunc, auto SetFunc)
 	{
 		return SNew(SCheckBox)
+			.IsFocusable(false)
 			.IsChecked(this, GetFunc)
 			.OnCheckStateChanged(this, SetFunc)
 			[ SNew(STextBlock).Text(FText::FromString(Label)) ];
@@ -201,34 +249,47 @@ void SInputFlowSettingsPanel::Construct(const FArguments& InArgs, UInputDebugSub
 
 	// Construct Visualization Grid dynamically
 	int32 Col = 0;
-// Only add "Overlay Enabled" if we are NOT in the overlay itself
+
+	// Only add "Overlay Enabled" if we are NOT in the overlay itself
 	if (!bIsOverlay)
 	{
-		VisualGrid->AddSlot(Col++, 0) [ MakeCheckBox("Overlay Enabled", &SInputFlowSettingsPanel::GetOverlayState, &SInputFlowSettingsPanel::OnToggleOverlay) ];
+		VisualGrid->AddSlot(Col++, 0).HAlign(HAlign_Left) [ MakeCheckBox("Overlay Enabled", &SInputFlowSettingsPanel::GetOverlayState, &SInputFlowSettingsPanel::OnToggleOverlay) ];
 	}
 	
 	// Panel Visibility Toggles
-	VisualGrid->AddSlot(Col++, 0) [ MakeCheckBox("Show Log", &SInputFlowSettingsPanel::GetShowLogState, &SInputFlowSettingsPanel::OnToggleShowLog) ];
-	VisualGrid->AddSlot(Col++, 0) [ MakeCheckBox("Show Hierarchy", &SInputFlowSettingsPanel::GetShowHierarchyState, &SInputFlowSettingsPanel::OnToggleShowHierarchy) ];
-	VisualGrid->AddSlot(Col++, 0) [ MakeCheckBox("Show Inspector", &SInputFlowSettingsPanel::GetShowDashboardState, &SInputFlowSettingsPanel::OnToggleShowDashboard) ];
+	VisualGrid->AddSlot(Col++, 0).HAlign(HAlign_Left) [ MakeCheckBox("Show Log", &SInputFlowSettingsPanel::GetShowLogState, &SInputFlowSettingsPanel::OnToggleShowLog) ];
+	
+	VisualGrid->AddSlot(Col++, 0).HAlign(HAlign_Left) [ MakeCheckBox("Show Dashboard", &SInputFlowSettingsPanel::GetShowDashboardState, &SInputFlowSettingsPanel::OnToggleShowDashboard) ];
 	
 	// Navigation & Grid
-	VisualGrid->AddSlot(0, 1) [ MakeCheckBox("Nav Spider", &SInputFlowSettingsPanel::GetSpiderState, &SInputFlowSettingsPanel::OnToggleSpider) ];
-	VisualGrid->AddSlot(1, 1) [ MakeCheckBox("Hit Test Grid", &SInputFlowSettingsPanel::GetHitTestGridState, &SInputFlowSettingsPanel::OnToggleHitTestGrid) ];
-	VisualGrid->AddSlot(2, 1)
+	VisualGrid->AddSlot(0, 1).HAlign(HAlign_Left) [ MakeCheckBox("Nav Spider", &SInputFlowSettingsPanel::GetSpiderState, &SInputFlowSettingsPanel::OnToggleSpider) ];
+	VisualGrid->AddSlot(1, 1).HAlign(HAlign_Left) [ MakeCheckBox("Hit Test Grid", &SInputFlowSettingsPanel::GetHitTestGridState, &SInputFlowSettingsPanel::OnToggleHitTestGrid) ];
+	VisualGrid->AddSlot(2, 1).HAlign(HAlign_Left)
 	[
 		SNew(SHorizontalBox)
 		+ SHorizontalBox::Slot().AutoWidth().Padding(0, 0, 4, 0)
 		[ SNew(STextBlock).Text(FText::FromString("Depth:")) ]
 		+ SHorizontalBox::Slot().AutoWidth().MinWidth(60)
 		[
-			SNew(SSpinBox<int32>)
+			SAssignNew(DepthSpinBox, SInputFlowSpinBox)
 			.MinValue(1)
 			.MaxValue(5)
 			.Value(this, &SInputFlowSettingsPanel::GetSpiderDepth)
 			.OnValueChanged(this, &SInputFlowSettingsPanel::OnSpiderDepthChanged)
 		]
 	];
+#if WITH_PLUGIN_COMMONUI
+	VisualGrid->AddSlot(0, 3).HAlign(HAlign_Left) [ MakeCheckBox("Show CommonUI Hierarchy", &SInputFlowSettingsPanel::GetShowHierarchyState, &SInputFlowSettingsPanel::OnToggleShowHierarchy) ];
+#endif
+#if WITH_PLUGIN_ENHANCEDINPUT
+	VisualGrid->AddSlot(0, 3) [ MakeCheckBox("Show EnhancedInput Inspector", &SInputFlowSettingsPanel::GetShowEnhancedInputState, &SInputFlowSettingsPanel::OnToggleShowEnhancedInput) ];
+#endif
+
+	if (bIsOverlay && DepthSpinBox.IsValid())
+	{
+		// If the overlay is focusable at all, it will interfere with the navigation spider.
+		DepthSpinBox->SetCanSupportFocus(false);
+	}
 
 	ChildSlot
 	[
@@ -239,13 +300,13 @@ void SInputFlowSettingsPanel::Construct(const FArguments& InArgs, UInputDebugSub
 			.SlotPadding(FMargin(0, 0, 10, 4))
 			
 			// Logging Toggles
-			+ SUniformGridPanel::Slot(0, 0) [ MakeCheckBox("Log Clicks", &SInputFlowSettingsPanel::GetCaptureClicksState, &SInputFlowSettingsPanel::OnToggleCaptureClicks) ]
-			+ SUniformGridPanel::Slot(1, 0) [ MakeCheckBox("Log Keys", &SInputFlowSettingsPanel::GetCaptureKeyEventsState, &SInputFlowSettingsPanel::OnToggleCaptureKeyEvents) ]
-			+ SUniformGridPanel::Slot(2, 0) [ MakeCheckBox("Log Hover", &SInputFlowSettingsPanel::GetCaptureHoverState, &SInputFlowSettingsPanel::OnToggleCaptureHover) ]
-			+ SUniformGridPanel::Slot(0, 1) [ MakeCheckBox("Log Move", &SInputFlowSettingsPanel::GetCaptureMoveState, &SInputFlowSettingsPanel::OnToggleCaptureMove) ]
-			+ SUniformGridPanel::Slot(1, 1) [ MakeCheckBox("Log Analog", &SInputFlowSettingsPanel::GetCaptureAnalogState, &SInputFlowSettingsPanel::OnToggleCaptureAnalog) ]
-			+ SUniformGridPanel::Slot(2, 1) [ MakeCheckBox("Log Focus", &SInputFlowSettingsPanel::GetCaptureFocusState, &SInputFlowSettingsPanel::OnToggleCaptureFocus) ]
-			+ SUniformGridPanel::Slot(0, 2) [ MakeCheckBox("Log Handled", &SInputFlowSettingsPanel::GetCaptureHandledEventState, &SInputFlowSettingsPanel::OnToggleCaptureHandledEvents) ]
+			+ SUniformGridPanel::Slot(0, 0).HAlign(HAlign_Left) [ MakeCheckBox("Log Clicks", &SInputFlowSettingsPanel::GetCaptureClicksState, &SInputFlowSettingsPanel::OnToggleCaptureClicks) ]
+			+ SUniformGridPanel::Slot(1, 0).HAlign(HAlign_Left) [ MakeCheckBox("Log Keys", &SInputFlowSettingsPanel::GetCaptureKeyEventsState, &SInputFlowSettingsPanel::OnToggleCaptureKeyEvents) ]
+			+ SUniformGridPanel::Slot(2, 0).HAlign(HAlign_Left) [ MakeCheckBox("Log Hover", &SInputFlowSettingsPanel::GetCaptureHoverState, &SInputFlowSettingsPanel::OnToggleCaptureHover) ]
+			+ SUniformGridPanel::Slot(0, 1).HAlign(HAlign_Left) [ MakeCheckBox("Log Move", &SInputFlowSettingsPanel::GetCaptureMoveState, &SInputFlowSettingsPanel::OnToggleCaptureMove) ]
+			+ SUniformGridPanel::Slot(1, 1).HAlign(HAlign_Left) [ MakeCheckBox("Log Analog", &SInputFlowSettingsPanel::GetCaptureAnalogState, &SInputFlowSettingsPanel::OnToggleCaptureAnalog) ]
+			+ SUniformGridPanel::Slot(2, 1).HAlign(HAlign_Left) [ MakeCheckBox("Log Focus", &SInputFlowSettingsPanel::GetCaptureFocusState, &SInputFlowSettingsPanel::OnToggleCaptureFocus) ]
+			+ SUniformGridPanel::Slot(0, 2).HAlign(HAlign_Left) [ MakeCheckBox("Log Handled", &SInputFlowSettingsPanel::GetCaptureHandledEventState, &SInputFlowSettingsPanel::OnToggleCaptureHandledEvents) ]
 		]
 		+ SVerticalBox::Slot().AutoHeight().Padding(4)
 		[
@@ -312,6 +373,9 @@ ECheckBoxState SInputFlowSettingsPanel::GetShowLogState() const { auto* S = GetS
 void SInputFlowSettingsPanel::OnToggleShowHierarchy(ECheckBoxState NewState) { if (auto* S = GetSubsystem()) S->SetShowHierarchyPanel(NewState == ECheckBoxState::Checked); }
 ECheckBoxState SInputFlowSettingsPanel::GetShowHierarchyState() const { auto* S = GetSubsystem(); return (S && S->GetShowHierarchyPanel()) ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; }
 
+void SInputFlowSettingsPanel::OnToggleShowEnhancedInput(ECheckBoxState NewState) { if (auto* S = GetSubsystem()) S->SetShowEnhancedInputPanel(NewState == ECheckBoxState::Checked); }
+ECheckBoxState SInputFlowSettingsPanel::GetShowEnhancedInputState() const { auto* S = GetSubsystem(); return (S && S->GetShowEnhancedInputPanel()) ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; }
+
 void SInputFlowSettingsPanel::OnToggleShowDashboard(ECheckBoxState NewState) { if (auto* S = GetSubsystem()) S->SetShowDashboardPanel(NewState == ECheckBoxState::Checked); }
 ECheckBoxState SInputFlowSettingsPanel::GetShowDashboardState() const { auto* S = GetSubsystem(); return (S && S->GetShowDashboardPanel()) ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; }
 
@@ -351,6 +415,8 @@ void SInputFlowAnalyzer::Construct(const FArguments& InArgs)
 						[
 							SNew(SInputFlowStatusDashboard, DebugSub)
 						]
+
+#if WITH_PLUGIN_COMMONUI || WITH_PLUGIN_ENHANCEDINPUT
 						+ SVerticalBox::Slot().AutoHeight() [ SNew(SSeparator) ]
 						
 						// Composed Views
@@ -359,16 +425,21 @@ void SInputFlowAnalyzer::Construct(const FArguments& InArgs)
 							SNew(SSplitter)
 							.Orientation(Orient_Horizontal)
 							
+#if WITH_PLUGIN_COMMONUI
 							+ SSplitter::Slot().Value(0.5f)
 							[
 								SAssignNew(HierarchyView, SCommonUIHierarchyView, DebugSub)
 							]
+#endif
 
+#if WITH_PLUGIN_ENHANCEDINPUT
 							+ SSplitter::Slot().Value(0.5f)
 							[
 								SAssignNew(InspectorView, SEnhancedInputInspector, DebugSub)
 							]
+#endif
 						]
+#endif
 					]
 
 					// --- BOTTOM PANE: LOG & CONFIG ---

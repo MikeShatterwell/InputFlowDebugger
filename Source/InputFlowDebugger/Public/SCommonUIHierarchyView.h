@@ -9,6 +9,8 @@
 #include <Widgets/SCompoundWidget.h>
 #include <Widgets/Views/STreeView.h>
 
+#if WITH_PLUGIN_COMMONUI
+
 class UCommonUIActionRouterBase;
 class UInputDebugSubsystem;
 class UCommonActivatableWidget;
@@ -70,3 +72,5 @@ private:
 	TArray<TSharedPtr<FCommonUITreeItem>> Roots;
 	TMap<TWeakObjectPtr<UCommonActivatableWidget>, TSharedPtr<FCommonUITreeItem>> WidgetItemCache;
 };
+
+#endif // WITH_PLUGIN_COMMONUI

@@ -10,6 +10,7 @@
 
 class UInputDebugSubsystem;
 class SInputFlowLogView;
+class SInputFlowSpinBox;
 class SCommonUIHierarchyView;
 class SEnhancedInputInspector;
 class STextBlock;
@@ -85,11 +86,14 @@ private:
 	ECheckBoxState GetShowLogState() const;
 	void OnToggleShowHierarchy(ECheckBoxState NewState);
 	ECheckBoxState GetShowHierarchyState() const;
+	void OnToggleShowEnhancedInput(ECheckBoxState NewState);
+	ECheckBoxState GetShowEnhancedInputState() const;
 	void OnToggleShowDashboard(ECheckBoxState NewState);
 	ECheckBoxState GetShowDashboardState() const;
 
 	UInputDebugSubsystem* GetSubsystem() const;
 	TWeakObjectPtr<UInputDebugSubsystem> WeakSubsystem;
+	TSharedPtr<SInputFlowSpinBox> DepthSpinBox; 
 	bool bIsOverlay = false;
 };
 

@@ -16,7 +16,10 @@
 #endif
 
 class UWidget;
+
+#if WITH_PLUGIN_COMMONUI
 class UCommonButtonBase;
+#endif
 
 DECLARE_MULTICAST_DELEGATE_TwoParams(FOnInputFlowFocusChanged, const TSharedPtr<SWidget>& /*NewFocus*/, const FFocusEvent& /*InFocusEvent*/);
 
@@ -120,8 +123,10 @@ private:
 	void BindButtonObservation(const TSharedPtr<SWidget>& Widget);
 	
 	// Callbacks matching CommonUI delegates
+#if WITH_PLUGIN_COMMONUI
 	void OnButtonSelectionChanged(bool bSelected, TWeakObjectPtr<UCommonButtonBase> ButtonWeak);
-	void OnGenericButtonEvent(FString EventName, TWeakObjectPtr<UCommonButtonBase> ButtonWeak);
+	void OnCommonUIButtonEvent(FString EventName, TWeakObjectPtr<UCommonButtonBase> ButtonWeak);
+#endif
 
 	// Slate Debugging callback for logging Handled events
 	void OnSlateInputEvent(const FSlateDebuggingInputEventArgs& EventArgs);
@@ -129,7 +134,9 @@ private:
 	FOnInputFlowFocusChanged OnFocusChangedDelegate;
 
 	FDelegateHandle FocusChangedHandle;
+#if WITH_PLUGIN_COMMONUI
 	TSet<TWeakObjectPtr<UCommonButtonBase>> ObservedButtons;
+#endif
 
 	TArray<FInputEventLog> EventLog;
 	const int32 MaxLogSize = 500;

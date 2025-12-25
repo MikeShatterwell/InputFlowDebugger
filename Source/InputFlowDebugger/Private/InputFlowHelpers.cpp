@@ -2,12 +2,16 @@
 
 #include "InputFlowHelpers.h"
 
+#if WITH_PLUGIN_COMMONUI
 // CommonUI
 #include <CommonActivatableWidget.h>
 #include <CommonButtonBase.h>
+#endif // WITH_PLUGIN_COMMONUI
 
-// Core
+// EnhancedInput
+#if WITH_PLUGIN_ENHANCEDINPUT
 #include <InputTriggers.h>
+#endif
 
 // Developer
 #include <SourceCodeNavigation.h>
@@ -37,8 +41,6 @@
 #include <Components/Widget.h>
 
 // Internal
-#include <Slate/SObjectTableRow.h>
-
 #include "InputDebugSubsystem.h"
 #include "LogInputFlow.h"
 
@@ -147,10 +149,9 @@ FString InputFlowHelpers::GetWidgetDisplayName(const TSharedPtr<SWidget>& Widget
 	if (!Widget.IsValid()) return TEXT("None");
 
 	FString DisplayName;
-	UWidget* Owner = GetOwnerUWidget(Widget); // Reuse existing helper
+	const UWidget* Owner = GetOwnerUWidget(Widget);
 	
-	// 1. Get Leaf Name
-	if (Owner)
+	if (IsValid(Owner))
 	{
 		DisplayName = Owner->GetName();
 	}
@@ -162,11 +163,12 @@ FString InputFlowHelpers::GetWidgetDisplayName(const TSharedPtr<SWidget>& Widget
 		else
 			DisplayName = Widget->GetTypeAsString();
 	}
-
-	// 2. Find Context (Parent UserWidget / ActivatableWidget)
+	// Find Parent UserWidget / ActivatableWidget
 	TSharedPtr<SWidget> Walker = Widget;
 	UUserWidget* ImmediateUserParent = nullptr;
+#if WITH_PLUGIN_COMMONUI
 	UCommonActivatableWidget* ActivatableParent = nullptr;
+#endif // WITH_PLUGIN_COMMONUI
 
 	while (Walker.IsValid())
 	{
@@ -175,23 +177,26 @@ FString InputFlowHelpers::GetWidgetDisplayName(const TSharedPtr<SWidget>& Widget
 
 		UWidget* WalkerObj = GetOwnerUWidget(Walker);
 		
-		if (WalkerObj && WalkerObj != Owner)
+		if (IsValid(WalkerObj) && WalkerObj != Owner)
 		{
+#if WITH_PLUGIN_COMMONUI
 			if (UCommonActivatableWidget* FoundActivatable = Cast<UCommonActivatableWidget>(WalkerObj))
 			{
 				ActivatableParent = FoundActivatable;
 				break;
 			}
+#endif // WITH_PLUGIN_COMMONUI
 			
-			if (!ImmediateUserParent && WalkerObj->IsA<UUserWidget>())
+			if (!IsValid(ImmediateUserParent) && WalkerObj->IsA<UUserWidget>())
 			{
 				ImmediateUserParent = Cast<UUserWidget>(WalkerObj);
 			}
 		}
 	}
 
-	// 3. Append Context
-	if (ImmediateUserParent && ActivatableParent)
+	// Append Context
+#if WITH_PLUGIN_COMMONUI
+	if (IsValid(ImmediateUserParent) && IsValid(ActivatableParent))
 	{
 		if (ImmediateUserParent == ActivatableParent)
 		{
@@ -202,11 +207,12 @@ FString InputFlowHelpers::GetWidgetDisplayName(const TSharedPtr<SWidget>& Widget
 			DisplayName += FString::Printf(TEXT("\n(from %s in %s)"), *ImmediateUserParent->GetName(), *ActivatableParent->GetName());
 		}
 	}
-	else if (ActivatableParent)
+	else if (IsValid(ActivatableParent))
 	{
 		DisplayName += FString::Printf(TEXT("\n(from %s)"), *ActivatableParent->GetName());
 	}
-	else if (ImmediateUserParent)
+#endif // WITH_PLUGIN_COMMONUI
+	if (IsValid(ImmediateUserParent))
 	{
 		DisplayName += FString::Printf(TEXT("\n(from %s)"), *ImmediateUserParent->GetName());
 	}
@@ -267,7 +273,7 @@ void InputFlowHelpers::TryOpenAsset(const TWeakObjectPtr<UObject>& ObjectWeak, c
 	UObject* Instance = ObjectWeak.Get();
 	UObject* OriginalObject = Instance;
 
-	if (Instance)
+	if (IsValid(Instance))
 	{
 		// Case A: Find Container (Leaf Click)
 		// We want to find the UserWidget that CONTAINS this instance.
@@ -276,9 +282,9 @@ void InputFlowHelpers::TryOpenAsset(const TWeakObjectPtr<UObject>& ObjectWeak, c
 		if (bFindRootContext)
 		{
 			UObject* Current = Instance->GetOuter();
-			while (Current)
+			while (IsValid(Current))
 			{
-				if (UUserWidget* UserWidget = Cast<UUserWidget>(Current))
+				if (UUserWidget* UserWidget = Cast<UUserWidget>(Current); IsValid(UserWidget))
 				{
 					Instance = UserWidget;
 					break; // Found immediate container. Stop.
@@ -294,9 +300,9 @@ void InputFlowHelpers::TryOpenAsset(const TWeakObjectPtr<UObject>& ObjectWeak, c
 		else if (Instance->IsA<UWidget>() && !Instance->IsA<UUserWidget>())
 		{
 			UObject* Current = Instance->GetOuter();
-			while (Current)
+			while (IsValid(Current))
 			{
-				if (UUserWidget* UserWidget = Cast<UUserWidget>(Current))
+				if (UUserWidget* UserWidget = Cast<UUserWidget>(Current); IsValid(UserWidget))
 				{
 					Instance = UserWidget;
 					break;
@@ -328,15 +334,15 @@ void InputFlowHelpers::TryOpenAsset(const TWeakObjectPtr<UObject>& ObjectWeak, c
 	}
 
 	// 4. Fallback: If we still have an instance and it's a specific UWidget type logic
-	if (!AssetToOpen && Instance)
+	if (!AssetToOpen && IsValid(Instance))
 	{
 		// Walk up outer chain (e.g. if we clicked a slot widget)
 		UObject* Current = Instance;
-		while (Current)
+		while (IsValid(Current))
 		{
-			if (UUserWidget* UserWidget = Cast<UUserWidget>(Current))
+			if (UUserWidget* UserWidget = Cast<UUserWidget>(Current); IsValid(UserWidget))
 			{
-				if (UClass* UWClass = UserWidget->GetClass())
+				if (UClass* UWClass = UserWidget->GetClass(); IsValid(UWClass))
 				{
 					if (UWClass->ClassGeneratedBy)
 					{
@@ -350,22 +356,22 @@ void InputFlowHelpers::TryOpenAsset(const TWeakObjectPtr<UObject>& ObjectWeak, c
 		}
 	}
 
-	if (AssetToOpen && GEditor)
+	if (IsValid(AssetToOpen) && IsValid(GEditor))
 	{
-		if (UAssetEditorSubsystem* AssetSub = GEditor->GetEditorSubsystem<UAssetEditorSubsystem>())
+		if (UAssetEditorSubsystem* AssetSub = GEditor->GetEditorSubsystem<UAssetEditorSubsystem>(); IsValid(AssetSub))
 		{
 			if (AssetSub->OpenEditorForAsset(AssetToOpen))
 			{
 				// Only attempt selection if we performed a hierarchy walk (Leaf Click)
 				// and the Asset is a Widget Blueprint.
-				if (bFindRootContext && OriginalObject && OriginalObject != Instance && AssetToOpen->IsA<UWidgetBlueprint>())
+				if (bFindRootContext && IsValid(OriginalObject) && OriginalObject != Instance && AssetToOpen->IsA<UWidgetBlueprint>())
 				{
 					IAssetEditorInstance* EditorInstance = AssetSub->FindEditorForAsset(AssetToOpen, true);
 					
 					// Static cast is safe here because we verified AssetToOpen is UWidgetBlueprint
 					if (FWidgetBlueprintEditor* WidgetEditor = static_cast<FWidgetBlueprintEditor*>(EditorInstance))
 					{
-						if (UWidgetBlueprint* BP = WidgetEditor->GetWidgetBlueprintObj())
+						if (UWidgetBlueprint* BP = WidgetEditor->GetWidgetBlueprintObj(); IsValid(BP))
 						{
 							if (BP->WidgetTree)
 							{
@@ -380,7 +386,7 @@ void InputFlowHelpers::TryOpenAsset(const TWeakObjectPtr<UObject>& ObjectWeak, c
 									}
 								});
 
-								if (WidgetToSelect)
+								if (IsValid(WidgetToSelect))
 								{
 									TSet<FWidgetReference> Selection;
 									FWidgetReference WidgetRef = WidgetEditor->GetReferenceFromTemplate(WidgetToSelect);
@@ -479,27 +485,36 @@ bool InputFlowHelpers::IsButtonWidget(const TSharedPtr<SWidget>& Widget)
 	
 	if (UWidget* UObj = GetOwnerUWidget(Widget))
 	{
-		return UObj->IsA<UCommonButtonBase>() || UObj->IsA<UButton>();
+#if WITH_PLUGIN_COMMONUI
+		// UCommonButtonBase is not a button. It is a UserWidget that contains a button and acts as a wrapper.
+		if (UObj->IsA<UCommonButtonBase>()) return true;
+#endif
+		return UObj->IsA<UButton>();
 	}
 	return false;
 }
 
 FString InputFlowHelpers::TriggerEventToString(int32 EventType)
 {
+#if WITH_PLUGIN_ENHANCEDINPUT
 	switch (static_cast<ETriggerEvent>(EventType))
 	{
 	case ETriggerEvent::None:      return TEXT("None");
-	case ETriggerEvent::Triggered: return TEXT("TRIGGERED");
+	case ETriggerEvent::Triggered: return TEXT("Triggered");
 	case ETriggerEvent::Started:   return TEXT("Started");
 	case ETriggerEvent::Ongoing:   return TEXT("Ongoing");
 	case ETriggerEvent::Canceled:  return TEXT("Canceled");
 	case ETriggerEvent::Completed: return TEXT("Completed");
 	default: return TEXT("Unknown");
 	}
+#else
+	return FString::Printf(TEXT("Unknown(%d)"), EventType);
+#endif // WITH_PLUGIN_ENHANCEDINPUT
 }
 
 FColor InputFlowHelpers::GetColorForTriggerEvent(int32 EventType)
 {
+#if WITH_PLUGIN_ENHANCEDINPUT
 	switch (static_cast<ETriggerEvent>(EventType))
 	{
 	case ETriggerEvent::Triggered: return FColor::Green;
@@ -508,6 +523,9 @@ FColor InputFlowHelpers::GetColorForTriggerEvent(int32 EventType)
 	case ETriggerEvent::Started:   return FColor::Cyan;
 	default: return FColor::White;
 	}
+#else
+	return FColor::White;
+#endif // WITH_PLUGIN_ENHANCEDINPUT
 }
 
 FString InputFlowHelpers::NavDirToString(EUINavigation Dir)
@@ -614,8 +632,7 @@ TSharedPtr<SWidget> InputFlowHelpers::ResolveFocusableDescendant(TSharedPtr<SWid
 {
 	if (!Root.IsValid() || !Root->IsEnabled()) return nullptr;
 
-	FChildren* Children = Root->GetChildren();
-	if (Children)
+	if (FChildren* Children = Root->GetChildren())
 	{
 		for (int32 i = 0; i < Children->Num(); ++i)
 		{
