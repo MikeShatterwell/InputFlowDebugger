@@ -41,10 +41,14 @@ public:
 	{
 		SetTag(InputFlowHelpers::InputFlowAnalyzerTag);
 		Item = InItem;
-		
+
+		const FTableRowStyle& RowStyle = bInOverlay ?
+			InputFlowHelpers::GetTranslucentRowStyle() :
+			FAppStyle::Get().GetWidgetStyle<FTableRowStyle>("TableView.Row");
+
 		STableRow<TSharedPtr<FCommonUITreeItem>>::Construct(
 			STableRow<TSharedPtr<FCommonUITreeItem>>::FArguments()
-			.ShowSelection(!bInOverlay),
+			.ShowSelection(!bInOverlay).Style(&RowStyle),
 			InOwnerTableView
 		);
 
@@ -58,29 +62,32 @@ public:
 		
 		auto GetTextColor = [InItem]() -> FSlateColor
 		{
-			if (InItem->bIsFocused) return FLinearColor(0.2f, 1.0f, 0.4f); // Green for Leaf
-			if (InItem->bIsInActivePath) return FLinearColor(1.0f, 0.95f, 0.8f); // Gold for Path
-			if (!InItem->bIsActive) return FLinearColor(1.0f, 1.0f, 1.0f, 0.35f); // Dim for inactive
+			// TODO: Don't like this hardcoding, but it's quick for now
+			if (InItem->bIsLeaf) return FLinearColor(0.2f, 1.0f, 0.4f);
+			if (InItem->bIsFocused) return FSlateColor(FLinearColor::White);
+			if (InItem->bIsInActivePath) return FLinearColor(1.0f, 0.95f, 0.8f);
+			if (!InItem->bIsActive) return FLinearColor(1.0f, 1.0f, 1.0f, 0.35f);
 			return FLinearColor::White;
 		};
 
 		auto GetBadgeText = [InItem]() -> FText
 		{
-			if (InItem->bIsFocused) return FText::FromString(TEXT("[LEAF] "));
+			if (InItem->bIsLeaf) return FText::FromString(TEXT("[LEAF] "));
+			if (InItem->bIsFocused) return FText::FromString(TEXT("[FOCUS] "));
 			if (InItem->bIsInActivePath) return FText::FromString(TEXT("[ROUTE] "));
 			return FText::GetEmpty();
 		};
 
 		auto GetBadgeColor = [InItem]() -> FSlateColor
 		{
-			if (InItem->bIsFocused) return FLinearColor(0.2f, 1.0f, 0.4f);
+			if (InItem->bIsLeaf) return FLinearColor(0.2f, 1.0f, 0.4f);
 			if (InItem->bIsInActivePath) return FLinearColor(1.0f, 0.8f, 0.2f);
 			return FLinearColor::Transparent;
 		};
 
 		auto GetBadgeVisibility = [InItem]()
 		{
-			return (InItem->bIsFocused || InItem->bIsInActivePath) ? EVisibility::Visible : EVisibility::Collapsed;
+			return (InItem->bIsLeaf || InItem->bIsInActivePath) ? EVisibility::Visible : EVisibility::Collapsed;
 		};
 
 		auto GetSubText = [InItem]() -> FText
@@ -164,9 +171,13 @@ void SCommonUIHierarchyView::Construct(const FArguments& InArgs, UInputDebugSubs
 	{
 		RequestRefresh();
 	});
-    
-	BindRouterDelegates();
 
+	BindRouterDelegates();
+	
+	const FTableViewStyle& TreeStyle = bIsOverlay 
+		? InputFlowHelpers::GetTranslucentTableViewStyle() 
+		: FCoreStyle::Get().GetWidgetStyle<FTableViewStyle>("TreeView");
+	
 	ChildSlot
 	[
 		SNew(SBorder)
@@ -188,6 +199,7 @@ void SCommonUIHierarchyView::Construct(const FArguments& InArgs, UInputDebugSubs
 				.TreeItemsSource(&Roots)
 				.OnGenerateRow(this, &SCommonUIHierarchyView::GenerateRow)
 				.OnGetChildren(this, &SCommonUIHierarchyView::OnGetChildren)
+				.TreeViewStyle(&TreeStyle)
 				.SelectionMode(bIsOverlay ? ESelectionMode::None : ESelectionMode::Single)
 			]
 		]

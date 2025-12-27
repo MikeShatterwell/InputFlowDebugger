@@ -262,9 +262,9 @@ void SInputFlowSettingsPanel::Construct(const FArguments& InArgs, UInputDebugSub
 	VisualGrid->AddSlot(Col++, 0).HAlign(HAlign_Left) [ MakeCheckBox("Show Dashboard", &SInputFlowSettingsPanel::GetShowDashboardState, &SInputFlowSettingsPanel::OnToggleShowDashboard) ];
 	
 	// Navigation & Grid
-	VisualGrid->AddSlot(0, 1).HAlign(HAlign_Left) [ MakeCheckBox("Nav Spider", &SInputFlowSettingsPanel::GetSpiderState, &SInputFlowSettingsPanel::OnToggleSpider) ];
-	VisualGrid->AddSlot(1, 1).HAlign(HAlign_Left) [ MakeCheckBox("Hit Test Grid", &SInputFlowSettingsPanel::GetHitTestGridState, &SInputFlowSettingsPanel::OnToggleHitTestGrid) ];
-	VisualGrid->AddSlot(2, 1).HAlign(HAlign_Left)
+	VisualGrid->AddSlot(2, 1).HAlign(HAlign_Left) [ MakeCheckBox("Hit Test Grid", &SInputFlowSettingsPanel::GetHitTestGridState, &SInputFlowSettingsPanel::OnToggleHitTestGrid) ];
+	VisualGrid->AddSlot(3, 1).HAlign(HAlign_Left) [ MakeCheckBox("Nav Spider", &SInputFlowSettingsPanel::GetSpiderState, &SInputFlowSettingsPanel::OnToggleSpider) ];
+	VisualGrid->AddSlot(4, 1).HAlign(HAlign_Left)
 	[
 		SNew(SHorizontalBox)
 		+ SHorizontalBox::Slot().AutoWidth().Padding(0, 0, 4, 0)
@@ -282,7 +282,7 @@ void SInputFlowSettingsPanel::Construct(const FArguments& InArgs, UInputDebugSub
 	VisualGrid->AddSlot(0, 3).HAlign(HAlign_Left) [ MakeCheckBox("Show CommonUI Hierarchy", &SInputFlowSettingsPanel::GetShowHierarchyState, &SInputFlowSettingsPanel::OnToggleShowHierarchy) ];
 #endif
 #if WITH_PLUGIN_ENHANCEDINPUT
-	VisualGrid->AddSlot(0, 3) [ MakeCheckBox("Show EnhancedInput Inspector", &SInputFlowSettingsPanel::GetShowEnhancedInputState, &SInputFlowSettingsPanel::OnToggleShowEnhancedInput) ];
+	VisualGrid->AddSlot(0, 4) [ MakeCheckBox("Show EnhancedInput Inspector", &SInputFlowSettingsPanel::GetShowEnhancedInputState, &SInputFlowSettingsPanel::OnToggleShowEnhancedInput) ];
 #endif
 
 	if (bIsOverlay && DepthSpinBox.IsValid())

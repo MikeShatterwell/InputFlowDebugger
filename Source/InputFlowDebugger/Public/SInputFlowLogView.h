@@ -16,10 +16,10 @@ class SInputFlowLogView : public SCompoundWidget
 {
 public:
 	SLATE_BEGIN_ARGS(SInputFlowLogView) : _IsOverlay(false) {}
-	SLATE_ARGUMENT(bool, IsOverlay)
-SLATE_END_ARGS()
+		SLATE_ARGUMENT(bool, IsOverlay)
+	SLATE_END_ARGS()
 
-void Construct(const FArguments& InArgs, UInputDebugSubsystem* InSubsystem);
+	void Construct(const FArguments& InArgs, UInputDebugSubsystem* InSubsystem);
 	virtual void Tick(const FGeometry& AllottedGeometry, const double InCurrentTime, const float InDeltaTime) override;
 
 	void ClearLog();

@@ -45,10 +45,15 @@ public:
 	{
 		SetTag(InputFlowHelpers::InputFlowAnalyzerTag);
 
+		const FTableRowStyle& RowStyle = bInOverlay ?
+			InputFlowHelpers::GetTranslucentRowStyle() :
+			FAppStyle::Get().GetWidgetStyle<FTableRowStyle>("TableView.Row");
+
 		STableRow<TSharedPtr<FEnhancedInputInfoItem>>::Construct(
 			STableRow<TSharedPtr<FEnhancedInputInfoItem>>::FArguments()
 			.Padding(FMargin(0, 2, 0, 2))
-			.ShowSelection(false),
+			.ShowSelection(false)
+			.Style(&RowStyle),
 			InOwnerTableView
 		);
 
@@ -88,6 +93,10 @@ void SEnhancedInputInspector::Construct(const FArguments& InArgs, UInputDebugSub
 	DebugSubsystem = InSubsystem;
 	bIsOverlay = InArgs._IsOverlay;
 
+	const FTableViewStyle& TreeStyle = bIsOverlay 
+	? InputFlowHelpers::GetTranslucentTableViewStyle() 
+	: FCoreStyle::Get().GetWidgetStyle<FTableViewStyle>("TreeView");
+
 	ChildSlot
 	[
 		SNew(SBorder)
@@ -109,6 +118,7 @@ void SEnhancedInputInspector::Construct(const FArguments& InArgs, UInputDebugSub
 				.OnGenerateRow(this, &SEnhancedInputInspector::GenerateRow)
 				.OnGetChildren(this, &SEnhancedInputInspector::OnGetChildren)
 				.SelectionMode(ESelectionMode::None)
+				.TreeViewStyle(&TreeStyle)
 			]
 		]
 	];

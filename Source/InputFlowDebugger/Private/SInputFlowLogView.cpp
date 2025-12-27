@@ -28,11 +28,13 @@ public:
 	{
 		SetTag(InputFlowHelpers::InputFlowAnalyzerTag);
 		
-		FName StyleName = bInOverlay ? "TableView.Row" : "SimpleTableView.Row";
+		const FTableRowStyle& RowStyle = bInOverlay ?
+			InputFlowHelpers::GetTranslucentRowStyle() :
+			FAppStyle::Get().GetWidgetStyle<FTableRowStyle>("TableView.Row");
 
 		STableRow<TSharedPtr<FInputEventLog>>::Construct(
 			STableRow<TSharedPtr<FInputEventLog>>::FArguments()
-			.Style(FAppStyle::Get(), StyleName)
+			.Style(&RowStyle)
 			.ShowSelection(!bInOverlay)
 			// Remove padding to allow visual merging of rows
 			.Padding(bIsSameFrameAsPrev ? FMargin(0, 0, 0, 2) : FMargin(0, 2, 0, 2)),
@@ -269,6 +271,10 @@ void SInputFlowLogView::Construct(const FArguments& InArgs, UInputDebugSubsystem
 		ToolbarWidget = SNullWidget::NullWidget; // Title handled by panel header now
 	}
 
+	const FTableViewStyle& ListStyle = bIsOverlay 
+	? InputFlowHelpers::GetTranslucentTableViewStyle() 
+	: FCoreStyle::Get().GetWidgetStyle<FTableViewStyle>("ListView");
+
 	ChildSlot
 	[
 		SNew(SBorder)
@@ -288,6 +294,7 @@ void SInputFlowLogView::Construct(const FArguments& InArgs, UInputDebugSubsystem
 				.OnGenerateRow(this, &SInputFlowLogView::GenerateRow)
 				.SelectionMode(bIsOverlay ? ESelectionMode::None : ESelectionMode::Single)
 				.IsFocusable(!bIsOverlay)
+				.ListViewStyle(&ListStyle)
 			]
 		]
 	];

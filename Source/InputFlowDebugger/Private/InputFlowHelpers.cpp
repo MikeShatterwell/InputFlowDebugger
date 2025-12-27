@@ -265,6 +265,68 @@ bool InputFlowHelpers::IsDescendantOf(TSharedPtr<SWidget> Child, TSharedPtr<SWid
 	return false;
 }
 
+const FTableRowStyle& InputFlowHelpers::GetTranslucentRowStyle()
+{
+	static FTableRowStyle Style;
+	static bool bInitialized = false;
+
+	if (!bInitialized)
+	{
+		// Start with the default style as a base
+		Style = FCoreStyle::Get().GetWidgetStyle<FTableRowStyle>("TableView.Row");
+
+		// 1. Clear the opaque background brushes
+		Style.SetEvenRowBackgroundBrush(FSlateNoResource())
+			 .SetOddRowBackgroundBrush(FSlateNoResource())
+			 .SetParentRowBackgroundBrush(FSlateNoResource())
+			 .SetParentRowBackgroundHoveredBrush(FSlateNoResource());
+
+		// 2. Create a semi-transparent white brush for hover/selection states
+		// We use a static brush to ensure the resource exists
+		static FSlateBrush TranslucentHoverBrush;
+		TranslucentHoverBrush.DrawAs = ESlateBrushDrawType::Box;
+		TranslucentHoverBrush.TintColor = FLinearColor(1.0f, 1.0f, 1.0f, 0.05f); // 5% opacity white
+			
+		static FSlateBrush TranslucentActiveBrush;
+		TranslucentActiveBrush.DrawAs = ESlateBrushDrawType::Box;
+		TranslucentActiveBrush.TintColor = FLinearColor(1.0f, 1.0f, 1.0f, 0.1f); // 10% opacity white
+
+		// 3. Apply the translucent brushes to interaction states
+		Style.SetActiveBrush(TranslucentActiveBrush)
+			 .SetActiveHoveredBrush(TranslucentActiveBrush)
+			 .SetInactiveBrush(TranslucentActiveBrush)
+			 .SetInactiveHoveredBrush(TranslucentActiveBrush)
+			 .SetEvenRowBackgroundHoveredBrush(TranslucentHoverBrush)
+			 .SetOddRowBackgroundHoveredBrush(TranslucentHoverBrush);
+
+		// 4. Ensure text remains visible
+		Style.SetTextColor(FLinearColor::White)
+			 .SetSelectedTextColor(FLinearColor::White);
+
+		bInitialized = true;
+	}
+
+	return Style;
+}
+
+const FTableViewStyle& InputFlowHelpers::GetTranslucentTableViewStyle()
+{
+	static FTableViewStyle Style;
+	static bool bInitialized = false;
+
+	if (!bInitialized)
+	{
+		// Start with the default engine TreeView style
+		Style = FCoreStyle::Get().GetWidgetStyle<FTableViewStyle>("TreeView");
+		
+		// Force the background to be nothing/transparent
+		Style.SetBackgroundBrush(FSlateNoResource());
+		
+		bInitialized = true;
+	}
+	
+	return Style;
+}
 
 void InputFlowHelpers::TryOpenAsset(const TWeakObjectPtr<UObject>& ObjectWeak, const TWeakObjectPtr<UClass>& ClassWeak, bool bFindRootContext)
 {

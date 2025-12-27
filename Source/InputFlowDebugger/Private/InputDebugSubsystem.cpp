@@ -63,15 +63,6 @@ static TAutoConsoleVariable<bool> CVarInputFlowNavSpiderDebugLog(
 // Accessor Hacks
 // ----------------------------------------------------------------------------------
 
-class FButtonAccess : public UButton
-{
-public:
-	static TSharedPtr<SButton> GetSlateButton(const UButton* Button) 
-	{ 
-		if (!Button) return nullptr;
-		return static_cast<const FButtonAccess*>(Button)->MyButton;	}
-};
-
 #if WITH_PLUGIN_ENHANCEDINPUT
 class FInputFlowDebugAccessor : public UEnhancedPlayerInput
 {
