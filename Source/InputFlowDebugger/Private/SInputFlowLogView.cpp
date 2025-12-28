@@ -45,6 +45,7 @@ public:
 		{
 			SetBorderBackgroundColor(FLinearColor::Transparent);
 		}
+		SetVisibility(EVisibility::SelfHitTestInvisible);
 
 		Item = InItem;
 		
@@ -133,12 +134,12 @@ public:
 
 		TSharedRef<SWidget> MiddleContent = SNew(SVerticalBox)
 			+ SVerticalBox::Slot().AutoHeight()
-			.HAlign(HAlign_Left)
+			.HAlign(HAlign_Fill)
 			[
 				NameWidget
 			]
 			+ SVerticalBox::Slot().AutoHeight()
-			.HAlign(HAlign_Left)
+			.HAlign(HAlign_Fill)
 			[
 				SNew(STextBlock)
 				.Text(FText::FromString(InItem->WidgetState))
@@ -151,6 +152,7 @@ public:
 		TSharedRef<STextBlock> InputDetailsBlock = SNew(STextBlock)
 			.Text(FText::FromString(InItem->InputDetails + CountStr))
 			.ColorAndOpacity(FLinearColor::White)
+			.MinDesiredWidth(64.f)
 			.Font(FCoreStyle::GetDefaultFontStyle("Regular", 9))
 			.Justification(ETextJustify::Right);
 		
@@ -160,6 +162,7 @@ public:
 		[
 			SNew(SBorder)
 			.BorderImage(FAppStyle::GetBrush("WhiteBrush"))
+			.Visibility(EVisibility::SelfHitTestInvisible)
 			.BorderBackgroundColor_Lambda([InItem, bInOverlay]()
 			{
 				double Age = FPlatformTime::Seconds() - InItem->TimeSeconds;
@@ -235,6 +238,8 @@ void SInputFlowLogView::Construct(const FArguments& InArgs, UInputDebugSubsystem
 
 	TSharedPtr<SWidget> ToolbarWidget;
 
+	SetVisibility(EVisibility::SelfHitTestInvisible);
+
 	if (!bIsOverlay)
 	{
 		ToolbarWidget = SNew(SHorizontalBox)
@@ -280,6 +285,7 @@ void SInputFlowLogView::Construct(const FArguments& InArgs, UInputDebugSubsystem
 		SNew(SBorder)
 		.BorderImage(InputFlowHelpers::GetBackgroundBrush(bIsOverlay))
 		.Padding(bIsOverlay ? 0.0f : 2.0f)
+		.Visibility(EVisibility::SelfHitTestInvisible)
 		.BorderBackgroundColor(bIsOverlay ? FLinearColor::Transparent : FLinearColor::White)
 		[
 			SNew(SVerticalBox)

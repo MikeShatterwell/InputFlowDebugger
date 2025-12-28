@@ -97,10 +97,13 @@ void SEnhancedInputInspector::Construct(const FArguments& InArgs, UInputDebugSub
 	? InputFlowHelpers::GetTranslucentTableViewStyle() 
 	: FCoreStyle::Get().GetWidgetStyle<FTableViewStyle>("TreeView");
 
+	SetVisibility(EVisibility::SelfHitTestInvisible);
+
 	ChildSlot
 	[
 		SNew(SBorder)
 		.BorderImage(InputFlowHelpers::GetBackgroundBrush(bIsOverlay))
+		.Visibility(EVisibility::SelfHitTestInvisible)
 		.Padding(0.0f)
 		[
 			SNew(SVerticalBox)
@@ -119,6 +122,7 @@ void SEnhancedInputInspector::Construct(const FArguments& InArgs, UInputDebugSub
 				.OnGetChildren(this, &SEnhancedInputInspector::OnGetChildren)
 				.SelectionMode(ESelectionMode::None)
 				.TreeViewStyle(&TreeStyle)
+				.Visibility(EVisibility::SelfHitTestInvisible)
 			]
 		]
 	];
@@ -316,9 +320,14 @@ TSharedRef<ITableRow> SEnhancedInputInspector::GenerateRow(TSharedPtr<FEnhancedI
 		return SNew(SEnhancedInputContextRow, OwnerTable, Item, bIsOverlay);
 	}
 
+	const FTableRowStyle& RowStyle = bIsOverlay ?
+	InputFlowHelpers::GetTranslucentRowStyle() :
+	FAppStyle::Get().GetWidgetStyle<FTableRowStyle>("TableView.Row");
+
 	// Action Row with Modifier Support
 	return SNew(STableRow<TSharedPtr<FEnhancedInputInfoItem>>, OwnerTable)
 	.Padding(FMargin(16, 0, 0, 0)) // Indent actions
+	.Style(&RowStyle)
 	[
 		SNew(SVerticalBox)
 		+ SVerticalBox::Slot().AutoHeight()

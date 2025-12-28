@@ -13,6 +13,8 @@
 #include <Widgets/Images/SImage.h>
 
 // Internal
+#include <Components/SlateWrapperTypes.h>
+
 #include "InputDebugSubsystem.h"
 #include "InputFlowHelpers.h"
 #include "SCommonUIHierarchyView.h"
@@ -99,7 +101,7 @@ void Construct(const FArguments& InArgs)
 		
 		const FWindowStyle& WindowStyle = FCoreStyle::Get().GetWidgetStyle<FWindowStyle>("Window");
 
-		// 1. Build Title Bar Conditionally
+		// Build Title Bar Conditionally
 		const TSharedRef<SHorizontalBox> TitleBarBox = SNew(SHorizontalBox);
 
 		// Title Text
@@ -643,7 +645,7 @@ void SInputFlowOverlay::Construct(const FArguments& InArgs)
 		Panel->SetOverlaySlot(Slot.GetSlot());
 	};
 
-	// 1. Settings Panel
+	// Settings Panel
 	const FString SettingsPanelTitle = TEXT("Settings");
 	AddPanel(
 		SNew(SInputFlowDraggablePanel)
@@ -654,7 +656,7 @@ void SInputFlowOverlay::Construct(const FArguments& InArgs)
 		.Visibility_Lambda([this]() -> EVisibility
 		{
 			return GetSubsystem() && GetSubsystem()->GetShowSettingsPanel()
-				       ? EVisibility::Visible
+				       ? EVisibility::SelfHitTestInvisible
 				       : EVisibility::Collapsed;
 		})
 		[
@@ -662,7 +664,7 @@ void SInputFlowOverlay::Construct(const FArguments& InArgs)
 		]
 	);
 
-	// 2. Status Dashboard
+	// Status Dashboard
 	AddPanel(
 		SNew(SInputFlowDraggablePanel)
 		.Title(TEXT("Status Dashboard"))
@@ -673,7 +675,7 @@ void SInputFlowOverlay::Construct(const FArguments& InArgs)
 		.Visibility_Lambda([this]() -> EVisibility
 		{
 			return GetSubsystem() && GetSubsystem()->GetShowDashboardPanel()
-				       ? EVisibility::Visible
+				       ? EVisibility::SelfHitTestInvisible
 				       : EVisibility::Collapsed;
 		})
 		[
@@ -681,7 +683,7 @@ void SInputFlowOverlay::Construct(const FArguments& InArgs)
 		]
 	);
 
-	// 3. Log View
+	// Log View
 	AddPanel(
 		SNew(SInputFlowDraggablePanel)
 		.Title(TEXT("Input Event Log"))
@@ -698,7 +700,7 @@ void SInputFlowOverlay::Construct(const FArguments& InArgs)
 		]
 	);
 
-	// 4. Hierarchy
+	// CommonUI Hierarchy
 #if WITH_PLUGIN_COMMONUI
 	AddPanel(
 		SNew(SInputFlowDraggablePanel)
@@ -710,7 +712,7 @@ void SInputFlowOverlay::Construct(const FArguments& InArgs)
 		.Visibility_Lambda([this]() -> EVisibility
 		{
 			return GetSubsystem() && GetSubsystem()->GetShowHierarchyPanel()
-				       ? EVisibility::Visible
+				       ? EVisibility::SelfHitTestInvisible
 				       : EVisibility::Collapsed;
 		})
 		[
@@ -723,6 +725,7 @@ void SInputFlowOverlay::Construct(const FArguments& InArgs)
 	);
 #endif
 
+	// Enhanced Input Analyzer
 #if WITH_PLUGIN_ENHANCEDINPUT
 	AddPanel(
 		SNew(SInputFlowDraggablePanel)
@@ -734,7 +737,7 @@ void SInputFlowOverlay::Construct(const FArguments& InArgs)
 		.Visibility_Lambda([this]() -> EVisibility
 		{
 			return GetSubsystem() && GetSubsystem()->GetShowEnhancedInputPanel()
-				       ? EVisibility::Visible
+				       ? EVisibility::SelfHitTestInvisible
 				       : EVisibility::Collapsed;
 		})
 		[

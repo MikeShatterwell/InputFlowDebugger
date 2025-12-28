@@ -11,19 +11,21 @@
 
 #if WITH_PLUGIN_COMMONUI
 
+class UWidget;
 class UCommonUIActionRouterBase;
 class UInputDebugSubsystem;
 class UCommonActivatableWidget;
 
 struct FCommonUITreeItem : public TSharedFromThis<FCommonUITreeItem>
 {
-	TWeakObjectPtr<UCommonActivatableWidget> Widget;
-	FString Name;
-	FString InputConfig;
-	FString DesiredFocusTarget;
-	FString ContainerInfo;
+	TWeakObjectPtr<UWidget> Widget;
+	FString Name = TEXT("");
+	FString InputConfig = TEXT("");
+	FString DesiredFocusTarget = TEXT("");
+	FString ContainerInfo = TEXT("");
 	
 	// State flags
+	bool bIsContainer = false; // true if this widget is a UCommonActivatableWidgetContainerBase Stack/Queue
 	bool bIsRoot = false;
 	bool bIsFocused = false;      
 	bool bIsInActivePath = false; 
@@ -37,8 +39,8 @@ class SCommonUIHierarchyView : public SCompoundWidget
 {
 public:
 	SLATE_BEGIN_ARGS(SCommonUIHierarchyView) : _IsOverlay(false) {}
-	SLATE_ARGUMENT(bool, IsOverlay)
-SLATE_END_ARGS()
+		SLATE_ARGUMENT(bool, IsOverlay)
+	SLATE_END_ARGS()
 
 	void Construct(const FArguments& InArgs, UInputDebugSubsystem* InSubsystem);
 	virtual void Tick(const FGeometry& AllottedGeometry, const double InCurrentTime, const float InDeltaTime) override;
@@ -70,7 +72,7 @@ private:
 
 	TSharedPtr<STreeView<TSharedPtr<FCommonUITreeItem>>> TreeView;
 	TArray<TSharedPtr<FCommonUITreeItem>> Roots;
-	TMap<TWeakObjectPtr<UCommonActivatableWidget>, TSharedPtr<FCommonUITreeItem>> WidgetItemCache;
+	TMap<TWeakObjectPtr<UWidget>, TSharedPtr<FCommonUITreeItem>> WidgetItemCache;
 };
 
 #endif // WITH_PLUGIN_COMMONUI
