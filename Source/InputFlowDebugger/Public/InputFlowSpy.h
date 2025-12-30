@@ -95,15 +95,6 @@ public:
 	void ResetBuffer();
 
 	FOnInputFlowFocusChanged& OnFocusChanged() { return OnFocusChangedDelegate; }
-	
-	// Configuration
-	bool bCaptureMouseMove = false;
-	bool bCaptureAnalog = false;
-	bool bCaptureMouseClicks = true;
-	bool bCaptureHover = false;
-	bool bCaptureFocusEvents = true;
-	bool bCaptureKeyEvents = true;
-	bool bCaptureHandledEvents = true;
 
 private:
 	void AddLog(const FString& Type, const FString& InputDetails, FColor Color, const FString& WidgetType = TEXT(""), const FString& WidgetName = TEXT(""), const FString& WidgetState = TEXT(""), bool bIsButton = false, UObject* InSourceObject = nullptr, const TArray<FInputLogRichTextPart>& InParts = TArray<FInputLogRichTextPart>());

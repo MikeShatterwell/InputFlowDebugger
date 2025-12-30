@@ -365,7 +365,6 @@ void SInputFlowLogView::UpdateLogView()
 
 	SourceData.Reset();
 	const bool bFilter = !LogFilterText.IsEmpty();
-	const bool bShowHandled = DebugSubsystem->GetShowHandledEvents();
 
 	int32 Start = bWrapped ? WriteIdx : 0;
 	int32 TotalItems = bWrapped ? Buffer.Num() : WriteIdx;
@@ -383,12 +382,6 @@ void SInputFlowLogView::UpdateLogView()
 		
 		const TSharedPtr<FInputEventLog>& Log = Buffer[CurrIdx];
 		if (!Log.IsValid()) continue; 
-
-		// "Handled" Filter
-		if (!bShowHandled && Log->EventType.Contains("Handled"))
-		{
-			continue;
-		}
 
 		if (bFilter)
 		{

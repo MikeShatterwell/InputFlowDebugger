@@ -1,6 +1,7 @@
 ﻿// Copyright Mike Desrosiers, All Rights Reserved.
 
 #include "InputFlowSpy.h"
+#include "InputFlowSettings.h"
 
 // CommonUI
 #if WITH_PLUGIN_COMMONUI
@@ -122,9 +123,13 @@ void FInputFlowSpy::GenerateWidgetContextParts(const TSharedPtr<SWidget>& Widget
 	{
 		FString Tag = Widget->GetTag().ToString();
 		if (!Tag.IsEmpty() && Tag != TEXT("None"))
+		{
 			LeafName = Tag;
+		}
 		else
+		{
 			LeafName = Widget->GetTypeAsString();
+		}
 	}
 
 	// Add the leaf part
@@ -145,7 +150,7 @@ void FInputFlowSpy::GenerateWidgetContextParts(const TSharedPtr<SWidget>& Widget
 
 		UWidget* WalkerObj = InputFlowHelpers::GetOwnerUWidget(Walker);
 		
-		if (WalkerObj && WalkerObj != Owner)
+		if (IsValid(WalkerObj) && WalkerObj != Owner)
 		{
 #if WITH_PLUGIN_COMMONUI
 			if (UCommonActivatableWidget* FoundActivatable = Cast<UCommonActivatableWidget>(WalkerObj))
@@ -206,9 +211,9 @@ FString FInputFlowSpy::GetWidgetDisplayName(const TSharedPtr<SWidget>& Widget) c
 	if (!Widget.IsValid()) return TEXT("None");
 
 	FString DisplayName;
-	UWidget* Owner = InputFlowHelpers::GetOwnerUWidget(Widget);
+	const UWidget* Owner = InputFlowHelpers::GetOwnerUWidget(Widget);
 	
-	if (Owner)
+	if (IsValid(Owner))
 	{
 		DisplayName = Owner->GetName();
 	}
@@ -222,10 +227,10 @@ FString FInputFlowSpy::GetWidgetDisplayName(const TSharedPtr<SWidget>& Widget) c
 	}
 
 	TSharedPtr<SWidget> Walker = Widget;
-	
-	UUserWidget* ImmediateUserParent = nullptr;
+
+	const UUserWidget* ImmediateUserParent = nullptr;
 #if WITH_PLUGIN_COMMONUI
-	UCommonActivatableWidget* ActivatableParent = nullptr;
+	const UCommonActivatableWidget* ActivatableParent = nullptr;
 #endif // WITH_PLUGIN_COMMONUI
 
 	while (Walker.IsValid())
@@ -448,20 +453,21 @@ void FInputFlowSpy::OnButtonSelectionChanged(bool bSelected, TWeakObjectPtr<UCom
 
 void FInputFlowSpy::OnCommonUIButtonEvent(FString EventName, TWeakObjectPtr<UCommonButtonBase> ButtonWeak)
 {
-	if (EventName == TEXT("Hovered") || EventName == TEXT("Unhovered") && !bCaptureHover)
+	const UInputFlowSettings* Settings = UInputFlowSettings::Get();
+
+	if (EventName == TEXT("Hovered") || EventName == TEXT("Unhovered"))
+	{
+		if (!Settings->IsCaptureHoverEnabled()) return;
+	}
+	
+	bool bIsClick = (EventName == TEXT("Pressed") || EventName == TEXT("Released") || EventName == TEXT("Clicked") || EventName == TEXT("DoubleClicked"));
+	if (bIsClick && !Settings->IsCaptureClicksEnabled())
 	{
 		return;
 	}
-	if ((EventName == TEXT("Pressed")
-			|| EventName == TEXT("Released")
-			|| EventName == TEXT("Clicked")
-			|| EventName == TEXT("DoubleClicked")
-			|| EventName == TEXT("LockClicked")
-			|| EventName == TEXT("LockDoubleClicked")) && !bCaptureMouseClicks)
-	{
-		return;
-	}
-	if ((EventName == TEXT("FocusReceived") || EventName == TEXT("FocusLost")) && !bCaptureFocusEvents)
+
+	bool bIsFocus = (EventName == TEXT("FocusReceived") || EventName == TEXT("FocusLost"));
+	if (bIsFocus && !Settings->IsCaptureFocusEnabled())
 	{
 		return;
 	}
@@ -485,26 +491,24 @@ void FInputFlowSpy::OnCommonUIButtonEvent(FString EventName, TWeakObjectPtr<UCom
 void FInputFlowSpy::OnSlateInputEvent(const FSlateDebuggingInputEventArgs& EventArgs)
 {
 #if WITH_SLATE_DEBUGGING
-	if (!bCaptureHandledEvents)
-	{
-		return;
-	}
+	const UInputFlowSettings* Settings = UInputFlowSettings::Get();
+	if (!Settings->GetShowHandledEventsEnabled()) return;
 
-	// 1. We only care about events that were actually CONSUMED (Handled)
+	// We only care about events that were actually CONSUMED (Handled)
 	if (!EventArgs.Reply.IsEventHandled())
 	{
 		return;
 	}
 
-	// 2. Filter based on configuration booleans
+	// Filter based on configuration booleans
 	const ESlateDebuggingInputEvent EventType = EventArgs.InputEventType;
 	FString InputDetail;
 	FString Modifiers;
 	
-	// -- Case A: Key Events --
+	// -- Key Events --
 	if (EventType == ESlateDebuggingInputEvent::KeyDown || EventType == ESlateDebuggingInputEvent::KeyUp)
 	{
-		if (!bCaptureKeyEvents) return;
+		if (!Settings->IsCaptureKeyEventsEnabled()) return;
 
 		const FKeyEvent* KeyEvent = static_cast<const FKeyEvent*>(EventArgs.InputEvent);
 		InputDetail = KeyEvent->GetKey().ToString();
@@ -514,13 +518,13 @@ void FInputFlowSpy::OnSlateInputEvent(const FSlateDebuggingInputEventArgs& Event
 		if (KeyEvent->IsAltDown()) Modifiers += TEXT("Alt+");
 		if (KeyEvent->IsCommandDown()) Modifiers += TEXT("Cmd+");
 	}
-	// -- Case B: Mouse Clicks & Wheel --
+	// -- Mouse Clicks & Wheel --
 	else if (EventType == ESlateDebuggingInputEvent::MouseButtonDown || 
 			 EventType == ESlateDebuggingInputEvent::MouseButtonUp || 
 			 EventType == ESlateDebuggingInputEvent::MouseButtonDoubleClick ||
 			 EventType == ESlateDebuggingInputEvent::MouseWheel)
 	{
-		if (!bCaptureMouseClicks) return;
+		if (!Settings->IsCaptureClicksEnabled()) return;
 
 		const FPointerEvent* PointerEvent = static_cast<const FPointerEvent*>(EventArgs.InputEvent);
 		
@@ -538,10 +542,10 @@ void FInputFlowSpy::OnSlateInputEvent(const FSlateDebuggingInputEventArgs& Event
 		if (PointerEvent->IsShiftDown()) Modifiers += TEXT("Shift+");
 		if (PointerEvent->IsAltDown()) Modifiers += TEXT("Alt+");
 	}
-	// -- Case C: Analog --
+	// -- Analog --
 	else if (EventType == ESlateDebuggingInputEvent::AnalogInput)
 	{
-		if (!bCaptureAnalog) return;
+		if (!Settings->IsCaptureAnalogEnabled()) return;
 		
 		const FAnalogInputEvent* AnalogEvent = static_cast<const FAnalogInputEvent*>(EventArgs.InputEvent);
 		if (FMath::Abs(AnalogEvent->GetAnalogValue()) < 0.15f) return;
@@ -575,7 +579,7 @@ void FInputFlowSpy::OnSlateInputEvent(const FSlateDebuggingInputEventArgs& Event
 		SideEffects += FString::Printf(TEXT(" (%s)"), *EventArgs.AdditionalContent);
 	}
 
-	// 3. Log the Consumption
+	// Log the Consumption
 	const TSharedPtr<SWidget> Handler = EventArgs.HandlerWidget;
 	if (Handler.IsValid())
 	{
@@ -612,76 +616,77 @@ void FInputFlowSpy::OnSlateInputEvent(const FSlateDebuggingInputEventArgs& Event
 
 bool FInputFlowSpy::HandleMouseButtonDownEvent(FSlateApplication& SlateApp, const FPointerEvent& MouseEvent)
 {
+	const UInputFlowSettings* Settings = UInputFlowSettings::Get();
+	if (!Settings->IsCaptureClicksEnabled()) return false;
+
 	FWidgetPath WidgetsUnderCursor = SlateApp.LocateWindowUnderMouse(MouseEvent.GetScreenSpacePosition(), SlateApp.GetInteractiveTopLevelWindows());
 	if (WidgetsUnderCursor.IsValid() && WidgetsUnderCursor.Widgets.Num() > 0)
 	{
 		if (!InputFlowHelpers::IsGameWorldWidget(WidgetsUnderCursor.Widgets.Last().Widget)) return false;
 	}
 
-	if (bCaptureMouseClicks)
+	const TSharedPtr<SWidget> Target = FindInterestingWidget(SlateApp, MouseEvent.GetScreenSpacePosition());
+	
+	if (Target.IsValid()) BindButtonObservation(Target);
+
+	FString InputDetail = MouseEvent.GetEffectingButton().ToString();
+	FString WName, WType, WState;
+	bool bIsButton = false;
+	UObject* SourceObj = nullptr;
+	TArray<FInputLogRichTextPart> Parts;
+
+	if (Target.IsValid())
 	{
-		TSharedPtr<SWidget> Target = FindInterestingWidget(SlateApp, MouseEvent.GetScreenSpacePosition());
-		
-		if (Target.IsValid()) BindButtonObservation(Target);
-
-		FString InputDetail = MouseEvent.GetEffectingButton().ToString();
-		FString WName, WType, WState;
-		bool bIsButton = false;
-		UObject* SourceObj = nullptr;
-		TArray<FInputLogRichTextPart> Parts;
-
-		if (Target.IsValid())
-		{
-			GenerateWidgetContextParts(Target, Parts, WName);
-			WState = GetWidgetStateDescription(Target);
-			UWidget* UObj = InputFlowHelpers::GetOwnerUWidget(Target);
-			SourceObj = UObj;
-			WType = UObj ? UObj->GetClass()->GetName() : Target->GetTypeAsString();
-			bIsButton = InputFlowHelpers::IsButtonWidget(Target);
-		}
-		else
-		{
-			WName = TEXT("(None)");
-		}
-
-		AddLog("Slate | Mouse Down", InputDetail, FColor::Orange, WType, WName, WState, bIsButton, SourceObj, Parts);
+		GenerateWidgetContextParts(Target, Parts, WName);
+		WState = GetWidgetStateDescription(Target);
+		UWidget* UObj = InputFlowHelpers::GetOwnerUWidget(Target);
+		SourceObj = UObj;
+		WType = UObj ? UObj->GetClass()->GetName() : Target->GetTypeAsString();
+		bIsButton = InputFlowHelpers::IsButtonWidget(Target);
 	}
+	else
+	{
+		WName = TEXT("(None)");
+	}
+
+	AddLog("Slate | Mouse Down", InputDetail, FColor::Orange, WType, WName, WState, bIsButton, SourceObj, Parts);
 	return false;
 }
 
 bool FInputFlowSpy::HandleMouseButtonUpEvent(FSlateApplication& SlateApp, const FPointerEvent& MouseEvent)
 {
+	const UInputFlowSettings* Settings = UInputFlowSettings::Get();
+	if (!Settings->IsCaptureClicksEnabled()) return false;
 	FWidgetPath WidgetsUnderCursor = SlateApp.LocateWindowUnderMouse(MouseEvent.GetScreenSpacePosition(), SlateApp.GetInteractiveTopLevelWindows());
 	if (WidgetsUnderCursor.IsValid() && WidgetsUnderCursor.Widgets.Num() > 0)
 	{
 		if (!InputFlowHelpers::IsGameWorldWidget(WidgetsUnderCursor.Widgets.Last().Widget)) return false;
 	}
-
-	if (bCaptureMouseClicks)
-	{
-		AddLog("Slate | Mouse Up", MouseEvent.GetEffectingButton().ToString(), FColor::Yellow);
-	}
+	
+	AddLog("Slate | Mouse Up", MouseEvent.GetEffectingButton().ToString(), FColor::Yellow);
 	return false;
 }
 
 bool FInputFlowSpy::HandleMouseButtonDoubleClickEvent(FSlateApplication& SlateApp, const FPointerEvent& MouseEvent)
 {
+	const UInputFlowSettings* Settings = UInputFlowSettings::Get();
+	if (!Settings->IsCaptureClicksEnabled()) return false;
 	FWidgetPath WidgetsUnderCursor = SlateApp.LocateWindowUnderMouse(MouseEvent.GetScreenSpacePosition(), SlateApp.GetInteractiveTopLevelWindows());
 	if (WidgetsUnderCursor.IsValid() && WidgetsUnderCursor.Widgets.Num() > 0)
 	{
 		if (!InputFlowHelpers::IsGameWorldWidget(WidgetsUnderCursor.Widgets.Last().Widget)) return false;
 	}
 
-	if (bCaptureMouseClicks)
-	{
-		AddLog("Slate | DblClick", MouseEvent.GetEffectingButton().ToString(), FColor::Orange);
-	}
+	AddLog("Slate | DblClick", MouseEvent.GetEffectingButton().ToString(), FColor::Orange);
 	return false;
 }
 
 bool FInputFlowSpy::HandleMouseMoveEvent(FSlateApplication& SlateApp, const FPointerEvent& MouseEvent)
 {
-	if (!bCaptureMouseMove && !bCaptureHover) return false;
+	const UInputFlowSettings* Settings = UInputFlowSettings::Get();
+	const bool bCaptureMouseMove = Settings->IsCaptureMouseMoveEnabled();
+	const bool bCaptureHover = Settings->IsCaptureHoverEnabled();
+	if (!Settings->IsCaptureMouseMoveEnabled() && !Settings->IsCaptureHoverEnabled()) return false;
 
 	FWidgetPath WidgetsUnderCursor = SlateApp.LocateWindowUnderMouse(MouseEvent.GetScreenSpacePosition(), SlateApp.GetInteractiveTopLevelWindows());
 	if (WidgetsUnderCursor.IsValid() && WidgetsUnderCursor.Widgets.Num() > 0)
@@ -740,12 +745,13 @@ bool FInputFlowSpy::HandleMouseMoveEvent(FSlateApplication& SlateApp, const FPoi
 	}
 
 	return false;
-
-	return false;
 }
 
 bool FInputFlowSpy::HandleKeyDownEvent(FSlateApplication& SlateApp, const FKeyEvent& InKeyEvent)
 {
+	const UInputFlowSettings* Settings = UInputFlowSettings::Get();
+	const bool bCaptureKeyEvents = Settings->IsCaptureKeyEventsEnabled();
+	const bool bCaptureFocusEvents = Settings->IsCaptureFocusEnabled();
 	if (!bCaptureKeyEvents)
 	{
 		return false;
@@ -762,14 +768,12 @@ bool FInputFlowSpy::HandleKeyDownEvent(FSlateApplication& SlateApp, const FKeyEv
 		FString SourceName = TEXT("None");
 		FString SourceType = TEXT("");
 		FString SourceState = TEXT("");
-		bool bIsBtn = false;
-		UObject* SourceObj = nullptr;
 		TArray<FInputLogRichTextPart> Parts;
 		GenerateWidgetContextParts(FocusedWidget, Parts, SourceName);
 		UWidget* UObj = InputFlowHelpers::GetOwnerUWidget(FocusedWidget);
-		SourceObj = UObj;
+		UObject* SourceObj = UObj;
 		SourceType = UObj ? UObj->GetClass()->GetName() : FocusedWidget->GetTypeAsString();
-		bIsBtn = InputFlowHelpers::IsButtonWidget(FocusedWidget);
+		bool bIsBtn = InputFlowHelpers::IsButtonWidget(FocusedWidget);
 		SourceState = GetWidgetStateDescription(FocusedWidget);
 
 		AddLog("Slate | KeyDown", InKeyEvent.GetKey().ToString(), FColor::Green, SourceType, SourceName, SourceState, bIsBtn, SourceObj, Parts);
@@ -810,11 +814,10 @@ bool FInputFlowSpy::HandleKeyDownEvent(FSlateApplication& SlateApp, const FKeyEv
 
 bool FInputFlowSpy::HandleKeyUpEvent(FSlateApplication& SlateApp, const FKeyEvent& InKeyEvent)
 {
-	if (!bCaptureKeyEvents)
-	{
-		return false;
-	}
-	TSharedPtr<SWidget> FocusedWidget = SlateApp.GetKeyboardFocusedWidget();
+	const UInputFlowSettings* Settings = UInputFlowSettings::Get();
+	if (!Settings->IsCaptureKeyEventsEnabled()) return false;
+
+	const TSharedPtr<SWidget> FocusedWidget = SlateApp.GetKeyboardFocusedWidget();
 	if (FocusedWidget.IsValid() && !InputFlowHelpers::IsGameWorldWidget(FocusedWidget)) return false;
 #if WITH_EDITOR
 	if (!FocusedWidget.IsValid()) return false;
@@ -846,13 +849,15 @@ bool FInputFlowSpy::HandleKeyUpEvent(FSlateApplication& SlateApp, const FKeyEven
 
 bool FInputFlowSpy::HandleAnalogInputEvent(FSlateApplication& SlateApp, const FAnalogInputEvent& InAnalogInputEvent)
 {
+	const UInputFlowSettings* Settings = UInputFlowSettings::Get();
+	if (!Settings->IsCaptureAnalogEnabled()) return false;
 	TSharedPtr<SWidget> FocusedWidget = SlateApp.GetKeyboardFocusedWidget();
 	if (FocusedWidget.IsValid() && !InputFlowHelpers::IsGameWorldWidget(FocusedWidget)) return false;
 #if WITH_EDITOR
 	if (!FocusedWidget.IsValid()) return false;
 #endif
 
-	if (bCaptureAnalog && FMath::Abs(InAnalogInputEvent.GetAnalogValue()) > 0.15f)
+	if (FMath::Abs(InAnalogInputEvent.GetAnalogValue()) > 0.15f)
 	{
 		static double LastLogTime = 0.0;
 		if (FPlatformTime::Seconds() - LastLogTime > 0.1)
@@ -867,11 +872,14 @@ bool FInputFlowSpy::HandleAnalogInputEvent(FSlateApplication& SlateApp, const FA
 void FInputFlowSpy::OnFocusChanging(const FFocusEvent& InFocusEvent, const FWeakWidgetPath& InOldPath,
 	const TSharedPtr<SWidget>& OldFocusedWidget, const FWidgetPath& InNewPath,
 	const TSharedPtr<SWidget>& NewFocusedWidget)
-{	
+{
 	if (!NewFocusedWidget.IsValid() || !InputFlowHelpers::IsGameWorldWidget(NewFocusedWidget))
 	{
 		return;
 	}
+	const UInputFlowSettings* Settings = UInputFlowSettings::Get();
+	const bool bCaptureFocusEvents = Settings->IsCaptureFocusEnabled();
+	const bool bCaptureHover = Settings->IsCaptureHoverEnabled();
 
 	BindButtonObservation(NewFocusedWidget);
 	OnFocusChangedDelegate.Broadcast(NewFocusedWidget, InFocusEvent);

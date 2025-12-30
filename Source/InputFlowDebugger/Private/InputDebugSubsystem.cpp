@@ -12,6 +12,7 @@
 // Engine
 #include <Engine/GameInstance.h>
 #include <Engine/GameViewportClient.h>
+#include "InputFlowSettings.h"
 
 // EnhancedInput
 #if WITH_PLUGIN_ENHANCEDINPUT
@@ -34,6 +35,7 @@
 // UMG
 #include <Blueprint/WidgetTree.h>
 #include <Components/Button.h>
+
 
 // CommonUI
 #if WITH_PLUGIN_COMMONUI
@@ -83,6 +85,9 @@ void UInputDebugSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
 	Super::Initialize(Collection);
 
+	GetMutableDefault<UInputFlowSettings>()->GetOnSettingsChanged().AddUObject(this, &UInputDebugSubsystem::HandleSettingsChanged);
+	HandleSettingsChanged();
+
 	// Pre-allocate ring buffer
 	LogHistory.SetNum(MaxLogHistorySize);
 	LogHistoryIndex = 0;
@@ -103,6 +108,11 @@ void UInputDebugSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 
 void UInputDebugSubsystem::Deinitialize()
 {
+	if (UInputFlowSettings* Settings = GetMutableDefault<UInputFlowSettings>())
+	{
+		Settings->GetOnSettingsChanged().RemoveAll(this);
+	}
+
 	if (LogSyncTickerHandle.IsValid())
 	{
 		FTSTicker::GetCoreTicker().RemoveTicker(LogSyncTickerHandle);
@@ -116,7 +126,14 @@ void UInputDebugSubsystem::Deinitialize()
 	InputSpy.Reset();
 	LogHistory.Empty();
 
-	SetOverlayEnabled(false);
+	// Destroy overlay
+	if (OverlayHost.IsValid() && GetWorld() && GetWorld()->GetGameViewport())
+	{
+		GetWorld()->GetGameViewport()->RemoveViewportWidgetContent(OverlayHost.ToSharedRef());
+	}
+	OverlayHost.Reset();
+	OverlayWidget.Reset();
+	bOverlayActive = false;
 
 	Super::Deinitialize();
 }
@@ -129,6 +146,42 @@ void UInputDebugSubsystem::ClearLogHistory()
 	LogHistoryIndex = 0;
 	bLogHistoryWrapped = false;
 	LogVersion++; // Force view update
+}
+
+void UInputDebugSubsystem::HandleSettingsChanged()
+{
+	const UInputFlowSettings* Settings = UInputFlowSettings::Get();
+	
+	// Handle Overlay Widget Spawning/Despawning
+	if (Settings->IsOverlayEnabled() != bOverlayActive)
+	{
+		bOverlayActive = Settings->IsOverlayEnabled();
+		
+		if (bOverlayActive)
+		{
+			if (GetWorld() && GetWorld()->GetGameViewport())
+			{
+				OverlayWidget = SNew(SInputFlowOverlay).Subsystem(this);
+
+				SAssignNew(OverlayHost, SWeakWidget)
+				.PossiblyNullContent(OverlayWidget.ToSharedRef());
+
+				GetWorld()->GetGameViewport()->AddViewportWidgetContent(
+					OverlayHost.ToSharedRef(),
+					1000 // Z-Order
+				);
+			}
+		}
+		else
+		{
+			if (OverlayHost.IsValid() && GetWorld() && GetWorld()->GetGameViewport())
+			{
+				GetWorld()->GetGameViewport()->RemoveViewportWidgetContent(OverlayHost.ToSharedRef());
+			}
+			OverlayHost.Reset();
+			OverlayWidget.Reset();
+		}
+	}
 }
 
 bool UInputDebugSubsystem::TickSyncLogs(float DeltaTime)
@@ -198,69 +251,19 @@ bool UInputDebugSubsystem::TickSyncLogs(float DeltaTime)
 		}
 	}
 
-	// 2. Sync Overlay State from CVar
-	bool bCVarState = CVarInputFlowOverlay.GetValueOnGameThread();
-	if (bCVarState != bOverlayEnabled)
-	{
-		SetOverlayEnabled(bCVarState);
-	}
-
 	// Clean out stale focus history entries (3s retention)
 	double Now = FPlatformTime::Seconds();
 	FocusHistory.RemoveAll([Now](const FFocusHistoryEntry& Entry)
 	{
 		return !Entry.Widget.IsValid() || (Now - Entry.Timestamp) > 3.0;
 	});
-
-	// 3. Run Logic
-	if (bOverlayEnabled)
-	{
-		TickNavigationSim(DeltaTime);
-	}
+	
+	TickNavigationSim(DeltaTime);
 
 	// Always update snapshot data (Active Leaf info)
 	UpdateDataSnapshot();
 
 	return true;
-}
-
-void UInputDebugSubsystem::SetNavigationDepth(int32 NewDepth)
-{
-	NavigationSearchDepth = FMath::Clamp(NewDepth, 1, 5);
-}
-
-void UInputDebugSubsystem::SetOverlayEnabled(bool bEnabled)
-{
-	if (bOverlayEnabled == bEnabled) return;
-
-	bOverlayEnabled = bEnabled;
-	CVarInputFlowOverlay->Set(bEnabled, ECVF_SetByConsole);
-
-	if (bEnabled)
-	{
-		if (GetWorld() && GetWorld()->GetGameViewport())
-		{
-			OverlayWidget = SNew(SInputFlowOverlay).Subsystem(this);
-
-			SAssignNew(OverlayHost, SWeakWidget)
-			.PossiblyNullContent(OverlayWidget.ToSharedRef());
-
-			GetWorld()->GetGameViewport()->AddViewportWidgetContent(
-				OverlayHost.ToSharedRef(),
-				1000 // Z-Order
-			);
-		}
-	}
-	else
-	{
-		if (OverlayHost.IsValid() && GetWorld() && GetWorld()->GetGameViewport())
-		{
-			GetWorld()->GetGameViewport()->RemoveViewportWidgetContent(OverlayHost.ToSharedRef());
-		}
-
-		OverlayHost.Reset();
-		OverlayWidget.Reset();
-	}
 }
 
 // --- Data Gathering for Overlay ---
@@ -443,10 +446,10 @@ void UInputDebugSubsystem::UpdateDataSnapshot()
 
 void UInputDebugSubsystem::TickNavigationSim(float DeltaTime)
 {
-	if (!bOverlayEnabled) return;
+	if (!bOverlayActive || !UInputFlowSettings::Get()->IsNavSimulationEnabled()) return;
 	if (!FSlateApplication::IsInitialized()) return;
 
-	TSharedPtr<SWidget> CurrentFocus = FocusedWidget.Pin();
+	const TSharedPtr<SWidget> CurrentFocus = FocusedWidget.Pin();
 
 	if (CurrentFocus != LastSimulationStartWidget.Pin())
 	{
@@ -493,6 +496,7 @@ TPair<TSharedPtr<SWidget>, ENavSimResult> UInputDebugSubsystem::SimulateNavigati
 	const TSharedPtr<SWidget>& Source, EUINavigation Direction, int32 UserIndex) const
 {
 	const bool bDebugLog = CVarInputFlowNavSpiderDebugLog.GetValueOnGameThread();
+	const bool bEnableNavigationSimulation = UInputFlowSettings::Get()->IsNavSimulationEnabled();
 	
 	// Basic validation
 	if (!Source.IsValid() || !Source->SupportsKeyboardFocus() || !bEnableNavigationSimulation)
@@ -502,7 +506,12 @@ TPair<TSharedPtr<SWidget>, ENavSimResult> UInputDebugSubsystem::SimulateNavigati
 	}
 
 	FWidgetPath SourcePath;
-	FSlateApplication::Get().FindPathToWidget(Source.ToSharedRef(), SourcePath);
+	const bool bPathFound = FSlateApplication::Get().FindPathToWidget(Source.ToSharedRef(), SourcePath);
+	if (!bPathFound)
+	{
+		UE_CLOG(bDebugLog, LogInputFlow, Warning, TEXT("  [NavSim] Could not find WidgetPath for source widget."));
+		return {nullptr, ENavSimResult::Normal};
+	}
 
 	const FNavigationEvent VirtualNavEvent(FModifierKeysState(), 999, Direction, ENavigationGenesis::Controller);
 
@@ -526,46 +535,6 @@ TPair<TSharedPtr<SWidget>, ENavSimResult> UInputDebugSubsystem::SimulateNavigati
 			DeepestTableViewIndex = i;
 		}
 	}
-
-	// -----------------------------------------------------------------------------------
-	// Special Handling: CommonUI Row Redirect
-	// If the simulation is asked to navigate from a TableRow (often what happens if the List itself has focus),
-	// but that row contains a CommonButton, simulate as if the navigation originated from the button logic.
-	// CONSIDER REMOVING THIS
-	// -----------------------------------------------------------------------------------
-#if WITH_PLUGIN_COMMONUI
-	/*if (Source->GetTypeAsString() == TEXT("ObjectTableRowT"))
-	{
-		TSharedPtr<SObjectTableRow<UObject*>> ObjectRow = StaticCastSharedPtr<SObjectTableRow<UObject*>>(Source);
-		if (ObjectRow.IsValid())
-		{
-			const UCommonButtonBase* CommonButton = Cast<UCommonButtonBase>(ObjectRow->GetWidgetObject());
-			if (IsValid(CommonButton))
-			{
-				const UButton* RootButton = Cast<UButton>(CommonButton->GetRootWidget());
-
-				if (!IsValid(RootButton) && IsValid(CommonButton->WidgetTree))
-				{
-					// Fallback search for root button
-					CommonButton->WidgetTree->ForEachWidget([&](UWidget* Widget) {
-						if (!IsValid(RootButton))
-						{
-							RootButton = Cast<UButton>(Widget);
-						}
-					});
-				}
-				if (IsValid(RootButton))
-				{
-					if (TSharedPtr<SButton> SlateCommonButton = FButtonAccess::GetSlateButton(RootButton))
-					{
-						// Recursively simulate from the internal button instead of the row container
-						return SimulateNavigation(StaticCastSharedPtr<SWidget>(SlateCommonButton), Direction, UserIndex);
-					}
-				}
-			}
-		}
-	}*/
-#endif // WITH_PLUGIN_COMMONUI
 
 	// Bubbling Loop
 	for (int32 WidgetIndex = SourcePath.Widgets.Num() - 1; WidgetIndex >= 0; --WidgetIndex)
@@ -786,7 +755,7 @@ TPair<TSharedPtr<SWidget>, ENavSimResult> UInputDebugSubsystem::SimulateNavigati
 void UInputDebugSubsystem::ProcessSimulationQueue()
 {
 	const double StartTime = FPlatformTime::Seconds();
-	const int32 MaxDepth = NavigationSearchDepth;
+	const int32 MaxDepth = UInputFlowSettings::Get()->GetNavigationSearchDepth();
 
 	while (SimulationQueue.Num() > 0)
 	{
@@ -890,78 +859,4 @@ void UInputDebugSubsystem::StartNewSimulation(TSharedPtr<SWidget> StartWidget)
 
 		ProcessSimulationQueue();
 	}
-}
-
-// ----------------------------------------------------------------------------------
-// Spy Setters/Getters
-// ----------------------------------------------------------------------------------
-
-void UInputDebugSubsystem::SetShowHandledEvents(bool bEnabled)
-{
-	if (InputSpy) InputSpy->bCaptureHandledEvents = bEnabled;
-}
-
-bool UInputDebugSubsystem::GetShowHandledEvents() const
-{
-	return InputSpy ? InputSpy->bCaptureHandledEvents : false;
-}
-
-void UInputDebugSubsystem::SetCaptureMouseMove(bool bEnabled)
-{
-	if (InputSpy) InputSpy->bCaptureMouseMove = bEnabled;
-}
-
-bool UInputDebugSubsystem::GetCaptureMouseMove() const
-{
-	return InputSpy ? InputSpy->bCaptureMouseMove : false;
-}
-
-void UInputDebugSubsystem::SetCaptureClicks(bool bEnabled)
-{
-	if (InputSpy) InputSpy->bCaptureMouseClicks = bEnabled;
-}
-
-bool UInputDebugSubsystem::GetCaptureClicks() const
-{
-	return InputSpy ? InputSpy->bCaptureMouseClicks : false;
-}
-
-void UInputDebugSubsystem::SetCaptureHover(bool bEnabled)
-{
-	if (InputSpy) InputSpy->bCaptureHover = bEnabled;
-}
-
-bool UInputDebugSubsystem::GetCaptureHover() const
-{
-	return InputSpy ? InputSpy->bCaptureHover : false;
-}
-
-void UInputDebugSubsystem::SetCaptureAnalog(bool bEnabled)
-{
-	if (InputSpy) InputSpy->bCaptureAnalog = bEnabled;
-}
-
-bool UInputDebugSubsystem::GetCaptureAnalog() const
-{
-	return InputSpy ? InputSpy->bCaptureAnalog : false;
-}
-
-void UInputDebugSubsystem::SetCaptureFocus(bool bEnabled)
-{
-	if (InputSpy) InputSpy->bCaptureFocusEvents = bEnabled;
-}
-
-bool UInputDebugSubsystem::GetCaptureFocus() const
-{
-	return InputSpy ? InputSpy->bCaptureFocusEvents : false;
-}
-
-void UInputDebugSubsystem::SetCaptureKeyEvents(bool bEnabled)
-{
-	if (InputSpy) InputSpy->bCaptureKeyEvents = bEnabled;
-}
-
-bool UInputDebugSubsystem::GetCaptureKeyEvents() const
-{
-	return InputSpy ? InputSpy->bCaptureKeyEvents : false;
 }

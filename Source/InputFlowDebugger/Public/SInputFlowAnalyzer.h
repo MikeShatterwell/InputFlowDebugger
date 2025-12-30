@@ -57,42 +57,26 @@ public:
 	void Construct(const FArguments& InArgs, UInputDebugSubsystem* InSubsystem);
 	void Tick(const FGeometry& AllottedGeometry, const double InCurrentTime, const float InDeltaTime) override;
 
+
 private:
-	// Toggle Handlers
-	void OnToggleCaptureClicks(ECheckBoxState NewState);
-	ECheckBoxState GetCaptureClicksState() const;
-	void OnToggleCaptureKeyEvents(ECheckBoxState NewState);
-	ECheckBoxState GetCaptureKeyEventsState() const;
-	void OnToggleCaptureHover(ECheckBoxState NewState);
-	ECheckBoxState GetCaptureHoverState() const;
-	void OnToggleCaptureMove(ECheckBoxState NewState);
-	ECheckBoxState GetCaptureMoveState() const;
-	void OnToggleCaptureAnalog(ECheckBoxState NewState);
-	ECheckBoxState GetCaptureAnalogState() const;
-	void OnToggleCaptureFocus(ECheckBoxState CheckBoxState);
-	ECheckBoxState GetCaptureFocusState() const;
-	void OnToggleOverlay(ECheckBoxState NewState);
-	ECheckBoxState GetOverlayState() const;
-	void OnToggleCaptureHandledEvents(ECheckBoxState NewState);
-	ECheckBoxState GetCaptureHandledEventState() const;
-	void OnToggleSpider(ECheckBoxState NewState);
-	ECheckBoxState GetSpiderState() const;
-	void OnSpiderDepthChanged(int32 NewValue);
-	int32 GetSpiderDepth() const;
-	void OnToggleHitTestGrid(ECheckBoxState NewState);
-	ECheckBoxState GetHitTestGridState() const;
+	TSharedRef<SWidget> MakeNavMenu();
+	TSharedRef<SWidget> MakePanelMenu();
+	TSharedRef<SWidget> MakeFilterMenu();
+
+	// Generic toggles for filters
+	void OnToggleFilter(FName PropertyName);
+	bool IsFilterChecked(FName PropertyName) const;
+
+	// Generic toggles for panels
+	void OnTogglePanel(FName PanelName);
+	bool IsPanelChecked(FName PanelName) const;
 	
-	void OnToggleShowLog(ECheckBoxState NewState);
-	ECheckBoxState GetShowLogState() const;
-	void OnToggleShowHierarchy(ECheckBoxState NewState);
-	ECheckBoxState GetShowHierarchyState() const;
-	void OnToggleShowEnhancedInput(ECheckBoxState NewState);
-	ECheckBoxState GetShowEnhancedInputState() const;
-	void OnToggleShowDashboard(ECheckBoxState NewState);
-	ECheckBoxState GetShowDashboardState() const;
+	void OnToggleOverlay();
+	void OnToggleHitTestGrid();
 
 	UInputDebugSubsystem* GetSubsystem() const;
 	TWeakObjectPtr<UInputDebugSubsystem> WeakSubsystem;
+	
 	TSharedPtr<SInputFlowSpinBox> DepthSpinBox; 
 	bool bIsOverlay = false;
 };

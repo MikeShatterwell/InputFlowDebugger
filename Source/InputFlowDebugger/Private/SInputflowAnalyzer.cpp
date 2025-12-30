@@ -29,6 +29,7 @@
 // Internal
 #include "InputDebugSubsystem.h"
 #include "InputFlowHelpers.h"
+#include "InputFlowSettings.h"
 #include "SCommonUIHierarchyView.h"
 #include "SEnhancedInputInspector.h"
 #include "SInputFlowLogView.h"
@@ -187,13 +188,13 @@ FText SInputFlowStatusDashboard::GetFocusWidgetName() const
 
 	FString WidgetName = FocusWidget->ToString();
 	int32 AddressIndex;
-	if(WidgetName.FindChar('@', AddressIndex)) { WidgetName =  WidgetName.Left(AddressIndex); }
+	if (WidgetName.FindChar('@', AddressIndex)) { WidgetName =  WidgetName.Left(AddressIndex); }
 	return FText::FromString(FString::Printf(TEXT("%s"), *WidgetName));
 }
 
 FText SInputFlowStatusDashboard::GetCommonInputType(UInputDebugSubsystem* Subsystem) const
 {
-	if(!Subsystem) return FText::GetEmpty();
+	if (!Subsystem) return FText::GetEmpty();
 	if (ULocalPlayer* LP = Subsystem->GetGameInstance()->GetFirstGamePlayer())
 	{
 #if WITH_PLUGIN_COMMONUI
@@ -234,87 +235,113 @@ void SInputFlowSettingsPanel::Construct(const FArguments& InArgs, UInputDebugSub
 	// Enable Tick so we can keep the Subsystem pointer fresh across PIE restarts
 	SetCanTick(true);
 
-	// Helper to create checkboxes with consistent styling
-	auto MakeCheckBox = [this](FString Label, auto GetFunc, auto SetFunc)
-	{
-		return SNew(SCheckBox)
-			.IsFocusable(false)
-			.IsChecked(this, GetFunc)
-			.OnCheckStateChanged(this, SetFunc)
-			[ SNew(STextBlock).Text(FText::FromString(Label)) ];
-	};
+	// Define common styles
+	const FName ToolbarStyle = bIsOverlay ? TEXT("SimpleToolBar") : TEXT("SlimToolBar");
+	const FMargin ToolbarPadding = bIsOverlay ? FMargin(4, 2) : FMargin(0);
 
-	TSharedPtr<SUniformGridPanel> VisualGrid;
-	SAssignNew(VisualGrid, SUniformGridPanel).SlotPadding(FMargin(0, 0, 10, 4));
+	TSharedRef<SHorizontalBox> Toolbar = SNew(SHorizontalBox);
 
-	// Construct Visualization Grid dynamically
-	int32 Col = 0;
-
-	// Only add "Overlay Enabled" if we are NOT in the overlay itself
-	if (!bIsOverlay)
-	{
-		VisualGrid->AddSlot(Col++, 0).HAlign(HAlign_Left) [ MakeCheckBox("Overlay Enabled", &SInputFlowSettingsPanel::GetOverlayState, &SInputFlowSettingsPanel::OnToggleOverlay) ];
-	}
-	
-	// Panel Visibility Toggles
-	VisualGrid->AddSlot(Col++, 0).HAlign(HAlign_Left) [ MakeCheckBox("Show Log", &SInputFlowSettingsPanel::GetShowLogState, &SInputFlowSettingsPanel::OnToggleShowLog) ];
-	
-	VisualGrid->AddSlot(Col++, 0).HAlign(HAlign_Left) [ MakeCheckBox("Show Dashboard", &SInputFlowSettingsPanel::GetShowDashboardState, &SInputFlowSettingsPanel::OnToggleShowDashboard) ];
-	
-	// Navigation & Grid
-	VisualGrid->AddSlot(2, 1).HAlign(HAlign_Left) [ MakeCheckBox("Hit Test Grid", &SInputFlowSettingsPanel::GetHitTestGridState, &SInputFlowSettingsPanel::OnToggleHitTestGrid) ];
-	VisualGrid->AddSlot(3, 1).HAlign(HAlign_Left) [ MakeCheckBox("Nav Spider", &SInputFlowSettingsPanel::GetSpiderState, &SInputFlowSettingsPanel::OnToggleSpider) ];
-	VisualGrid->AddSlot(4, 1).HAlign(HAlign_Left)
+	// Capture Filters (Combo Button)
+	Toolbar->AddSlot().AutoWidth().Padding(2, 0)
 	[
-		SNew(SHorizontalBox)
-		+ SHorizontalBox::Slot().AutoWidth().Padding(0, 0, 4, 0)
-		[ SNew(STextBlock).Text(FText::FromString("Depth:")) ]
-		+ SHorizontalBox::Slot().AutoWidth().MinWidth(60)
+		SNew(SComboButton)
+		.ComboButtonStyle(FAppStyle::Get(), "SimpleComboButton")
+		.OnGetMenuContent(this, &SInputFlowSettingsPanel::MakeFilterMenu)
+		.Cursor(EMouseCursor::Default)
+		.ButtonContent()
 		[
-			SAssignNew(DepthSpinBox, SInputFlowSpinBox)
-			.MinValue(1)
-			.MaxValue(5)
-			.Value(this, &SInputFlowSettingsPanel::GetSpiderDepth)
-			.OnValueChanged(this, &SInputFlowSettingsPanel::OnSpiderDepthChanged)
+			SNew(SHorizontalBox)
+			+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0, 0, 4, 0)
+			[ SNew(SImage).Image(FAppStyle::Get().GetBrush("Icons.Filter")) ]
+			+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+			[ SNew(STextBlock).Text(INVTEXT("Capture Filters")) ]
 		]
 	];
-#if WITH_PLUGIN_COMMONUI
-	VisualGrid->AddSlot(0, 3).HAlign(HAlign_Left) [ MakeCheckBox("Show CommonUI Hierarchy", &SInputFlowSettingsPanel::GetShowHierarchyState, &SInputFlowSettingsPanel::OnToggleShowHierarchy) ];
-#endif
-#if WITH_PLUGIN_ENHANCEDINPUT
-	VisualGrid->AddSlot(0, 4) [ MakeCheckBox("Show EnhancedInput Inspector", &SInputFlowSettingsPanel::GetShowEnhancedInputState, &SInputFlowSettingsPanel::OnToggleShowEnhancedInput) ];
-#endif
 
-	if (bIsOverlay && DepthSpinBox.IsValid())
+	// Panel Visibility (Combo Button)
+	Toolbar->AddSlot().AutoWidth().Padding(2, 0)
+	[
+		SNew(SComboButton)
+		.ComboButtonStyle(FAppStyle::Get(), "SimpleComboButton")
+		.OnGetMenuContent(this, &SInputFlowSettingsPanel::MakePanelMenu)
+		.Cursor(EMouseCursor::Default)
+		.ButtonContent()
+		[
+			SNew(SHorizontalBox)
+			+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0, 0, 4, 0)
+			[ SNew(SImage).Image(FAppStyle::Get().GetBrush("Icons.Layout")) ]
+			+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+			[ SNew(STextBlock).Text(INVTEXT("Panels")) ]
+		]
+	];
+	
+	Toolbar->AddSlot().AutoWidth().Padding(8, 2) [ SNew(SSeparator).Orientation(Orient_Vertical) ];
+
+	// Navigation Simulation
+	Toolbar->AddSlot().AutoWidth().Padding(2, 0)
+	[
+		SNew(SComboButton)
+		.ComboButtonStyle(FAppStyle::Get(), "SimpleComboButton")
+		.OnGetMenuContent(this, &SInputFlowSettingsPanel::MakeNavMenu)
+		.Cursor(EMouseCursor::Default)
+		.ButtonContent()
+		[
+			SNew(SHorizontalBox)
+			+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0, 0, 4, 0)
+			[ SNew(SImage).Image(FAppStyle::Get().GetBrush("Icons.Transform")) ]
+			+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+			[ SNew(STextBlock).Text(INVTEXT("Nav Sim")) ]
+		]
+	];
+
+	Toolbar->AddSlot().AutoWidth().Padding(8, 2) [ SNew(SSeparator).Orientation(Orient_Vertical) ];
+
+	// Hit Test Grid
+	Toolbar->AddSlot().AutoWidth().Padding(2, 0)
+	[
+		SNew(SCheckBox)
+		.Style(FAppStyle::Get(), "ToggleButtonCheckbox")
+		.IsChecked_Lambda([this](){ return UInputFlowSettings::Get()->IsHitTestGridShown() ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; })
+		.OnCheckStateChanged_Lambda([this](ECheckBoxState){ OnToggleHitTestGrid(); })
+		.Cursor(EMouseCursor::Default)
+		.ToolTipText(INVTEXT("Show Hit Test Grid overlay"))
+		[
+			SNew(SHorizontalBox)
+			+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(4, 2)
+			[ SNew(SImage).Image(FAppStyle::Get().GetBrush("Icons.Visible")) ]
+			+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(4, 2)
+			[ SNew(STextBlock).Text(INVTEXT("Hit Test")) ]
+		]
+	];
+
+	// Overlay Toggle (Only in Editor)
+	if (!bIsOverlay)
 	{
-		// If the overlay is focusable at all, it will interfere with the navigation spider.
-		DepthSpinBox->SetCanSupportFocus(false);
+		Toolbar->AddSlot().AutoWidth().Padding(2, 0)
+		[
+			SNew(SCheckBox)
+			.Style(FAppStyle::Get(), "ToggleButtonCheckbox")
+			.IsChecked_Lambda([this](){ return UInputFlowSettings::Get()->IsOverlayEnabled() ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; })
+			.OnCheckStateChanged_Lambda([this](ECheckBoxState){ OnToggleOverlay(); })
+			.Cursor(EMouseCursor::Default)
+			.ToolTipText(INVTEXT("Enable In-Game Overlay"))
+			[
+				SNew(SHorizontalBox)
+				+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(4, 2)
+				[ SNew(SImage).Image(FAppStyle::Get().GetBrush("Icons.Visible")) ]
+				+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(4, 2)
+				[ SNew(STextBlock).Text(INVTEXT("Overlay")) ]
+			]
+		];
 	}
 
 	ChildSlot
 	[
-		SNew(SVerticalBox)
-		+ SVerticalBox::Slot().AutoHeight().Padding(4)
+		SNew(SBorder)
+		.BorderImage(FAppStyle::Get().GetBrush(bIsOverlay ? "NoBrush" : "ToolPanel.GroupBorder"))
+		.Padding(4)
 		[
-			SNew(SUniformGridPanel)
-			.SlotPadding(FMargin(0, 0, 10, 4))
-			
-			// Logging Toggles
-			+ SUniformGridPanel::Slot(0, 0).HAlign(HAlign_Left) [ MakeCheckBox("Log Clicks", &SInputFlowSettingsPanel::GetCaptureClicksState, &SInputFlowSettingsPanel::OnToggleCaptureClicks) ]
-			+ SUniformGridPanel::Slot(1, 0).HAlign(HAlign_Left) [ MakeCheckBox("Log Keys", &SInputFlowSettingsPanel::GetCaptureKeyEventsState, &SInputFlowSettingsPanel::OnToggleCaptureKeyEvents) ]
-			+ SUniformGridPanel::Slot(2, 0).HAlign(HAlign_Left) [ MakeCheckBox("Log Hover", &SInputFlowSettingsPanel::GetCaptureHoverState, &SInputFlowSettingsPanel::OnToggleCaptureHover) ]
-			+ SUniformGridPanel::Slot(0, 1).HAlign(HAlign_Left) [ MakeCheckBox("Log Move", &SInputFlowSettingsPanel::GetCaptureMoveState, &SInputFlowSettingsPanel::OnToggleCaptureMove) ]
-			+ SUniformGridPanel::Slot(1, 1).HAlign(HAlign_Left) [ MakeCheckBox("Log Analog", &SInputFlowSettingsPanel::GetCaptureAnalogState, &SInputFlowSettingsPanel::OnToggleCaptureAnalog) ]
-			+ SUniformGridPanel::Slot(2, 1).HAlign(HAlign_Left) [ MakeCheckBox("Log Focus", &SInputFlowSettingsPanel::GetCaptureFocusState, &SInputFlowSettingsPanel::OnToggleCaptureFocus) ]
-			+ SUniformGridPanel::Slot(0, 2).HAlign(HAlign_Left) [ MakeCheckBox("Log Handled", &SInputFlowSettingsPanel::GetCaptureHandledEventState, &SInputFlowSettingsPanel::OnToggleCaptureHandledEvents) ]
-		]
-		+ SVerticalBox::Slot().AutoHeight().Padding(4)
-		[
-			SNew(SSeparator)
-		]
-		+ SVerticalBox::Slot().AutoHeight().Padding(4)
-		[
-			VisualGrid.ToSharedRef()
+			Toolbar
 		]
 	];
 }
@@ -329,56 +356,192 @@ void SInputFlowSettingsPanel::Tick(const FGeometry& AllottedGeometry, const doub
 	}
 }
 
+TSharedRef<SWidget> SInputFlowSettingsPanel::MakeNavMenu()
+{
+	FMenuBuilder MenuBuilder(true, nullptr);
+
+	// Toggle Simulation
+	MenuBuilder.AddMenuEntry(
+		INVTEXT("Enable Nav Spider"),
+		INVTEXT("Simulates navigation paths from the currently focused widget"),
+		FSlateIcon(),
+		FUIAction(
+			FExecuteAction::CreateLambda([this]() {
+				UInputFlowSettings* S = GetMutableDefault<UInputFlowSettings>();
+				S->SetEnableNavSimulation(!S->IsNavSimulationEnabled());
+			}),
+			FCanExecuteAction(),
+			FIsActionChecked::CreateLambda([this]() {
+				return UInputFlowSettings::Get()->IsNavSimulationEnabled();
+			})
+		),
+		NAME_None,
+		EUserInterfaceActionType::ToggleButton
+	);
+
+	// Depth Spinbox
+	TSharedRef<SWidget> DepthWidget = SNew(SHorizontalBox)
+		+ SHorizontalBox::Slot().AutoWidth().Padding(4, 0).VAlign(VAlign_Center)
+		[ SNew(STextBlock).Text(INVTEXT("Search Depth")) ]
+		+ SHorizontalBox::Slot().AutoWidth().Padding(4, 0)
+		[
+			SAssignNew(DepthSpinBox, SInputFlowSpinBox)
+			.MinValue(1)
+			.MaxValue(5)
+			.Value_Lambda([this]() { return UInputFlowSettings::Get()->IsNavSimulationEnabled(); })
+			.OnValueChanged_Lambda([this](int32 NewVal) { 
+				GetMutableDefault<UInputFlowSettings>()->SetNavigationSearchDepth(NewVal);
+			})
+		];
+	
+	if (bIsOverlay && DepthSpinBox.IsValid()) DepthSpinBox->SetCanSupportFocus(false);
+	MenuBuilder.AddWidget(DepthWidget, FText::GetEmpty());
+	return MenuBuilder.MakeWidget();
+}
+
+TSharedRef<SWidget> SInputFlowSettingsPanel::MakePanelMenu()
+{
+	FMenuBuilder MenuBuilder(true, nullptr);
+
+	auto AddPanelEntry = [&](const FText& Label, FName PropertyName)
+	{
+		MenuBuilder.AddMenuEntry(
+			Label,
+			FText::GetEmpty(),
+			FSlateIcon(),
+			FUIAction(
+				FExecuteAction::CreateSP(this, &SInputFlowSettingsPanel::OnTogglePanel, PropertyName),
+				FCanExecuteAction(),
+				FIsActionChecked::CreateSP(this, &SInputFlowSettingsPanel::IsPanelChecked, PropertyName)
+			),
+			NAME_None,
+			EUserInterfaceActionType::ToggleButton
+		);
+	};
+
+	AddPanelEntry(INVTEXT("Event Log"), "bShowLogPanel");
+	AddPanelEntry(INVTEXT("Status Dashboard"), "bShowDashboardPanel");
+#if WITH_PLUGIN_COMMONUI
+	AddPanelEntry(INVTEXT("CommonUI Hierarchy"), "bShowHierarchyPanel");
+#endif
+#if WITH_PLUGIN_ENHANCEDINPUT
+	AddPanelEntry(INVTEXT("Enhanced Input"), "bShowEnhancedInputPanel");
+#endif
+
+	return MenuBuilder.MakeWidget();
+}
+
+TSharedRef<SWidget> SInputFlowSettingsPanel::MakeFilterMenu()
+{
+	FMenuBuilder MenuBuilder(true, nullptr);
+
+	auto AddFilterEntry = [&](const FText& Label, FName PropertyName, const FText& Tooltip)
+	{
+		MenuBuilder.AddMenuEntry(
+			Label,
+			Tooltip,
+			FSlateIcon(),
+			FUIAction(
+				FExecuteAction::CreateSP(this, &SInputFlowSettingsPanel::OnToggleFilter, PropertyName),
+				FCanExecuteAction(),
+				FIsActionChecked::CreateSP(this, &SInputFlowSettingsPanel::IsFilterChecked, PropertyName)
+			),
+			NAME_None,
+			EUserInterfaceActionType::ToggleButton
+		);
+	};
+
+	MenuBuilder.BeginSection("Events", INVTEXT("Event Types"));
+	AddFilterEntry(INVTEXT("Log Clicks"), "bCaptureClicks", INVTEXT("Log Mouse Down/Up/DoubleClick"));
+	AddFilterEntry(INVTEXT("Log Keys"), "bCaptureKeyEvents", INVTEXT("Log Key Down/Up"));
+	AddFilterEntry(INVTEXT("Log Analog"), "bCaptureAnalog", INVTEXT("Log Analog Axis inputs"));
+	AddFilterEntry(INVTEXT("Log Focus"), "bCaptureFocus", INVTEXT("Log Focus change events"));
+	MenuBuilder.EndSection();
+
+	MenuBuilder.BeginSection("Noise", INVTEXT("High Frequency"));
+	AddFilterEntry(INVTEXT("Log Hover"), "bCaptureHover", INVTEXT("Log Hover Enter/Leave (Noisy)"));
+	AddFilterEntry(INVTEXT("Log Mouse Move"), "bCaptureMouseMove", INVTEXT("Log raw Mouse Move (Very Noisy)"));
+	MenuBuilder.EndSection();
+
+	MenuBuilder.BeginSection("Handled", INVTEXT("Status"));
+	AddFilterEntry(INVTEXT("Show Handled"), "bShowHandledEvents", INVTEXT("Show events handled by Slate widgets"));
+	MenuBuilder.EndSection();
+
+	return MenuBuilder.MakeWidget();
+}
+
+void SInputFlowSettingsPanel::OnToggleFilter(FName PropertyName)
+{
+	UInputFlowSettings* Settings = GetMutableDefault<UInputFlowSettings>();
+	if (FProperty* Prop = Settings->GetClass()->FindPropertyByName(PropertyName))
+	{
+		if (const FBoolProperty* BoolProp = CastField<FBoolProperty>(Prop))
+		{
+			const bool bCurrent = BoolProp->GetPropertyValue_InContainer(Settings);
+			BoolProp->SetPropertyValue_InContainer(Settings, !bCurrent);
+			Settings->SaveConfig();
+			Settings->GetOnSettingsChanged().Broadcast();
+		}
+	}
+}
+
+bool SInputFlowSettingsPanel::IsFilterChecked(FName PropertyName) const
+{
+	const UInputFlowSettings* Settings = UInputFlowSettings::Get();
+	if (FProperty* Prop = Settings->GetClass()->FindPropertyByName(PropertyName))
+	{
+		if (const FBoolProperty* BoolProp = CastField<FBoolProperty>(Prop))
+		{
+			return BoolProp->GetPropertyValue_InContainer(Settings);
+		}
+	}
+	return false;
+}
+
+void SInputFlowSettingsPanel::OnTogglePanel(FName PropertyName)
+{
+	UInputFlowSettings* Settings = GetMutableDefault<UInputFlowSettings>();
+	if (FProperty* Prop = Settings->GetClass()->FindPropertyByName(PropertyName))
+	{
+		if (FBoolProperty* BoolProp = CastField<FBoolProperty>(Prop))
+		{
+			bool bCurrent = BoolProp->GetPropertyValue_InContainer(Settings);
+			BoolProp->SetPropertyValue_InContainer(Settings, !bCurrent);
+			Settings->SaveConfig();
+			Settings->GetOnSettingsChanged().Broadcast();
+		}
+	}
+}
+
+bool SInputFlowSettingsPanel::IsPanelChecked(FName PropertyName) const
+{
+	const UInputFlowSettings* Settings = UInputFlowSettings::Get();
+	if (FProperty* Prop = Settings->GetClass()->FindPropertyByName(PropertyName))
+	{
+		if (FBoolProperty* BoolProp = CastField<FBoolProperty>(Prop))
+		{
+			return BoolProp->GetPropertyValue_InContainer(Settings);
+		}
+	}
+	return false;
+}
+
+void SInputFlowSettingsPanel::OnToggleOverlay()
+{
+	UInputFlowSettings* S = GetMutableDefault<UInputFlowSettings>();
+	S->SetEnableOverlay(!S->IsOverlayEnabled());
+}
+
+void SInputFlowSettingsPanel::OnToggleHitTestGrid()
+{
+	UInputFlowSettings* S = GetMutableDefault<UInputFlowSettings>();
+	S->SetShowHitTestGrid(!S->IsHitTestGridShown());
+}
+
 UInputDebugSubsystem* SInputFlowSettingsPanel::GetSubsystem() const
 {
 	return WeakSubsystem.Get();
 }
-
-void SInputFlowSettingsPanel::OnToggleCaptureClicks(ECheckBoxState NewState) { if (auto* S = GetSubsystem()) S->SetCaptureClicks(NewState == ECheckBoxState::Checked); }
-ECheckBoxState SInputFlowSettingsPanel::GetCaptureClicksState() const { auto* S = GetSubsystem(); return (S && S->GetCaptureClicks()) ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; }
-
-void SInputFlowSettingsPanel::OnToggleCaptureKeyEvents(ECheckBoxState NewState) { if (auto* S = GetSubsystem()) S->SetCaptureKeyEvents(NewState == ECheckBoxState::Checked); }
-ECheckBoxState SInputFlowSettingsPanel::GetCaptureKeyEventsState() const { auto* S = GetSubsystem(); return (S && S->GetCaptureKeyEvents()) ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; }
-
-void SInputFlowSettingsPanel::OnToggleCaptureHover(ECheckBoxState NewState) { if (auto* S = GetSubsystem()) S->SetCaptureHover(NewState == ECheckBoxState::Checked); }
-ECheckBoxState SInputFlowSettingsPanel::GetCaptureHoverState() const { auto* S = GetSubsystem(); return (S && S->GetCaptureHover()) ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; }
-
-void SInputFlowSettingsPanel::OnToggleCaptureMove(ECheckBoxState NewState) { if (auto* S = GetSubsystem()) S->SetCaptureMouseMove(NewState == ECheckBoxState::Checked); }
-ECheckBoxState SInputFlowSettingsPanel::GetCaptureMoveState() const { auto* S = GetSubsystem(); return (S && S->GetCaptureMouseMove()) ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; }
-
-void SInputFlowSettingsPanel::OnToggleCaptureAnalog(ECheckBoxState NewState) { if (auto* S = GetSubsystem()) S->SetCaptureAnalog(NewState == ECheckBoxState::Checked); }
-ECheckBoxState SInputFlowSettingsPanel::GetCaptureAnalogState() const { auto* S = GetSubsystem(); return (S && S->GetCaptureAnalog()) ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; }
-
-void SInputFlowSettingsPanel::OnToggleCaptureFocus(ECheckBoxState NewState) { if (auto* S = GetSubsystem()) S->SetCaptureFocus(NewState == ECheckBoxState::Checked); }
-ECheckBoxState SInputFlowSettingsPanel::GetCaptureFocusState() const { auto* S = GetSubsystem(); return (S && S->GetCaptureFocus()) ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; }
-
-void SInputFlowSettingsPanel::OnToggleOverlay(ECheckBoxState NewState) { if (auto* S = GetSubsystem()) S->SetOverlayEnabled(NewState == ECheckBoxState::Checked); }
-ECheckBoxState SInputFlowSettingsPanel::GetOverlayState() const { auto* S = GetSubsystem(); return (S && S->GetIsOverlayEnabled()) ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; }
-
-void SInputFlowSettingsPanel::OnToggleCaptureHandledEvents(ECheckBoxState NewState) { if (auto* S = GetSubsystem()) S->SetShowHandledEvents(NewState == ECheckBoxState::Checked); }
-ECheckBoxState SInputFlowSettingsPanel::GetCaptureHandledEventState() const { auto* S = GetSubsystem(); return (S && S->GetShowHandledEvents()) ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; }
-
-void SInputFlowSettingsPanel::OnToggleSpider(ECheckBoxState NewState) { if (auto* S = GetSubsystem()) S->SetNavigationSimulationEnabled(NewState == ECheckBoxState::Checked); }
-ECheckBoxState SInputFlowSettingsPanel::GetSpiderState() const { auto* S = GetSubsystem(); return (S && S->GetNavigationSimulationEnabled()) ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; }
-
-void SInputFlowSettingsPanel::OnSpiderDepthChanged(int32 NewValue) { if (auto* S = GetSubsystem()) S->SetNavigationDepth(NewValue); }
-int32 SInputFlowSettingsPanel::GetSpiderDepth() const { if (auto* S = GetSubsystem()) return S->GetNavigationDepth(); return 1; }
-
-void SInputFlowSettingsPanel::OnToggleHitTestGrid(ECheckBoxState NewState) { if (auto* S = GetSubsystem()) S->SetShowHitTestGrid(NewState == ECheckBoxState::Checked); }
-ECheckBoxState SInputFlowSettingsPanel::GetHitTestGridState() const { auto* S = GetSubsystem(); return (S && S->GetShowHitTestGrid()) ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; }
-
-void SInputFlowSettingsPanel::OnToggleShowLog(ECheckBoxState NewState) { if (auto* S = GetSubsystem()) S->SetShowLogPanel(NewState == ECheckBoxState::Checked); }
-ECheckBoxState SInputFlowSettingsPanel::GetShowLogState() const { auto* S = GetSubsystem(); return (S && S->GetShowLogPanel()) ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; }
-
-void SInputFlowSettingsPanel::OnToggleShowHierarchy(ECheckBoxState NewState) { if (auto* S = GetSubsystem()) S->SetShowHierarchyPanel(NewState == ECheckBoxState::Checked); }
-ECheckBoxState SInputFlowSettingsPanel::GetShowHierarchyState() const { auto* S = GetSubsystem(); return (S && S->GetShowHierarchyPanel()) ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; }
-
-void SInputFlowSettingsPanel::OnToggleShowEnhancedInput(ECheckBoxState NewState) { if (auto* S = GetSubsystem()) S->SetShowEnhancedInputPanel(NewState == ECheckBoxState::Checked); }
-ECheckBoxState SInputFlowSettingsPanel::GetShowEnhancedInputState() const { auto* S = GetSubsystem(); return (S && S->GetShowEnhancedInputPanel()) ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; }
-
-void SInputFlowSettingsPanel::OnToggleShowDashboard(ECheckBoxState NewState) { if (auto* S = GetSubsystem()) S->SetShowDashboardPanel(NewState == ECheckBoxState::Checked); }
-ECheckBoxState SInputFlowSettingsPanel::GetShowDashboardState() const { auto* S = GetSubsystem(); return (S && S->GetShowDashboardPanel()) ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; }
-
 
 // --------------------------------------------------------------------
 // SInputFlowAnalyzer
