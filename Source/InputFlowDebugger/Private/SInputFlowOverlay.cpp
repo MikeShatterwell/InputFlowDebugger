@@ -19,7 +19,8 @@
 #include "SCommonUIHierarchyView.h"
 #include "SEnhancedInputInspector.h"
 #include "SInputFlowLogView.h"
-#include "SInputFlowAnalyzer.h"
+#include "SInputFlowSettingsPanel.h"
+#include "SInputFlowStatusDashboard.h"
 
 // --- CONSTANTS FOR STYLING ---
 namespace InputFlowStyle
@@ -961,6 +962,8 @@ void SInputFlowOverlay::PaintNavigationSimulation(const FGeometry& AllottedGeome
 void SInputFlowOverlay::PaintFocusHistory(const FGeometry& AllottedGeometry, FSlateWindowElementList& OutDrawElements,
 										  int32& LayerId) const
 {
+	if (!UInputFlowSettings::Get()->IsFocusHighlightEnabled()) return;
+
 	const UInputDebugSubsystem* Subsystem = GetSubsystem();
 	if (!IsValid(Subsystem)) return;
 
@@ -968,7 +971,7 @@ void SInputFlowOverlay::PaintFocusHistory(const FGeometry& AllottedGeometry, FSl
 	if (History.IsEmpty()) return;
 
 	const double Now = FPlatformTime::Seconds();
-	constexpr double MaxAge = 1.0f;
+	constexpr double MaxAge = 2.0f;
 
 	TSharedPtr<SWidget> LastCenterWidget = nullptr;
 	FVector2D LastCenterPos = FVector2D::ZeroVector;
