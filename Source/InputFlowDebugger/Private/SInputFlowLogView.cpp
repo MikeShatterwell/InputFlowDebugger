@@ -12,76 +12,92 @@
 #include <Widgets/Layout/SBorder.h>
 #include <Widgets/Layout/SBox.h>
 #include <Widgets/Text/STextBlock.h>
+#include <Framework/MultiBox/MultiBoxBuilder.h>
+#include <HAL/PlatformApplicationMisc.h>
 
 // Internal
 #include "InputDebugSubsystem.h"
 #include "InputFlowHelpers.h"
 #include "InputFlowSpy.h"
 
-class SInputLogTableRow : public STableRow<TSharedPtr<FInputEventLog>>
+// -----------------------------------------------------------------------------
+// SInputLogTableRow Implementation
+// -----------------------------------------------------------------------------
+
+void SInputLogTableRow::Construct(const FArguments& InArgs, const TSharedRef<STableViewBase>& InOwnerTableView, TSharedPtr<FInputEventLog> InItem, SInputFlowLogView* InOwnerView, bool bInOverlay, bool bIsSameFrameAsPrev)
 {
-public:
-	SLATE_BEGIN_ARGS(SInputLogTableRow) {}
-	SLATE_END_ARGS()
+	Item = InItem;
+	OwnerView = InOwnerView;
+	bIsOverlay = bInOverlay;
+	bIsSameFrame = bIsSameFrameAsPrev;
+	SetTag(InputFlowHelpers::InputFlowAnalyzerTag);
 
-	void Construct(const FArguments& InArgs, const TSharedRef<STableViewBase>& InOwnerTableView, TSharedPtr<FInputEventLog> InItem, bool bInOverlay, bool bIsSameFrameAsPrev)
+	const FTableRowStyle& RowStyle = bInOverlay ?
+		InputFlowHelpers::GetTranslucentRowStyle() :
+		FAppStyle::Get().GetWidgetStyle<FTableRowStyle>("TableView.Row");
+
+	SMultiColumnTableRow<TSharedPtr<FInputEventLog>>::Construct(
+		SMultiColumnTableRow<TSharedPtr<FInputEventLog>>::FArguments()
+		.Style(&RowStyle)
+		.ShowSelection(!bInOverlay)
+		.Padding(FMargin(0, 2)),
+		InOwnerTableView
+	);
+
+	if (bInOverlay)
 	{
-		SetTag(InputFlowHelpers::InputFlowAnalyzerTag);
-		
-		const FTableRowStyle& RowStyle = bInOverlay ?
-			InputFlowHelpers::GetTranslucentRowStyle() :
-			FAppStyle::Get().GetWidgetStyle<FTableRowStyle>("TableView.Row");
+		SetBorderBackgroundColor(FLinearColor::Transparent);
+	}
+}
 
-		STableRow<TSharedPtr<FInputEventLog>>::Construct(
-			STableRow<TSharedPtr<FInputEventLog>>::FArguments()
-			.Style(&RowStyle)
-			.ShowSelection(!bInOverlay)
-			// Remove padding to allow visual merging of rows
-			.Padding(bIsSameFrameAsPrev ? FMargin(0, 0, 0, 2) : FMargin(0, 2, 0, 2)),
-			InOwnerTableView
-		);
-		
-		if (bInOverlay)
+TSharedRef<SWidget> SInputLogTableRow::GenerateWidgetForColumn(const FName& ColumnName)
+{
+	if (!Item.IsValid()) return SNullWidget::NullWidget;
+
+	TSharedPtr<SWidget> CellContent = SNullWidget::NullWidget;
+
+	// --- Time Column ---
+	if (ColumnName == InputFlowLogColumns::Time)
+	{
+		if (!bIsSameFrame)
 		{
-			SetBorderBackgroundColor(FLinearColor::Transparent);
+			FString TimeStr = FString::Printf(TEXT("%s.%03d"), 
+				*Item->CaptureTime.ToString(TEXT("%H:%M:%S")), 
+				Item->CaptureTime.GetMillisecond());
+			
+			CellContent = SNew(STextBlock)
+				.Text(FText::FromString(TimeStr))
+				.ColorAndOpacity(FLinearColor(0.5f, 0.5f, 0.5f))
+				.Font(FCoreStyle::GetDefaultFontStyle("Regular", 9));
 		}
-		SetVisibility(EVisibility::SelfHitTestInvisible);
-
-		Item = InItem;
-		
-		// Build the Row Widget
-		FLinearColor BadgeColor = InItem->Color;
-		FString TypeStr = InItem->EventType;
-		
-		// If same frame as previous, hide the timestamp to group visually
-		FString TimeStr = bIsSameFrameAsPrev ? TEXT("") : FString::Printf(TEXT("%s.%03d"), 
-			*InItem->CaptureTime.ToString(TEXT("%H:%M:%S")), 
-			InItem->CaptureTime.GetMillisecond());
-
-		TSharedRef<SWidget> NameWidget = SNullWidget::NullWidget;
-		
-		// Helper to configure text blocks for overlay wrapping
-		auto ConfigureText = [&](TSharedRef<STextBlock> Block)
+	}
+	// --- Type Column ---
+	else if (ColumnName == InputFlowLogColumns::Type)
+	{
+		CellContent = SNew(SBorder)
+			.Padding(FMargin(4, 1))
+			.BorderImage(FAppStyle::GetBrush("WhiteBrush"))
+			.BorderBackgroundColor(FLinearColor(Item->Color).CopyWithNewOpacity(0.2f))
+			.HAlign(HAlign_Center)
+			[
+				SNew(STextBlock)
+				.Text(FText::FromString(Item->EventType))
+				.ColorAndOpacity(Item->Color)
+				.Font(FCoreStyle::GetDefaultFontStyle("Bold", 8))
+			];
+	}
+	// --- Widget Column ---
+	else if (ColumnName == InputFlowLogColumns::Widget)
+	{
+		// Rich Text / Link Handling
+		if (Item->RichTextParts.Num() > 0 && !bIsOverlay)
 		{
-			if (bInOverlay)
-			{
-				Block->SetAutoWrapText(true);
-				Block->SetWrappingPolicy(ETextWrappingPolicy::AllowPerCharacterWrapping);
-			}
-		};
-
-		// If we have rich parts, build a horizontal box of links/text
-		if (InItem->RichTextParts.Num() > 0 && !bInOverlay)
-		{
-			TSharedPtr<SHorizontalBox> Box = SNew(SHorizontalBox);
-
-			for (const FInputLogRichTextPart& Part : InItem->RichTextParts)
+			TSharedPtr<SHorizontalBox> RowBox = SNew(SHorizontalBox);
+			for (const FInputLogRichTextPart& Part : Item->RichTextParts)
 			{
 				if (Part.bIsLink)
 				{
-					Box->AddSlot()
-					.AutoWidth()
-					.VAlign(VAlign_Center)
+					RowBox->AddSlot().AutoWidth().VAlign(VAlign_Center)
 					[
 						SNew(SHyperlink)
 						.Text(FText::FromString(Part.Text))
@@ -91,9 +107,7 @@ public:
 				}
 				else
 				{
-					Box->AddSlot()
-					.AutoWidth()
-					.VAlign(VAlign_Center)
+					RowBox->AddSlot().AutoWidth().VAlign(VAlign_Center)
 					[
 						SNew(STextBlock)
 						.Text(FText::FromString(Part.Text))
@@ -102,134 +116,102 @@ public:
 					];
 				}
 			}
-			NameWidget = Box.ToSharedRef();
+			CellContent = RowBox;
 		}
 		else
 		{
-			// Fallback / Overlay mode / Simple Log
-			bool bCanClick = (InItem->SourceObject.IsValid() || InItem->SourceClass.IsValid()) && !bInOverlay;
-			auto BaseNameFont = InItem->bIsButton ? FCoreStyle::GetDefaultFontStyle("Bold", 10) : FCoreStyle::GetDefaultFontStyle("Regular", 9);
-
-			if (bCanClick)
-			{
-				NameWidget = SNew(SHyperlink)
-					.Text(FText::FromString(InItem->WidgetName))
-					.Style(FCoreStyle::Get(), "Hyperlink")
-					.OnNavigate_Lambda([InItem]() { InputFlowHelpers::TryOpenAsset(InItem->SourceObject, InItem->SourceClass); });
-			}
-			else
-			{
-				FLinearColor NameColor = bInOverlay ? FLinearColor::White : (InItem->bIsButton ? FLinearColor::Black : FLinearColor(0.3f, 0.3f, 0.3f));
-				FString DisplayText = InItem->WidgetName.IsEmpty() ? InItem->WidgetType : InItem->WidgetName;
-				
-				TSharedRef<STextBlock> TextBlock = SNew(STextBlock)
-					.Text(FText::FromString(DisplayText))
-					.Font(BaseNameFont)
-					.ColorAndOpacity(NameColor);
-				
-				ConfigureText(TextBlock);
-				NameWidget = TextBlock;
-			}
+			// Simple Text Fallback
+			FLinearColor NameColor = bIsOverlay ? FLinearColor::White : (Item->bIsButton ? FLinearColor::Black : FLinearColor(0.3f, 0.3f, 0.3f));
+			FString DisplayText = Item->WidgetName.IsEmpty() ? Item->WidgetType : Item->WidgetName;
+			
+			CellContent = SNew(STextBlock)
+				.Text(FText::FromString(DisplayText))
+				.Font(Item->bIsButton ? FCoreStyle::GetDefaultFontStyle("Bold", 9) : FCoreStyle::GetDefaultFontStyle("Regular", 9))
+				.ColorAndOpacity(NameColor);
 		}
-
-		TSharedRef<SWidget> MiddleContent = SNew(SVerticalBox)
-			+ SVerticalBox::Slot().AutoHeight()
-			.HAlign(HAlign_Fill)
-			[
-				NameWidget
-			]
-			+ SVerticalBox::Slot().AutoHeight()
-			.HAlign(HAlign_Fill)
-			[
-				SNew(STextBlock)
-				.Text(FText::FromString(InItem->WidgetState))
-				.Font(FCoreStyle::GetDefaultFontStyle("Italic", 8))
-				.ColorAndOpacity(FLinearColor(0.5f, 0.5f, 0.5f))
-			];
-
-		FString CountStr = (InItem->Count > 1) ? FString::Printf(TEXT(" (%d)"), InItem->Count) : FString();
+	}
+	// --- State Column ---
+	else if (ColumnName == InputFlowLogColumns::State)
+	{
+		CellContent = SNew(STextBlock)
+			.Text(FText::FromString(Item->WidgetState))
+			.ColorAndOpacity(FLinearColor(0.5f, 0.5f, 0.5f))
+			.Font(FCoreStyle::GetDefaultFontStyle("Regular", 9));
+	}
+	// --- Details Column ---
+	else if (ColumnName == InputFlowLogColumns::Details)
+	{
+		FString DisplayStr = Item->InputDetails;
+		if (Item->Count > 1)
+		{
+			DisplayStr += FString::Printf(TEXT(" (%d)"), Item->Count);
+		}
 		
-		TSharedRef<STextBlock> InputDetailsBlock = SNew(STextBlock)
-			.Text(FText::FromString(InItem->InputDetails + CountStr))
+		CellContent = SNew(STextBlock)
+			.Text(FText::FromString(DisplayStr))
 			.ColorAndOpacity(FLinearColor::White)
-			.MinDesiredWidth(64.f)
-			.Font(FCoreStyle::GetDefaultFontStyle("Regular", 9))
-			.Justification(ETextJustify::Right);
-		
-		ConfigureText(InputDetailsBlock);
-
-		this->ChildSlot
-		[
-			SNew(SBorder)
-			.BorderImage(FAppStyle::GetBrush("WhiteBrush"))
-			.Visibility(EVisibility::SelfHitTestInvisible)
-			.BorderBackgroundColor_Lambda([InItem, bInOverlay]()
-			{
-				double Age = FPlatformTime::Seconds() - InItem->TimeSeconds;
-				
-				if (bInOverlay)
-				{
-					float Alpha = FMath::Clamp(0.5f - (Age * 0.2f), 0.0f, 0.2f);
-					return FLinearColor(0.0f, 0.0f, 0.0f, Alpha);
-				}
-				else
-				{
-					float Alpha = FMath::Clamp(1.0f - (Age / 1.0f), 0.0f, 0.4f);
-					return FLinearColor(1.0f, 1.0f, 1.0f, Alpha);
-				}
-			})
-			.Padding(4)
-			[
-				SNew(SHorizontalBox)
-				// Time
-				+ SHorizontalBox::Slot().AutoWidth().MinWidth(70).VAlign(VAlign_Top) // VAlign Top for multiline
-				[
-					SNew(STextBlock)
-					.Text(FText::FromString(TimeStr))
-					.ColorAndOpacity(FLinearColor(0.5f, 0.5f, 0.5f))
-					.Font(FCoreStyle::GetDefaultFontStyle("Mono", 8))
-				]
-				// Badge (Event Type)
-				+ SHorizontalBox::Slot().AutoWidth().MinWidth(90).Padding(4, 0).VAlign(VAlign_Top)
-				[
-					SNew(SBorder)
-					.Padding(FMargin(6, 1))
-					.BorderImage(FAppStyle::GetBrush("WhiteBrush"))
-					.BorderBackgroundColor(BadgeColor.CopyWithNewOpacity(0.2f))
-					.HAlign(HAlign_Center)
-					[
-						SNew(STextBlock)
-						.Text(FText::FromString(TypeStr))
-						.ColorAndOpacity(BadgeColor)
-						.Font(FCoreStyle::GetDefaultFontStyle("Bold", 8))
-					]
-				]
-				// Widget Info (Middle Content)
-				+ SHorizontalBox::Slot()
-				.FillWidth(1.0f)
-				.Padding(8, 0)
-				.VAlign(VAlign_Top)
-				[
-					MiddleContent
-				]
-				// Input Details
-				+ SHorizontalBox::Slot()
-				.AutoWidth() // In Overlay this might need Fill if text is huge, but Auto usually works with wrapping enabled
-				.MinWidth(80)
-				.MaxWidth(200) // Constraint width in overlay to force wrap
-				.HAlign(HAlign_Right)
-				.VAlign(VAlign_Top)
-				.Padding(8, 0)
-				[
-					InputDetailsBlock
-				]
-			]
-		];
+			.Font(FCoreStyle::GetDefaultFontStyle("Regular", 9));
 	}
 
-private:
-	TSharedPtr<FInputEventLog> Item;
-};
+	// Wrap the content in an SBorder that can detect Right Clicks.
+	// Since we are overriding the cell content, the STableRow's internal logic won't receive the Right Click
+	// if we handle it here, so we must manually ensure selection happens.
+	return SNew(SBorder)
+		.BorderImage(FAppStyle::GetBrush("NoBrush"))
+		.Padding(FMargin(4, 0))
+		.VAlign(VAlign_Center)
+		.OnMouseButtonUp(this, &SInputLogTableRow::OnCellRightClick, ColumnName)
+		[
+			CellContent.IsValid() ? CellContent.ToSharedRef() : SNullWidget::NullWidget
+		];
+}
+
+FReply SInputLogTableRow::OnCellRightClick(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent, FName ColumnId)
+{
+	if (MouseEvent.GetEffectingButton() == EKeys::RightMouseButton)
+	{
+		if (OwnerView && Item.IsValid() && OwnerTablePtr.IsValid())
+		{
+			// Manually select this row (mimicking STableRow behavior since we intercepted the click)
+			TSharedPtr<ITypedTableView<TSharedPtr<FInputEventLog>>> Table = OwnerTablePtr.Pin();
+			if (Table.IsValid())
+			{
+				const bool bIsAlreadySelected = Table->Private_IsItemSelected(Item);
+
+				// Clear existing selection if Control isn't held (standard behavior)
+				if (!bIsAlreadySelected)
+				{
+					if (!MouseEvent.IsControlDown())
+					{
+						Table->Private_ClearSelection();
+					}
+					Table->Private_SetItemSelection(Item, true);
+				}
+			}
+
+			// Spawn the Column-Aware Context Menu
+			const TSharedPtr<SWidget> MenuContent = OwnerView->MakeRowContextMenu(Item, ColumnId);
+			if (MenuContent.IsValid())
+			{
+				FWidgetPath WidgetPath = MouseEvent.GetEventPath() != nullptr ? *MouseEvent.GetEventPath() : FWidgetPath();
+				FSlateApplication::Get().PushMenu(
+					AsShared(),
+					WidgetPath,
+					MenuContent.ToSharedRef(),
+					MouseEvent.GetScreenSpacePosition(),
+					FPopupTransitionEffect(FPopupTransitionEffect::ContextMenu)
+				);
+				
+				return FReply::Handled();
+			}
+		}
+	}
+	return FReply::Unhandled();
+}
+
+// -----------------------------------------------------------------------------
+// SInputFlowLogView Implementation
+// -----------------------------------------------------------------------------
 
 void SInputFlowLogView::Construct(const FArguments& InArgs, UInputDebugSubsystem* InSubsystem)
 {
@@ -245,9 +227,31 @@ void SInputFlowLogView::Construct(const FArguments& InArgs, UInputDebugSubsystem
 		ToolbarWidget = SNew(SHorizontalBox)
 			+ SHorizontalBox::Slot().FillWidth(1.0f).Padding(0, 0, 4, 0).VAlign(VAlign_Center)
 			[
-				SNew(SSearchBox)
-				.HintText(FText::FromString("Filter events..."))
+				SAssignNew(SearchBoxWidget, SSearchBox)
+				.HintText(FText::FromString("Search log..."))
 				.OnTextChanged(this, &SInputFlowLogView::OnSearchTextChanged)
+			]
+			// Filter Dropdown
+			+ SHorizontalBox::Slot().AutoWidth().Padding(4, 0).VAlign(VAlign_Center)
+			[
+				SNew(SComboButton)
+				.ComboButtonStyle(FAppStyle::Get(), "GenericFilters.ComboButtonStyle")
+				.ForegroundColor(FLinearColor::White)
+				.ContentPadding(0)
+				.ToolTipText(FText::FromString("Filter Event Types"))
+				.OnGetMenuContent(this, &SInputFlowLogView::MakeFilterMenu)
+				.ButtonContent()
+				[
+					SNew(SHorizontalBox)
+					+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+					[
+						SNew(SImage).Image(FAppStyle::GetBrush("Icons.Filter"))
+					]
+					+ SHorizontalBox::Slot().AutoWidth().Padding(2, 0).VAlign(VAlign_Center)
+					[
+						SNew(STextBlock).Text(FText::FromString("Types"))
+					]
+				]
 			]
 			+ SHorizontalBox::Slot().AutoWidth().Padding(4, 0).VAlign(VAlign_Center)
 			[
@@ -273,12 +277,47 @@ void SInputFlowLogView::Construct(const FArguments& InArgs, UInputDebugSubsystem
 	}
 	else
 	{
-		ToolbarWidget = SNullWidget::NullWidget; // Title handled by panel header now
+		ToolbarWidget = SNullWidget::NullWidget;
 	}
 
 	const FTableViewStyle& ListStyle = bIsOverlay 
 	? InputFlowHelpers::GetTranslucentTableViewStyle() 
 	: FCoreStyle::Get().GetWidgetStyle<FTableViewStyle>("ListView");
+
+	// Header Construction
+	TSharedRef<SHeaderRow> HeaderRow = SNew(SHeaderRow)
+		.Visibility(bIsOverlay ? EVisibility::Collapsed : EVisibility::Visible)
+		.ResizeMode(ESplitterResizeMode::FixedSize);
+
+	HeaderRow->AddColumn(
+		SHeaderRow::Column(InputFlowLogColumns::Time)
+		.DefaultLabel(FText::FromString("Time"))
+		.ManualWidth(70.0f)
+	);
+
+	HeaderRow->AddColumn(
+		SHeaderRow::Column(InputFlowLogColumns::Type)
+		.DefaultLabel(FText::FromString("Type"))
+		.ManualWidth(100.0f)
+	);
+
+	HeaderRow->AddColumn(
+		SHeaderRow::Column(InputFlowLogColumns::Widget)
+		.DefaultLabel(FText::FromString("Widget"))
+		.FillSized(400.0f)
+	);
+
+	HeaderRow->AddColumn(
+		SHeaderRow::Column(InputFlowLogColumns::State)
+		.DefaultLabel(FText::FromString("State"))
+		.FillSized(300.0f)
+	);
+
+	HeaderRow->AddColumn(
+		SHeaderRow::Column(InputFlowLogColumns::Details)
+		.DefaultLabel(FText::FromString("Details"))
+		.FillSized(300.0f)
+	);
 
 	ChildSlot
 	[
@@ -298,9 +337,10 @@ void SInputFlowLogView::Construct(const FArguments& InArgs, UInputDebugSubsystem
 				SAssignNew(ListView, SListView<TSharedPtr<FInputEventLog>>)
 				.ListItemsSource(&SourceData)
 				.OnGenerateRow(this, &SInputFlowLogView::GenerateRow)
-				.SelectionMode(bIsOverlay ? ESelectionMode::None : ESelectionMode::Single)
+				.SelectionMode(bIsOverlay ? ESelectionMode::None : ESelectionMode::Multi)
 				.IsFocusable(!bIsOverlay)
 				.ListViewStyle(&ListStyle)
+				.HeaderRow(HeaderRow)
 			]
 		]
 	];
@@ -339,23 +379,77 @@ ECheckBoxState SInputFlowLogView::GetPauseState() const
 	return bLogPaused ? ECheckBoxState::Checked : ECheckBoxState::Unchecked;
 }
 
+bool SInputFlowLogView::IsItemVisible(const TSharedPtr<FInputEventLog>& Item) const
+{
+	if (!Item.IsValid()) return false;
+
+	if (HiddenEventTypes.Contains(Item->EventType))
+	{
+		return false;
+	}
+
+	// Check Column Exclusion Filters
+	if (ExcludedColumnValues.Contains(InputFlowLogColumns::Type) && 
+		ExcludedColumnValues[InputFlowLogColumns::Type].Contains(Item->EventType))
+	{
+		return false;
+	}
+	if (ExcludedColumnValues.Contains(InputFlowLogColumns::Widget) && 
+		ExcludedColumnValues[InputFlowLogColumns::Widget].Contains(Item->WidgetName))
+	{
+		return false;
+	}
+
+	// Check Text Filter
+	if (!LogFilterText.IsEmpty())
+	{
+		if (!Item->EventType.Contains(LogFilterText) && 
+			!Item->WidgetName.Contains(LogFilterText) &&
+			!Item->InputDetails.Contains(LogFilterText) &&
+			!Item->WidgetState.Contains(LogFilterText))
+		{
+			return false;
+		}
+	}
+
+	return true;
+}
+
+void SInputFlowLogView::ToggleEventTypeFilter(FString EventType)
+{
+	if (HiddenEventTypes.Contains(EventType))
+	{
+		HiddenEventTypes.Remove(EventType);
+	}
+	else
+	{
+		HiddenEventTypes.Add(EventType);
+	}
+	LastObservedVersion = 0; // Force refresh
+	ListView->RequestListRefresh();
+}
+
+bool SInputFlowLogView::IsEventTypeVisible(FString EventType) const
+{
+	return !HiddenEventTypes.Contains(EventType);
+}
+
 void SInputFlowLogView::UpdateLogView()
 {
 	constexpr int32 OverlayMaxEntries = 64;
 	
-	// 1. Recover Subsystem if lost (e.g. PIE restart)
 	if (!DebugSubsystem.IsValid())
 	{
 		DebugSubsystem = InputFlowHelpers::GetActiveDebugSubsystem();
 	}
 
 	if (!DebugSubsystem.IsValid()) return;
-
-	// If paused, do not update view
 	if (bLogPaused) return;
 
 	const uint32 CurrentVersion = DebugSubsystem->GetLogVersion();
-	if (CurrentVersion == LastObservedVersion) return;
+	
+	// If version changed or we have pending filter change (reset version to 0)
+	if (CurrentVersion == LastObservedVersion && LastObservedVersion != 0) return;
 	
 	LastObservedVersion = CurrentVersion;
 
@@ -364,11 +458,11 @@ void SInputFlowLogView::UpdateLogView()
 	bool bWrapped = DebugSubsystem->IsLogHistoryWrapped();
 
 	SourceData.Reset();
-	const bool bFilter = !LogFilterText.IsEmpty();
 
 	int32 Start = bWrapped ? WriteIdx : 0;
 	int32 TotalItems = bWrapped ? Buffer.Num() : WriteIdx;
 
+	// Optimization for overlay: only take last N entries
 	if (bIsOverlay && TotalItems > OverlayMaxEntries)
 	{
 		Start = (Start + TotalItems - OverlayMaxEntries) % Buffer.Num();
@@ -381,38 +475,30 @@ void SInputFlowLogView::UpdateLogView()
 		if (!Buffer.IsValidIndex(CurrIdx)) continue;
 		
 		const TSharedPtr<FInputEventLog>& Log = Buffer[CurrIdx];
-		if (!Log.IsValid()) continue; 
-
-		if (bFilter)
+		if (!KnownEventTypes.Contains(Log->EventType))
 		{
-			if (!Log->EventType.Contains(LogFilterText) && 
-				!Log->WidgetName.Contains(LogFilterText) &&
-				!Log->InputDetails.Contains(LogFilterText))
-			{
-				continue;
-			}
+			KnownEventTypes.Add(Log->EventType);
 		}
-		SourceData.Add(Log);
+		if (IsItemVisible(Log))
+		{
+			SourceData.Add(Log);
+		}
 	}
 
 	ListView->RequestListRefresh();
-	if (!bLogPaused && !bIsOverlay) ListView->ScrollToBottom();
-	if (bIsOverlay) ListView->ScrollToBottom();
+	if (!bLogPaused) ListView->ScrollToBottom();
 }
 
 TSharedRef<ITableRow> SInputFlowLogView::GenerateRow(TSharedPtr<FInputEventLog> Item, const TSharedRef<STableViewBase>& OwnerTable)
 {
-	// Calculate if this frame is visually grouped with the previous one
 	bool bIsSameFrame = false;
 	
-	// We need to look up the index of this Item in SourceData
 	int32 Idx = SourceData.Find(Item);
 	if (Idx > 0)
 	{
 		TSharedPtr<FInputEventLog> Prev = SourceData[Idx - 1];
 		if (Prev.IsValid())
 		{
-			// If events are within 0.01s (10ms) of each other, consider them same frame/burst
 			if (FMath::Abs(Item->TimeSeconds - Prev->TimeSeconds) < 0.01)
 			{
 				bIsSameFrame = true;
@@ -420,5 +506,199 @@ TSharedRef<ITableRow> SInputFlowLogView::GenerateRow(TSharedPtr<FInputEventLog> 
 		}
 	}
 
-	return SNew(SInputLogTableRow, OwnerTable, Item, bIsOverlay, bIsSameFrame);
+	return SNew(SInputLogTableRow, OwnerTable, Item, this, bIsOverlay, bIsSameFrame);
+}
+
+TSharedRef<SWidget> SInputFlowLogView::MakeFilterMenu()
+{
+	FMenuBuilder MenuBuilder(true, nullptr);
+
+	MenuBuilder.BeginSection("EventTypes", FText::FromString("Event Types"));
+	
+	// Sort types alphabetically for the menu
+	TArray<FString> SortedTypes = KnownEventTypes.Array();
+	SortedTypes.Sort();
+
+	if (SortedTypes.Num() == 0)
+	{
+		MenuBuilder.AddWidget(
+			SNew(STextBlock)
+			.Text(FText::FromString("No events recorded yet"))
+			.ColorAndOpacity(FSlateColor::UseSubduedForeground())
+			.Margin(FMargin(10, 4)),
+			FText()
+		);
+	}
+
+	for (const FString& Type : SortedTypes)
+	{
+		MenuBuilder.AddMenuEntry(
+			FText::FromString(Type),
+			FText::GetEmpty(),
+			FSlateIcon(),
+			FUIAction(
+				FExecuteAction::CreateSP(this, &SInputFlowLogView::ToggleEventTypeFilter, Type),
+				FCanExecuteAction(),
+				FIsActionChecked::CreateSP(this, &SInputFlowLogView::IsEventTypeVisible, Type)
+			),
+			NAME_None,
+			EUserInterfaceActionType::Check
+		);
+	}
+	MenuBuilder.EndSection();
+
+	MenuBuilder.BeginSection("Tools");
+	MenuBuilder.AddMenuEntry(
+		FText::FromString("Show All"),
+		FText::GetEmpty(),
+		FSlateIcon(),
+		FUIAction(FExecuteAction::CreateLambda([this]() {
+			HiddenEventTypes.Empty();
+			LastObservedVersion = 0;
+			ListView->RequestListRefresh();
+		}))
+	);
+	MenuBuilder.EndSection();
+
+	return MenuBuilder.MakeWidget();
+}
+
+// -----------------------------------------------------------------------------
+// Context Menu & Filtering
+// -----------------------------------------------------------------------------
+
+void SInputFlowLogView::AddExclusionFilter(FName ColumnId, const FString& Value)
+{
+	ExcludedColumnValues.FindOrAdd(ColumnId).Add(Value);
+	LastObservedVersion = 0; // Force Refresh
+}
+
+void SInputFlowLogView::SetSearchFilter(const FString& Value)
+{
+	if (SearchBoxWidget.IsValid())
+	{
+		SearchBoxWidget->SetText(FText::FromString(Value));
+	}
+	LogFilterText = Value;
+	LastObservedVersion = 0;
+}
+
+void SInputFlowLogView::ClearAllFilters()
+{
+	ExcludedColumnValues.Empty();
+	SetSearchFilter(TEXT(""));
+}
+
+TSharedPtr<SWidget> SInputFlowLogView::MakeRowContextMenu(TSharedPtr<FInputEventLog> Item, FName ColumnId)
+{
+	FMenuBuilder MenuBuilder(true, nullptr);
+
+	MenuBuilder.BeginSection("Filter", FText::FromString("Filtering"));
+	{
+		// -- Type Filters --
+		if (ColumnId == InputFlowLogColumns::Type || ColumnId == NAME_None)
+		{
+			MenuBuilder.AddMenuEntry(
+				FText::FromString(FString::Printf(TEXT("Hide Type '%s'"), *Item->EventType)),
+				FText::GetEmpty(),
+				FSlateIcon(FAppStyle::GetAppStyleSetName(), "Icons.Delete"),
+				FUIAction(FExecuteAction::CreateLambda([this, Type = Item->EventType]()
+				{
+					AddExclusionFilter(InputFlowLogColumns::Type, Type);
+				}))
+			);
+
+			MenuBuilder.AddMenuEntry(
+				FText::FromString(FString::Printf(TEXT("Show Only Type '%s'"), *Item->EventType)),
+				FText::GetEmpty(),
+				FSlateIcon(FAppStyle::GetAppStyleSetName(), "Icons.Filter"),
+				FUIAction(FExecuteAction::CreateLambda([this, Type = Item->EventType]()
+				{
+					SetSearchFilter(Type);
+				}))
+			);
+		}
+
+		// -- Widget Filters --
+		if (!Item->WidgetName.IsEmpty() && (ColumnId == InputFlowLogColumns::Widget || ColumnId == NAME_None))
+		{
+			MenuBuilder.AddMenuEntry(
+				FText::FromString(FString::Printf(TEXT("Hide Widget '%s'"), *Item->WidgetName)),
+				FText::GetEmpty(),
+				FSlateIcon(FAppStyle::GetAppStyleSetName(), "Icons.Delete"),
+				FUIAction(FExecuteAction::CreateLambda([this, Name = Item->WidgetName]()
+				{
+					AddExclusionFilter(InputFlowLogColumns::Widget, Name);
+				}))
+			);
+			
+			MenuBuilder.AddMenuEntry(
+			FText::FromString(FString::Printf(TEXT("Filter to Widget '%s'"), *Item->WidgetName)),
+			FText::GetEmpty(),
+			FSlateIcon(FAppStyle::GetAppStyleSetName(), "Icons.Filter"),
+			FUIAction(FExecuteAction::CreateLambda([this, Name = Item->WidgetName]()
+			{
+				SetSearchFilter(Name);
+			}))
+		);
+		}
+	}
+	MenuBuilder.EndSection();
+
+	 MenuBuilder.BeginSection("Copy", FText::FromString("Copy"));
+	{
+		MenuBuilder.AddMenuEntry(
+			FText::FromString("Copy Selected Rows"),
+			FText::GetEmpty(),
+			FSlateIcon(FAppStyle::GetAppStyleSetName(), "GenericCommands.Copy"),
+			FUIAction(FExecuteAction::CreateLambda([this]()
+			{
+				// Get all selected items from the ListView
+				TArray<TSharedPtr<FInputEventLog>> SelectedItems = ListView->GetSelectedItems();
+				
+				if (SelectedItems.Num() == 0) return;
+
+				// Sort them by time
+				SelectedItems.Sort([](const TSharedPtr<FInputEventLog>& A, const TSharedPtr<FInputEventLog>& B) {
+					 return A->TimeSeconds < B->TimeSeconds;
+				});
+
+				// Build string
+				FStringBuilderBase OutputBuilder;
+				for (const TSharedPtr<FInputEventLog>& Log : SelectedItems)
+				{
+					if (!Log.IsValid()) continue;
+
+					OutputBuilder.Appendf(TEXT("[%s] %s | %s | %s | %s\n"), 
+						*Log->CaptureTime.ToString(TEXT("%H:%M:%S.%s")), 
+						*Log->EventType, 
+						*Log->WidgetName, 
+						*Log->WidgetState, 
+						*Log->InputDetails
+					);
+				}
+
+				// Copy
+				if (OutputBuilder.Len() > 0)
+				{
+					FPlatformApplicationMisc::ClipboardCopy(OutputBuilder.ToString());
+				}
+			}))
+		);
+	}
+	MenuBuilder.EndSection();
+
+	// Clear Option if any filters exist
+	if (ExcludedColumnValues.Num() > 0 || !LogFilterText.IsEmpty())
+	{
+		MenuBuilder.AddSeparator();
+		MenuBuilder.AddMenuEntry(
+			FText::FromString("Clear All Filters"),
+			FText::GetEmpty(),
+			FSlateIcon(FAppStyle::GetAppStyleSetName(), "Icons.Refresh"),
+			FUIAction(FExecuteAction::CreateSP(this, &SInputFlowLogView::ClearAllFilters))
+		);
+	}
+
+	return MenuBuilder.MakeWidget();
 }

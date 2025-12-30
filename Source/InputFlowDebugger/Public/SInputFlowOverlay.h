@@ -53,6 +53,9 @@ private:
 	/* Resolves collisions in the pending label batch */
 	void ResolveAndDrawLabels(const FGeometry& AllottedGeometry, FSlateWindowElementList& OutDrawElements, int32 LayerId) const;
 	
+	/** Renders the highlight ring/box for the currently focused widget. */
+	void PaintFocusedWidget(const FGeometry& AllottedGeometry, FSlateWindowElementList& OutDrawElements, int32& LayerId) const;
+	
 	/** Renders the predicted navigation paths (arrows/splines from start to target widgets). */
 	void PaintNavigationSimulation(const FGeometry& AllottedGeometry, FSlateWindowElementList& OutDrawElements, int32& LayerId) const;
 

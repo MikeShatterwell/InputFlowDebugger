@@ -189,8 +189,8 @@ bool UInputDebugSubsystem::TickSyncLogs(float DeltaTime)
 	if (InputSpy.IsValid())
 	{
 		const TArray<FInputEventLog>& SpyBuffer = InputSpy->GetEventLogBuffer();
-		int32 SpyWriteIdx = InputSpy->GetWriteIndex();
-		bool bSpyWrapped = InputSpy->IsWrapped();
+		const int32 SpyWriteIdx = InputSpy->GetWriteIndex();
+		const bool bSpyWrapped = InputSpy->IsWrapped();
 
 		if (SpyWriteIdx > 0 || bSpyWrapped)
 		{
@@ -201,12 +201,12 @@ bool UInputDebugSubsystem::TickSyncLogs(float DeltaTime)
 			}
 
 			// Iterate Spy Buffer in chronological order
-			int32 Start = bSpyWrapped ? SpyWriteIdx : 0;
-			int32 Count = bSpyWrapped ? SpyBuffer.Num() : SpyWriteIdx;
+			const int32 Start = bSpyWrapped ? SpyWriteIdx : 0;
+			const int32 Count = bSpyWrapped ? SpyBuffer.Num() : SpyWriteIdx;
 
 			for (int32 i = 0; i < Count; ++i)
 			{
-				int32 ActualIdx = (Start + i) % SpyBuffer.Num();
+				const int32 ActualIdx = (Start + i) % SpyBuffer.Num();
 				const FInputEventLog& RawLog = SpyBuffer[ActualIdx];
 
 				// Merge Logic
@@ -765,7 +765,7 @@ void UInputDebugSubsystem::ProcessSimulationQueue()
 		SimulationQueue.RemoveAt(0);
 
 		TSharedPtr<SWidget> CurrentWidget = CurrentItem.Widget.Pin();
-		int32 CurrentDepth = CurrentItem.Depth;
+		const int32 CurrentDepth = CurrentItem.Depth;
 
 		if (!CurrentWidget.IsValid() || CurrentDepth >= MaxDepth) continue;
 
@@ -778,7 +778,7 @@ void UInputDebugSubsystem::ProcessSimulationQueue()
 		{
 			TPair<TSharedPtr<SWidget>, ENavSimResult> SimResult = SimulateNavigation(CurrentWidget, Dir, RealUserIndex);
 			TSharedPtr<SWidget> Next = SimResult.Key;
-			ENavSimResult ResultType = SimResult.Value;
+			const ENavSimResult ResultType = SimResult.Value;
 
 			if (Next.IsValid() && InputFlowHelpers::IsGameWorldWidget(Next))
 			{bool bIsSameWidget = (Next == CurrentWidget);

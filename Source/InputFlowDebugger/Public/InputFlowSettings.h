@@ -49,6 +49,9 @@ public:
 	// Visualization Settings
 	bool IsOverlayEnabled() const { return bEnableOverlay; }
 	void SetEnableOverlay(bool bEnabled) { if (bEnableOverlay != bEnabled) { bEnableOverlay = bEnabled; SaveConfig(); OnSettingsChanged.Broadcast(); } }
+	
+	bool IsFocusHighlightEnabled() const { return bShowFocusHighlight; }
+	void SetShowFocusHighlight(bool bEnabled) { if (bShowFocusHighlight != bEnabled) { bShowFocusHighlight = bEnabled; SaveConfig(); OnSettingsChanged.Broadcast(); } }
 
 	bool IsHitTestGridShown() const { return bShowHitTestGrid; }
 	void SetShowHitTestGrid(bool bEnabled) { if (bShowHitTestGrid != bEnabled) { bShowHitTestGrid = bEnabled; SaveConfig(); OnSettingsChanged.Broadcast(); } }
@@ -76,7 +79,7 @@ public:
 	FOnInputFlowSettingsChanged& GetOnSettingsChanged() { return OnSettingsChanged; }
 
 private:
-	// --- Capture Settings ---
+	// --- Capture Settings (capture in this context means to log the event, which passes through to the game as normal) ---
 	
 	UPROPERTY(EditAnywhere, Config, Category = "Capture Filters")
 	bool bCaptureClicks = false;
@@ -103,6 +106,9 @@ private:
 
 	UPROPERTY(EditAnywhere, Config, Category = "Visualization")
 	bool bEnableOverlay = false;
+
+	UPROPERTY(EditAnywhere, Config, Category = "Visualization")
+	bool bShowFocusHighlight = true;
 
 	UPROPERTY(EditAnywhere, Config, Category = "Visualization")
 	bool bShowHitTestGrid = false;

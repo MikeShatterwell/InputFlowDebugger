@@ -37,6 +37,7 @@ public class InputFlowDebugger : ModuleRules
 		PrivateDependencyModuleNames.AddRange(
 			new string[]
 			{
+				"ApplicationCore",
 				"CoreUObject",
 				"DeveloperSettings",
 				"Engine",

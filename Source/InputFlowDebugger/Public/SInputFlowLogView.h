@@ -8,9 +8,26 @@
 // Slate
 #include <Widgets/SCompoundWidget.h>
 #include <Widgets/Views/SListView.h>
+#include <Widgets/Views/STableRow.h>
 
 class UInputDebugSubsystem;
 struct FInputEventLog;
+
+// -----------------------------------------------------------------------------
+// Column Names
+// -----------------------------------------------------------------------------
+namespace InputFlowLogColumns
+{
+	static const FName Time("Time");
+	static const FName Type("Type");
+	static const FName Widget("Widget");
+	static const FName State("State");
+	static const FName Details("Details");
+};
+
+// -----------------------------------------------------------------------------
+// Main View
+// -----------------------------------------------------------------------------
 
 class SInputFlowLogView : public SCompoundWidget
 {
@@ -24,9 +41,20 @@ public:
 
 	void ClearLog();
 
+	// Context Menu & Filtering API
+	TSharedPtr<SWidget> MakeRowContextMenu(TSharedPtr<FInputEventLog> Item, FName ColumnId);
+	void AddExclusionFilter(FName ColumnId, const FString& Value);
+	void SetSearchFilter(const FString& Value);
+	void ClearAllFilters();
+	bool IsItemVisible(const TSharedPtr<FInputEventLog>& Item) const;
+	
+	void ToggleEventTypeFilter(FString EventType);
+	bool IsEventTypeVisible(FString EventType) const;
+
 private:
 	void UpdateLogView();
 	TSharedRef<ITableRow> GenerateRow(TSharedPtr<FInputEventLog> Item, const TSharedRef<STableViewBase>& OwnerTable);
+	TSharedRef<SWidget> MakeFilterMenu();
 	
 	void OnSearchTextChanged(const FText& InText);
 	void OnTogglePause(ECheckBoxState State);
@@ -36,9 +64,39 @@ private:
 	bool bIsOverlay = false;
 	bool bLogPaused = false;
 	
+	// Filtering State
 	FString LogFilterText;
+	TMap<FName, TSet<FString>> ExcludedColumnValues;
+	TSharedPtr<class SSearchBox> SearchBoxWidget;
+	TSet<FString> KnownEventTypes;      // Discovered from the log data
+	TSet<FString> HiddenEventTypes;     // Unchecked in the filter menu
+
 	uint32 LastObservedVersion = 0;
 
 	TSharedPtr<SListView<TSharedPtr<FInputEventLog>>> ListView;
 	TArray<TSharedPtr<FInputEventLog>> SourceData;
+};
+
+// -----------------------------------------------------------------------------
+// Table Row
+// -----------------------------------------------------------------------------
+
+class SInputLogTableRow : public SMultiColumnTableRow<TSharedPtr<FInputEventLog>>
+{
+public:
+	SLATE_BEGIN_ARGS(SInputLogTableRow) {}
+	SLATE_END_ARGS()
+
+	void Construct(const FArguments& InArgs, const TSharedRef<STableViewBase>& InOwnerTableView, TSharedPtr<FInputEventLog> InItem, SInputFlowLogView* InOwnerView, bool bInOverlay, bool bIsSameFrameAsPrev);
+
+	virtual TSharedRef<SWidget> GenerateWidgetForColumn(const FName& ColumnName) override;
+
+	// Custom handler called by individual cells
+	FReply OnCellRightClick(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent, FName ColumnId);
+
+private:
+	TSharedPtr<FInputEventLog> Item;
+	SInputFlowLogView* OwnerView = nullptr;
+	bool bIsOverlay = false;
+	bool bIsSameFrame = false;
 };

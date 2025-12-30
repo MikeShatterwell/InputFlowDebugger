@@ -235,11 +235,12 @@ void SInputFlowSettingsPanel::Construct(const FArguments& InArgs, UInputDebugSub
 	// Enable Tick so we can keep the Subsystem pointer fresh across PIE restarts
 	SetCanTick(true);
 
-	// Define common styles
-	const FName ToolbarStyle = bIsOverlay ? TEXT("SimpleToolBar") : TEXT("SlimToolBar");
-	const FMargin ToolbarPadding = bIsOverlay ? FMargin(4, 2) : FMargin(0);
+	TAttribute<bool> VizEnabledAttr = TAttribute<bool>::Create([this]()
+	{
+		return bIsOverlay || UInputFlowSettings::Get()->IsOverlayEnabled();
+	});
 
-	TSharedRef<SHorizontalBox> Toolbar = SNew(SHorizontalBox);
+	const TSharedRef<SHorizontalBox> Toolbar = SNew(SHorizontalBox);
 
 	// Capture Filters (Combo Button)
 	Toolbar->AddSlot().AutoWidth().Padding(2, 0)
@@ -263,6 +264,7 @@ void SInputFlowSettingsPanel::Construct(const FArguments& InArgs, UInputDebugSub
 	[
 		SNew(SComboButton)
 		.ComboButtonStyle(FAppStyle::Get(), "SimpleComboButton")
+		.IsEnabled(VizEnabledAttr)
 		.OnGetMenuContent(this, &SInputFlowSettingsPanel::MakePanelMenu)
 		.Cursor(EMouseCursor::Default)
 		.ButtonContent()
@@ -282,6 +284,7 @@ void SInputFlowSettingsPanel::Construct(const FArguments& InArgs, UInputDebugSub
 	[
 		SNew(SComboButton)
 		.ComboButtonStyle(FAppStyle::Get(), "SimpleComboButton")
+		.IsEnabled(VizEnabledAttr)
 		.OnGetMenuContent(this, &SInputFlowSettingsPanel::MakeNavMenu)
 		.Cursor(EMouseCursor::Default)
 		.ButtonContent()
@@ -296,11 +299,34 @@ void SInputFlowSettingsPanel::Construct(const FArguments& InArgs, UInputDebugSub
 
 	Toolbar->AddSlot().AutoWidth().Padding(8, 2) [ SNew(SSeparator).Orientation(Orient_Vertical) ];
 
+	// Focus Highlight Toggle
+	Toolbar->AddSlot().AutoWidth().Padding(2, 0)
+	[
+		SNew(SCheckBox)
+		.Style(FAppStyle::Get(), "ToggleButtonCheckbox")
+		.IsEnabled(VizEnabledAttr)
+		.IsChecked_Lambda([this](){ return UInputFlowSettings::Get()->IsFocusHighlightEnabled() ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; })
+		.OnCheckStateChanged_Lambda([this](ECheckBoxState){ 
+			UInputFlowSettings* S = GetMutableDefault<UInputFlowSettings>();
+			S->SetShowFocusHighlight(!S->IsFocusHighlightEnabled());
+		})
+		.Cursor(EMouseCursor::Default)
+		.ToolTipText(INVTEXT("Highlight the currently focused widget"))
+		[
+			SNew(SHorizontalBox)
+			+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(4, 2)
+			[ SNew(SImage).Image(FAppStyle::Get().GetBrush("Icons.Visible")) ]
+			+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(4, 2)
+			[ SNew(STextBlock).Text(INVTEXT("Focus")) ]
+		]
+	];
+
 	// Hit Test Grid
 	Toolbar->AddSlot().AutoWidth().Padding(2, 0)
 	[
 		SNew(SCheckBox)
 		.Style(FAppStyle::Get(), "ToggleButtonCheckbox")
+		.IsEnabled(VizEnabledAttr)
 		.IsChecked_Lambda([this](){ return UInputFlowSettings::Get()->IsHitTestGridShown() ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; })
 		.OnCheckStateChanged_Lambda([this](ECheckBoxState){ OnToggleHitTestGrid(); })
 		.Cursor(EMouseCursor::Default)
@@ -380,7 +406,7 @@ TSharedRef<SWidget> SInputFlowSettingsPanel::MakeNavMenu()
 	);
 
 	// Depth Spinbox
-	TSharedRef<SWidget> DepthWidget = SNew(SHorizontalBox)
+	const TSharedRef<SWidget> DepthWidget = SNew(SHorizontalBox)
 		+ SHorizontalBox::Slot().AutoWidth().Padding(4, 0).VAlign(VAlign_Center)
 		[ SNew(STextBlock).Text(INVTEXT("Search Depth")) ]
 		+ SHorizontalBox::Slot().AutoWidth().Padding(4, 0)
@@ -388,7 +414,7 @@ TSharedRef<SWidget> SInputFlowSettingsPanel::MakeNavMenu()
 			SAssignNew(DepthSpinBox, SInputFlowSpinBox)
 			.MinValue(1)
 			.MaxValue(5)
-			.Value_Lambda([this]() { return UInputFlowSettings::Get()->IsNavSimulationEnabled(); })
+			.Value_Lambda([this]() { return UInputFlowSettings::Get()->GetNavigationSearchDepth(); })
 			.OnValueChanged_Lambda([this](int32 NewVal) { 
 				GetMutableDefault<UInputFlowSettings>()->SetNavigationSearchDepth(NewVal);
 			})
@@ -616,7 +642,7 @@ void SInputFlowAnalyzer::Construct(const FArguments& InArgs)
 							SNew(SInputFlowSettingsPanel, DebugSub)
 								.IsOverlay(false) // Editor mode
 						]
-						+ SVerticalBox::Slot().FillHeight(1.0f)
+						+ SVerticalBox::Slot().FillHeight(1.0f).HAlign(HAlign_Fill)
 						[
 							SAssignNew(LogView, SInputFlowLogView, DebugSub)
 						]

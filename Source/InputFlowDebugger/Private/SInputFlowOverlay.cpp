@@ -227,6 +227,10 @@ void Construct(const FArguments& InArgs)
 
 	virtual void Tick(const FGeometry& AllottedGeometry, const double InCurrentTime, const float InDeltaTime) override
 	{
+		if (!UInputFlowSettings::Get()->IsOverlayEnabled())
+		{
+			return;
+		}
 		if (!bHasSetInitialSize && SizeBox.IsValid())
 		{
 			SlatePrepass(AllottedGeometry.GetAccumulatedLayoutTransform().GetScale());
@@ -762,6 +766,12 @@ int32 SInputFlowOverlay::OnPaint(const FPaintArgs& Args, const FGeometry& Allott
 {
 	LabelBatch.Reset();
 
+	if (!UInputFlowSettings::Get()->IsOverlayEnabled())
+	{
+		return LayerId;
+	}
+
+	PaintFocusedWidget(AllottedGeometry, OutDrawElements, LayerId);
 	PaintNavigationSimulation(AllottedGeometry, OutDrawElements, LayerId);
 	PaintFocusHistory(AllottedGeometry, OutDrawElements, LayerId);
 	PaintHitTestGrid(AllottedGeometry, OutDrawElements, LayerId);
@@ -844,17 +854,17 @@ void SInputFlowOverlay::ResolveAndDrawLabels(const FGeometry& AllottedGeometry,
 	}
 }
 
-void SInputFlowOverlay::PaintNavigationSimulation(const FGeometry& AllottedGeometry,
-												  FSlateWindowElementList& OutDrawElements, int32& LayerId) const
+void SInputFlowOverlay::PaintFocusedWidget(const FGeometry& AllottedGeometry, FSlateWindowElementList& OutDrawElements,
+	int32& LayerId) const
 {
-	UInputDebugSubsystem* Sub = GetSubsystem();
-	if (!Sub || !UInputFlowSettings::Get()->IsNavSimulationEnabled()) return;
+	const UInputDebugSubsystem* Sub = GetSubsystem();
+	if (!Sub || !UInputFlowSettings::Get()->IsFocusHighlightEnabled()) return;
 
 	// Draw Focus
-	if (TSharedPtr<SWidget> Focus = Sub->GetFocusedWidget())
+	if (const TSharedPtr<SWidget> Focus = Sub->GetFocusedWidget())
 	{
 		int32 FocusLayerId = LayerId + 10;
-		FString FocusLabel = FString::Printf(TEXT("FOCUS: %s"), *InputFlowHelpers::GetWidgetDisplayName(Focus));
+		const FString FocusLabel = FString::Printf(TEXT("FOCUS: %s"), *InputFlowHelpers::GetWidgetDisplayName(Focus));
 		DrawWidgetHighlight(Focus, InputFlowStyle::Color_Focus, FocusLabel, AllottedGeometry, OutDrawElements,
 							FocusLayerId, 4.f);
 
@@ -870,13 +880,20 @@ void SInputFlowOverlay::PaintNavigationSimulation(const FGeometry& AllottedGeome
 			constexpr float RingRadius = 6.0f;
 			for (int32 i = 0; i <= Segments; ++i)
 			{
-				float Angle = ((float)i / (float)Segments) * 2.0f * PI;
+				const float Angle = ((float)i / (float)Segments) * 2.0f * PI;
 				RingPoints.Add(Center + FVector2D(FMath::Cos(Angle), FMath::Sin(Angle)) * RingRadius);
 			}
 			FSlateDrawElement::MakeLines(OutDrawElements, LayerId + 10, AllottedGeometry.ToPaintGeometry(), RingPoints,
 										 ESlateDrawEffect::None, InputFlowStyle::Color_Focus, true, 3.f);
 		}
 	}
+}
+
+void SInputFlowOverlay::PaintNavigationSimulation(const FGeometry& AllottedGeometry,
+                                                  FSlateWindowElementList& OutDrawElements, int32& LayerId) const
+{
+	UInputDebugSubsystem* Sub = GetSubsystem();
+	if (!Sub || !UInputFlowSettings::Get()->IsNavSimulationEnabled()) return;
 
 	// Draw Links
 	const TArray<FNavigationLink>& Links = Sub->GetNavigationLinks();
@@ -892,7 +909,7 @@ void SInputFlowOverlay::PaintNavigationSimulation(const FGeometry& AllottedGeome
 		const bool bIsHandled = (Link.ResultType == ENavSimResult::Handled);
 		const bool bIsExplicit = (Link.ResultType == ENavSimResult::Explicit);
 
-		const float Alpha = FMath::Lerp(1.0f, 0.2f, (float)(Link.DepthStep - 1) / (float)(FMath::Max(MaxDepth - 1, 1)));
+		const float Alpha = FMath::Lerp(1.0f, 0.65f, (float)(Link.DepthStep - 1) / (float)(FMath::Max(MaxDepth - 1, 1)));
 
 		const FString DepthStr = FString::Printf(TEXT("NAV DEPTH [%d/%d]"), Link.DepthStep, MaxDepth);
 
@@ -983,8 +1000,7 @@ void SInputFlowOverlay::PaintFocusHistory(const FGeometry& AllottedGeometry, FSl
 	}
 }
 
-void SInputFlowOverlay::PaintHitTestGrid(const FGeometry& AllottedGeometry, FSlateWindowElementList& OutDrawElements,
-										 int32& LayerId) const
+void SInputFlowOverlay::PaintHitTestGrid(const FGeometry& AllottedGeometry, FSlateWindowElementList& OutDrawElements, int32& LayerId) const
 {
 	UInputDebugSubsystem* Subsystem = GetSubsystem();
 	if (!IsValid(Subsystem) || !UInputFlowSettings::Get()->IsHitTestGridShown()) return;
