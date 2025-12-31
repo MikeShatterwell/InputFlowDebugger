@@ -12,17 +12,17 @@ class SInputFlowSpinBox : public SSpinBox<int32>
 {
 public:
 	SLATE_BEGIN_ARGS(SInputFlowSpinBox)
-		: _MinValue(1)
-		, _MaxValue(100)
-		, _Value(1)
-	{}
-	SLATE_ATTRIBUTE(TOptional<int32>, MinValue)
-	SLATE_ATTRIBUTE(TOptional<int32>, MaxValue)
-	SLATE_ATTRIBUTE(int32, Value)
-	SLATE_EVENT(FOnValueChanged, OnValueChanged)
-SLATE_END_ARGS()
+			: _MinValue(1)
+			, _MaxValue(100)
+			, _Value(1)
+		{}
+		SLATE_ATTRIBUTE(TOptional<int32>, MinValue)
+		SLATE_ATTRIBUTE(TOptional<int32>, MaxValue)
+		SLATE_ATTRIBUTE(int32, Value)
+		SLATE_EVENT(FOnValueChanged, OnValueChanged)
+	SLATE_END_ARGS()
 
-void Construct(const FArguments& InArgs)
+	void Construct(const FArguments& InArgs)
 	{
 		SSpinBox<int32>::Construct(SSpinBox<int32>::FArguments()
 			.MinValue(InArgs._MinValue)
@@ -196,7 +196,13 @@ void SInputFlowSettingsPanel::Tick(const FGeometry& AllottedGeometry, const doub
 {
 	// Ensure we always have a valid subsystem pointer.
 	// This is critical for the Editor Tab which persists while PIE sessions (and their subsystems) die and respawn.
-	if (!WeakSubsystem.IsValid())
+	const bool bWasValid = WeakSubsystem.IsValid();
+
+	const UInputFlowSettings* Settings = UInputFlowSettings::Get();
+
+	// Ensure we always have a valid subsystem pointer.
+	// This is critical for the Editor Tab which persists while PIE sessions (and their subsystems) die and respawn.
+	if (!bWasValid)
 	{
 		WeakSubsystem = InputFlowHelpers::GetActiveDebugSubsystem();
 	}

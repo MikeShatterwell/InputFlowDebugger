@@ -151,33 +151,48 @@ void UInputDebugSubsystem::ClearLogHistory()
 void UInputDebugSubsystem::HandleSettingsChanged()
 {
 	const UInputFlowSettings* Settings = UInputFlowSettings::Get();
-	
+	UGameViewportClient* GameViewport = (GetWorld()) ? GetWorld()->GetGameViewport() : nullptr;
+	const bool bIsViewportReady = IsValid(GameViewport);
+
+	// Determine desired state
+	const bool bShouldBeActive = Settings->IsOverlayEnabled() && bIsViewportReady;
+
 	// Handle Overlay Widget Spawning/Despawning
-	if (Settings->IsOverlayEnabled() != bOverlayActive)
+	if (bShouldBeActive != bOverlayActive)
 	{
-		bOverlayActive = Settings->IsOverlayEnabled();
+		bOverlayActive = bShouldBeActive;
 		
-		if (bOverlayActive)
+		if (bOverlayActive && GameViewport)
 		{
-			if (GetWorld() && GetWorld()->GetGameViewport())
+			// Create the widget if it doesn't exist
+			if (!OverlayWidget.IsValid())
 			{
 				OverlayWidget = SNew(SInputFlowOverlay).Subsystem(this);
+			}
 
+			// Wrap in WeakWidget if not already done
+			if (!OverlayHost.IsValid())
+			{
 				SAssignNew(OverlayHost, SWeakWidget)
 				.PossiblyNullContent(OverlayWidget.ToSharedRef());
-
-				GetWorld()->GetGameViewport()->AddViewportWidgetContent(
-					OverlayHost.ToSharedRef(),
-					1000 // Z-Order
-				);
 			}
+
+			// Add to Viewport
+			GameViewport->AddViewportWidgetContent(
+				OverlayHost.ToSharedRef(),
+				1000 // Z-Order
+			);
 		}
 		else
 		{
-			if (OverlayHost.IsValid() && GetWorld() && GetWorld()->GetGameViewport())
+			// Remove from Viewport
+			if (OverlayHost.IsValid() && GameViewport)
 			{
-				GetWorld()->GetGameViewport()->RemoveViewportWidgetContent(OverlayHost.ToSharedRef());
+				GameViewport->RemoveViewportWidgetContent(OverlayHost.ToSharedRef());
 			}
+			
+			// Optional: We can keep the widget instance alive or reset it. 
+			// Resetting ensures clean state on toggle.
 			OverlayHost.Reset();
 			OverlayWidget.Reset();
 		}
@@ -186,6 +201,12 @@ void UInputDebugSubsystem::HandleSettingsChanged()
 
 bool UInputDebugSubsystem::TickSyncLogs(float DeltaTime)
 {
+	// If settings say "On", but we aren't active (likely due to missing Viewport on Init), try again.
+	if (UInputFlowSettings::Get()->IsOverlayEnabled() != bOverlayActive)
+	{
+		HandleSettingsChanged();
+	}
+
 	if (InputSpy.IsValid())
 	{
 		const TArray<FInputEventLog>& SpyBuffer = InputSpy->GetEventLogBuffer();
@@ -213,7 +234,7 @@ bool UInputDebugSubsystem::TickSyncLogs(float DeltaTime)
 				bool bMerged = false;
 				if (LogHistoryIndex > 0 || bLogHistoryWrapped)
 				{
-					uint32 PrevHistIdx = (LogHistoryIndex == 0) ? MaxLogHistorySize - 1 : LogHistoryIndex - 1;
+					const uint32 PrevHistIdx = (LogHistoryIndex == 0) ? MaxLogHistorySize - 1 : LogHistoryIndex - 1;
 					if (LogHistory.IsValidIndex(PrevHistIdx))
 					{
 						TSharedPtr<FInputEventLog> LastEntry = LogHistory[PrevHistIdx];

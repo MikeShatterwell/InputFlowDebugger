@@ -287,12 +287,12 @@ void SInputFlowLogView::Construct(const FArguments& InArgs, UInputDebugSubsystem
 	// Header Construction
 	TSharedRef<SHeaderRow> HeaderRow = SNew(SHeaderRow)
 		.Visibility(bIsOverlay ? EVisibility::Collapsed : EVisibility::Visible)
-		.ResizeMode(ESplitterResizeMode::FixedSize);
+		.ResizeMode(ESplitterResizeMode::Fill);
 
 	HeaderRow->AddColumn(
 		SHeaderRow::Column(InputFlowLogColumns::Time)
 		.DefaultLabel(FText::FromString("Time"))
-		.ManualWidth(70.0f)
+		.ManualWidth(100.0f)
 	);
 
 	HeaderRow->AddColumn(
@@ -304,19 +304,19 @@ void SInputFlowLogView::Construct(const FArguments& InArgs, UInputDebugSubsystem
 	HeaderRow->AddColumn(
 		SHeaderRow::Column(InputFlowLogColumns::Widget)
 		.DefaultLabel(FText::FromString("Widget"))
-		.FillSized(400.0f)
+		.FillWidth(0.35f)
 	);
 
 	HeaderRow->AddColumn(
 		SHeaderRow::Column(InputFlowLogColumns::State)
 		.DefaultLabel(FText::FromString("State"))
-		.FillSized(300.0f)
+		.FillWidth(0.25f)
 	);
 
 	HeaderRow->AddColumn(
 		SHeaderRow::Column(InputFlowLogColumns::Details)
 		.DefaultLabel(FText::FromString("Details"))
-		.FillSized(300.0f)
+		.FillWidth(0.40f)
 	);
 
 	ChildSlot
