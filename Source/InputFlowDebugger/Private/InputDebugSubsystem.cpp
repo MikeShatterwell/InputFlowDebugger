@@ -104,6 +104,18 @@ void UInputDebugSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 		FTickerDelegate::CreateUObject(this, &UInputDebugSubsystem::TickSyncLogs),
 		0.1f
 	);
+
+	CVarInputFlowOverlay.AsVariable()->SetOnChangedCallback(
+		FConsoleVariableDelegate::CreateWeakLambda(this, [this](IConsoleVariable* Var)
+		{
+			const bool bEnabled = Var->GetBool();
+			UInputFlowSettings* Settings = GetMutableDefault<UInputFlowSettings>();
+			if (Settings->IsOverlayEnabled() != bEnabled)
+			{
+				Settings->SetEnableOverlay(bEnabled);
+			}
+		}
+	));
 }
 
 void UInputDebugSubsystem::Deinitialize()
