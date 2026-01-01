@@ -170,6 +170,7 @@ void UInputDebugSubsystem::HandleSettingsChanged()
 	const bool bShouldBeActive = Settings->IsOverlayEnabled() && bIsViewportReady;
 
 	// Handle Overlay Widget Spawning/Despawning
+	// It's a debug tool, we can get away with some lazy init/destruct here.
 	if (bShouldBeActive != bOverlayActive)
 	{
 		bOverlayActive = bShouldBeActive;
@@ -192,7 +193,7 @@ void UInputDebugSubsystem::HandleSettingsChanged()
 			// Add to Viewport
 			GameViewport->AddViewportWidgetContent(
 				OverlayHost.ToSharedRef(),
-				1000 // Z-Order
+				INT_MAX // Z-Order
 			);
 		}
 		else
@@ -203,8 +204,6 @@ void UInputDebugSubsystem::HandleSettingsChanged()
 				GameViewport->RemoveViewportWidgetContent(OverlayHost.ToSharedRef());
 			}
 			
-			// Optional: We can keep the widget instance alive or reset it. 
-			// Resetting ensures clean state on toggle.
 			OverlayHost.Reset();
 			OverlayWidget.Reset();
 		}
@@ -654,14 +653,14 @@ TPair<TSharedPtr<SWidget>, ENavSimResult> UInputDebugSubsystem::SimulateNavigati
 		if (Rule == EUINavigationRule::Stop)
 		{
 			UE_CLOG(bDebugLog, LogInputFlow, Warning, TEXT("  [Stop] Boundary '%s' hit Stop Rule."),
-			        *BoundaryWidget->ToString());
+					*BoundaryWidget->ToString());
 			return {ConstCastSharedRef<SWidget>(BoundaryWidget), ENavSimResult::Stopped};
 		}
 		
 		if (Rule == EUINavigationRule::Custom)
 		{
 			UE_CLOG(bDebugLog, LogInputFlow, Warning, TEXT("  [Custom] Boundary '%s' Handled."),
-			        *BoundaryWidget->ToString());
+					*BoundaryWidget->ToString());
 			return {ConstCastSharedRef<SWidget>(BoundaryWidget), ENavSimResult::Handled};
 		}
 
@@ -702,8 +701,8 @@ TPair<TSharedPtr<SWidget>, ENavSimResult> UInputDebugSubsystem::SimulateNavigati
 			FScopedSwitchWorldHack SwitchWorld(SourcePath);
 
 			FNavigationReply GridRule = (Rule == EUINavigationRule::Wrap)
-				                            ? FNavigationReply::Wrap()
-				                            : FNavigationReply::Escape();
+											? FNavigationReply::Wrap()
+											: FNavigationReply::Escape();
 
 			// -----------------------------------------------------------------------
 			// Step-Over Logic
@@ -765,20 +764,20 @@ TPair<TSharedPtr<SWidget>, ENavSimResult> UInputDebugSubsystem::SimulateNavigati
 			}
 
 			UE_CLOG(bDebugLog, LogInputFlow, Log, TEXT("  [SpatialSearch] Boundary '%s' -> Target '%s'"),
-			        *BoundaryWidget->ToString(),
-			        ResultWidget.IsValid() ? *ResultWidget->ToString() : TEXT("NULL"));
+					*BoundaryWidget->ToString(),
+					ResultWidget.IsValid() ? *ResultWidget->ToString() : TEXT("NULL"));
 		}
 
-		// 5. Did we find a valid target?
+		// Did we find a valid target?
 		if (ResultWidget.IsValid() && InputFlowHelpers::IsGameWorldWidget(ResultWidget))
 		{
 			UE_CLOG(bDebugLog, LogInputFlow, Log, TEXT("  [Search] Boundary '%s' -> Found '%s'"),
-			        *BoundaryWidget->ToString(), *ResultWidget->ToString());
+					*BoundaryWidget->ToString(), *ResultWidget->ToString());
 			return {ResultWidget, ENavSimResult::Normal};
 		}
 
 		UE_CLOG(bDebugLog, LogInputFlow, Verbose, TEXT("  [Escape] Boundary '%s' bubbling up."),
-		        *BoundaryWidget->ToString());
+				*BoundaryWidget->ToString());
 	}
 
 	UE_CLOG(bDebugLog, LogInputFlow, Log, TEXT("  [Result] Bubbled to Root. No Target."));

@@ -67,6 +67,9 @@ private:
 
 	// --- Visual Primitives ---
 
+	static void DrawCircle(const FGeometry& AllottedGeometry, const FVector2D& Center, float Radius, const FLinearColor& Color,
+	                       float Thickness, FSlateWindowElementList& OutDrawElements, int32 LayerId);
+
 	/** Draws a box around a widget with a label. */
 	void DrawWidgetHighlight(const TSharedPtr<SWidget>& Widget, const FLinearColor& Color, const FString& Label, const FGeometry& OverlayGeometry, FSlateWindowElementList& OutDrawElements, int32& LayerId, float Thickness = 2.f) const;
 	

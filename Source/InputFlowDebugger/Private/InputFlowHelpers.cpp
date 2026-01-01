@@ -220,6 +220,20 @@ FString InputFlowHelpers::GetWidgetDisplayName(const TSharedPtr<SWidget>& Widget
 	return DisplayName;
 }
 
+FString InputFlowHelpers::GetSimpleDirectionName(EUINavigation Direction)
+{
+	switch (Direction)
+	{
+		case EUINavigation::Up:       return TEXT("↑ UP");
+		case EUINavigation::Down:     return TEXT("↓ DOWN");
+		case EUINavigation::Left:     return TEXT("← LEFT");
+		case EUINavigation::Right:    return TEXT("→ RIGHT");
+		case EUINavigation::Next:     return TEXT("⇥ NEXT");
+		case EUINavigation::Previous: return TEXT("⇤ PREVIOUS");
+		default:                      return TEXT("UNKNOWN");
+	}
+}
+
 TSharedPtr<SWidget> InputFlowHelpers::FindInteractiveDescendant(TSharedPtr<SWidget> Root)
 {
 	if (!Root.IsValid()) return nullptr;

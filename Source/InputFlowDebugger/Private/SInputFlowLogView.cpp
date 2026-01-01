@@ -24,7 +24,9 @@
 // SInputLogTableRow Implementation
 // -----------------------------------------------------------------------------
 
-void SInputLogTableRow::Construct(const FArguments& InArgs, const TSharedRef<STableViewBase>& InOwnerTableView, TSharedPtr<FInputEventLog> InItem, SInputFlowLogView* InOwnerView, bool bInOverlay, bool bIsSameFrameAsPrev)
+void SInputLogTableRow::Construct(const FArguments& InArgs, const TSharedRef<STableViewBase>& InOwnerTableView,
+								  TSharedPtr<FInputEventLog> InItem, SInputFlowLogView* InOwnerView, bool bInOverlay,
+								  bool bIsSameFrameAsPrev)
 {
 	Item = InItem;
 	OwnerView = InOwnerView;
@@ -32,9 +34,9 @@ void SInputLogTableRow::Construct(const FArguments& InArgs, const TSharedRef<STa
 	bIsSameFrame = bIsSameFrameAsPrev;
 	SetTag(InputFlowHelpers::InputFlowAnalyzerTag);
 
-	const FTableRowStyle& RowStyle = bInOverlay ?
-		InputFlowHelpers::GetTranslucentRowStyle() :
-		FAppStyle::Get().GetWidgetStyle<FTableRowStyle>("TableView.Row");
+	const FTableRowStyle& RowStyle = bInOverlay
+										 ? InputFlowHelpers::GetTranslucentRowStyle()
+										 : FAppStyle::Get().GetWidgetStyle<FTableRowStyle>("TableView.Row");
 
 	SMultiColumnTableRow<TSharedPtr<FInputEventLog>>::Construct(
 		SMultiColumnTableRow<TSharedPtr<FInputEventLog>>::FArguments()
@@ -61,10 +63,10 @@ TSharedRef<SWidget> SInputLogTableRow::GenerateWidgetForColumn(const FName& Colu
 	{
 		if (!bIsSameFrame)
 		{
-			FString TimeStr = FString::Printf(TEXT("%s.%03d"), 
-				*Item->CaptureTime.ToString(TEXT("%H:%M:%S")), 
-				Item->CaptureTime.GetMillisecond());
-			
+			FString TimeStr = FString::Printf(TEXT("%s.%03d"),
+											  *Item->CaptureTime.ToString(TEXT("%H:%M:%S")),
+											  Item->CaptureTime.GetMillisecond());
+
 			CellContent = SNew(STextBlock)
 				.Text(FText::FromString(TimeStr))
 				.ColorAndOpacity(FLinearColor(0.5f, 0.5f, 0.5f))
@@ -102,7 +104,10 @@ TSharedRef<SWidget> SInputLogTableRow::GenerateWidgetForColumn(const FName& Colu
 						SNew(SHyperlink)
 						.Text(FText::FromString(Part.Text))
 						.Style(FCoreStyle::Get(), "Hyperlink")
-						.OnNavigate_Lambda([Part]() { InputFlowHelpers::TryOpenAsset(Part.Object, Part.Class, Part.bOpenRootContext); })
+						.OnNavigate_Lambda([Part]()
+						{
+							InputFlowHelpers::TryOpenAsset(Part.Object, Part.Class, Part.bOpenRootContext);
+						})
 					];
 				}
 				else
@@ -121,12 +126,18 @@ TSharedRef<SWidget> SInputLogTableRow::GenerateWidgetForColumn(const FName& Colu
 		else
 		{
 			// Simple Text Fallback
-			FLinearColor NameColor = bIsOverlay ? FLinearColor::White : (Item->bIsButton ? FLinearColor::Black : FLinearColor(0.3f, 0.3f, 0.3f));
-			FString DisplayText = Item->WidgetName.IsEmpty() ? Item->WidgetType : Item->WidgetName;
-			
+			const FLinearColor NameColor = bIsOverlay
+											   ? FLinearColor::White
+											   : (Item->bIsButton
+													  ? FLinearColor::Black
+													  : FLinearColor(0.3f, 0.3f, 0.3f));
+			const FString DisplayText = Item->WidgetName.IsEmpty() ? Item->WidgetType : Item->WidgetName;
+
 			CellContent = SNew(STextBlock)
 				.Text(FText::FromString(DisplayText))
-				.Font(Item->bIsButton ? FCoreStyle::GetDefaultFontStyle("Bold", 9) : FCoreStyle::GetDefaultFontStyle("Regular", 9))
+				.Font(Item->bIsButton
+						  ? FCoreStyle::GetDefaultFontStyle("Bold", 9)
+						  : FCoreStyle::GetDefaultFontStyle("Regular", 9))
 				.ColorAndOpacity(NameColor);
 		}
 	}
@@ -146,7 +157,7 @@ TSharedRef<SWidget> SInputLogTableRow::GenerateWidgetForColumn(const FName& Colu
 		{
 			DisplayStr += FString::Printf(TEXT(" (%d)"), Item->Count);
 		}
-		
+
 		CellContent = SNew(STextBlock)
 			.Text(FText::FromString(DisplayStr))
 			.ColorAndOpacity(FLinearColor::White)
@@ -193,7 +204,9 @@ FReply SInputLogTableRow::OnCellRightClick(const FGeometry& MyGeometry, const FP
 			const TSharedPtr<SWidget> MenuContent = OwnerView->MakeRowContextMenu(Item, ColumnId);
 			if (MenuContent.IsValid())
 			{
-				FWidgetPath WidgetPath = MouseEvent.GetEventPath() != nullptr ? *MouseEvent.GetEventPath() : FWidgetPath();
+				const FWidgetPath WidgetPath = MouseEvent.GetEventPath() != nullptr
+												   ? *MouseEvent.GetEventPath()
+												   : FWidgetPath();
 				FSlateApplication::Get().PushMenu(
 					AsShared(),
 					WidgetPath,
@@ -201,7 +214,7 @@ FReply SInputLogTableRow::OnCellRightClick(const FGeometry& MyGeometry, const FP
 					MouseEvent.GetScreenSpacePosition(),
 					FPopupTransitionEffect(FPopupTransitionEffect::ContextMenu)
 				);
-				
+
 				return FReply::Handled();
 			}
 		}
@@ -218,75 +231,78 @@ void SInputFlowLogView::Construct(const FArguments& InArgs, UInputDebugSubsystem
 	DebugSubsystem = InSubsystem;
 	bIsOverlay = InArgs._IsOverlay;
 
-	TSharedPtr<SWidget> ToolbarWidget;
-
 	SetVisibility(EVisibility::SelfHitTestInvisible);
 
-	if (!bIsOverlay)
-	{
-		ToolbarWidget = SNew(SHorizontalBox)
-			+ SHorizontalBox::Slot().FillWidth(1.0f).Padding(0, 0, 4, 0).VAlign(VAlign_Center)
+	const TSharedPtr<SWidget> ToolbarWidget = SNew(SHorizontalBox)
+		+ SHorizontalBox::Slot().FillWidth(1.0f).Padding(0, 0, 4, 0).VAlign(VAlign_Center)
+		[
+			SAssignNew(SearchBoxWidget, SSearchBox)
+			.HintText(FText::FromString("Search log..."))
+			.OnTextChanged(this, &SInputFlowLogView::OnSearchTextChanged)
+		]
+		// Filter Dropdown
+		+ SHorizontalBox::Slot().AutoWidth().Padding(4, 0).VAlign(VAlign_Center)
+		[
+			SNew(SComboButton)
+			.ComboButtonStyle(FAppStyle::Get(), "GenericFilters.ComboButtonStyle")
+			.IsFocusable(false)
+			.ForegroundColor(FLinearColor::White)
+			.ContentPadding(0)
+			.ToolTipText(FText::FromString("Filter Event Types"))
+			.OnGetMenuContent(this, &SInputFlowLogView::MakeFilterMenu)
+			.ButtonContent()
 			[
-				SAssignNew(SearchBoxWidget, SSearchBox)
-				.HintText(FText::FromString("Search log..."))
-				.OnTextChanged(this, &SInputFlowLogView::OnSearchTextChanged)
-			]
-			// Filter Dropdown
-			+ SHorizontalBox::Slot().AutoWidth().Padding(4, 0).VAlign(VAlign_Center)
-			[
-				SNew(SComboButton)
-				.ComboButtonStyle(FAppStyle::Get(), "GenericFilters.ComboButtonStyle")
-				.ForegroundColor(FLinearColor::White)
-				.ContentPadding(0)
-				.ToolTipText(FText::FromString("Filter Event Types"))
-				.OnGetMenuContent(this, &SInputFlowLogView::MakeFilterMenu)
-				.ButtonContent()
+				SNew(SHorizontalBox)
+				+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
 				[
-					SNew(SHorizontalBox)
-					+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
-					[
-						SNew(SImage).Image(FAppStyle::GetBrush("Icons.Filter"))
-					]
-					+ SHorizontalBox::Slot().AutoWidth().Padding(2, 0).VAlign(VAlign_Center)
-					[
-						SNew(STextBlock).Text(FText::FromString("Types"))
-					]
+					SNew(SImage).Image(FAppStyle::GetBrush("Icons.Filter"))
+				]
+				+ SHorizontalBox::Slot().AutoWidth().Padding(2, 0).VAlign(VAlign_Center)
+				[
+					SNew(STextBlock).Text(FText::FromString("Types"))
 				]
 			]
-			+ SHorizontalBox::Slot().AutoWidth().Padding(4, 0).VAlign(VAlign_Center)
+		]
+		+ SHorizontalBox::Slot().AutoWidth().Padding(4, 0).VAlign(VAlign_Center)
+		[
+			SNew(SCheckBox)
+			.Style(FAppStyle::Get(), "ToggleButtonCheckbox")
+			.IsFocusable(false)
+			.IsChecked(this, &SInputFlowLogView::GetPauseState)
+			.OnCheckStateChanged(this, &SInputFlowLogView::OnTogglePause)
 			[
-				SNew(SCheckBox)
-				.Style(FAppStyle::Get(), "ToggleButtonCheckbox")
-				.IsChecked(this, &SInputFlowLogView::GetPauseState)
-				.OnCheckStateChanged(this, &SInputFlowLogView::OnTogglePause)
+				SNew(SHorizontalBox)
+				+ SHorizontalBox::Slot().AutoWidth().Padding(2)
 				[
-					SNew(SHorizontalBox)
-					+ SHorizontalBox::Slot().AutoWidth().Padding(2)
-					[ SNew(SImage).Image(FAppStyle::GetBrush(TEXT("GenericPause"))) ]
-					+ SHorizontalBox::Slot().AutoWidth().Padding(2, 0)
-					[ SNew(STextBlock).Text(FText::FromString("Freeze")) ]
+					SNew(SImage).Image(FAppStyle::GetBrush(TEXT("GenericPause")))
+				]
+				+ SHorizontalBox::Slot().AutoWidth().Padding(2, 0)
+				[
+					SNew(STextBlock).Text(FText::FromString("Freeze"))
 				]
 			]
-			+ SHorizontalBox::Slot().AutoWidth().Padding(4, 0).VAlign(VAlign_Center)
+		]
+		+ SHorizontalBox::Slot().AutoWidth().Padding(4, 0).VAlign(VAlign_Center)
+		[
+			SNew(SButton)
+			.OnClicked_Lambda([this]()
+			{
+				ClearLog();
+				return FReply::Handled();
+			})
+			.IsFocusable(false)
+			.ContentPadding(FMargin(5, 2))
 			[
-				SNew(SButton)
-				.OnClicked_Lambda([this]() { ClearLog(); return FReply::Handled(); })
-				.ContentPadding(FMargin(5, 2))
-				[ SNew(STextBlock).Text(FText::FromString("Clear")) ]
-			];
-	}
-	else
-	{
-		ToolbarWidget = SNullWidget::NullWidget;
-	}
+				SNew(STextBlock).Text(FText::FromString("Clear"))
+			]
+		];
 
-	const FTableViewStyle& ListStyle = bIsOverlay 
-	? InputFlowHelpers::GetTranslucentTableViewStyle() 
-	: FCoreStyle::Get().GetWidgetStyle<FTableViewStyle>("ListView");
+	const FTableViewStyle& ListStyle = bIsOverlay
+										   ? InputFlowHelpers::GetTranslucentTableViewStyle()
+										   : FCoreStyle::Get().GetWidgetStyle<FTableViewStyle>("ListView");
 
 	// Header Construction
-	TSharedRef<SHeaderRow> HeaderRow = SNew(SHeaderRow)
-		.Visibility(bIsOverlay ? EVisibility::Collapsed : EVisibility::Visible)
+	const TSharedRef<SHeaderRow> HeaderRow = SNew(SHeaderRow)
 		.ResizeMode(ESplitterResizeMode::Fill);
 
 	HeaderRow->AddColumn(
@@ -335,12 +351,13 @@ void SInputFlowLogView::Construct(const FArguments& InArgs, UInputDebugSubsystem
 			+ SVerticalBox::Slot().FillHeight(1.0f)
 			[
 				SAssignNew(ListView, SListView<TSharedPtr<FInputEventLog>>)
-				.ListItemsSource(&SourceData)
-				.OnGenerateRow(this, &SInputFlowLogView::GenerateRow)
-				.SelectionMode(bIsOverlay ? ESelectionMode::None : ESelectionMode::Multi)
-				.IsFocusable(!bIsOverlay)
-				.ListViewStyle(&ListStyle)
-				.HeaderRow(HeaderRow)
+																		   .ListItemsSource(&SourceData)
+																		   .OnGenerateRow(
+																			   this, &SInputFlowLogView::GenerateRow)
+				//.SelectionMode(bIsOverlay ? ESelectionMode::None : ESelectionMode::Multi)
+																		   .IsFocusable(false)
+																		   .ListViewStyle(&ListStyle)
+																		   .HeaderRow(HeaderRow)
 			]
 		]
 	];
@@ -357,7 +374,7 @@ void SInputFlowLogView::ClearLog()
 	{
 		DebugSubsystem = InputFlowHelpers::GetActiveDebugSubsystem();
 	}
-	
+
 	if (DebugSubsystem.IsValid()) DebugSubsystem->ClearLogHistory();
 	SourceData.Empty();
 	ListView->RequestListRefresh();
@@ -389,12 +406,12 @@ bool SInputFlowLogView::IsItemVisible(const TSharedPtr<FInputEventLog>& Item) co
 	}
 
 	// Check Column Exclusion Filters
-	if (ExcludedColumnValues.Contains(InputFlowLogColumns::Type) && 
+	if (ExcludedColumnValues.Contains(InputFlowLogColumns::Type) &&
 		ExcludedColumnValues[InputFlowLogColumns::Type].Contains(Item->EventType))
 	{
 		return false;
 	}
-	if (ExcludedColumnValues.Contains(InputFlowLogColumns::Widget) && 
+	if (ExcludedColumnValues.Contains(InputFlowLogColumns::Widget) &&
 		ExcludedColumnValues[InputFlowLogColumns::Widget].Contains(Item->WidgetName))
 	{
 		return false;
@@ -403,7 +420,7 @@ bool SInputFlowLogView::IsItemVisible(const TSharedPtr<FInputEventLog>& Item) co
 	// Check Text Filter
 	if (!LogFilterText.IsEmpty())
 	{
-		if (!Item->EventType.Contains(LogFilterText) && 
+		if (!Item->EventType.Contains(LogFilterText) &&
 			!Item->WidgetName.Contains(LogFilterText) &&
 			!Item->InputDetails.Contains(LogFilterText) &&
 			!Item->WidgetState.Contains(LogFilterText))
@@ -437,7 +454,7 @@ bool SInputFlowLogView::IsEventTypeVisible(FString EventType) const
 void SInputFlowLogView::UpdateLogView()
 {
 	constexpr int32 OverlayMaxEntries = 64;
-	
+
 	if (!DebugSubsystem.IsValid())
 	{
 		DebugSubsystem = InputFlowHelpers::GetActiveDebugSubsystem();
@@ -447,10 +464,10 @@ void SInputFlowLogView::UpdateLogView()
 	if (bLogPaused) return;
 
 	const uint32 CurrentVersion = DebugSubsystem->GetLogVersion();
-	
+
 	// If version changed or we have pending filter change (reset version to 0)
 	if (CurrentVersion == LastObservedVersion && LastObservedVersion != 0) return;
-	
+
 	LastObservedVersion = CurrentVersion;
 
 	const TArray<TSharedPtr<FInputEventLog>>& Buffer = DebugSubsystem->GetLogHistory();
@@ -473,7 +490,7 @@ void SInputFlowLogView::UpdateLogView()
 	{
 		int32 CurrIdx = (Start + i) % Buffer.Num();
 		if (!Buffer.IsValidIndex(CurrIdx)) continue;
-		
+
 		const TSharedPtr<FInputEventLog>& Log = Buffer[CurrIdx];
 		if (!KnownEventTypes.Contains(Log->EventType))
 		{
@@ -489,10 +506,11 @@ void SInputFlowLogView::UpdateLogView()
 	if (!bLogPaused) ListView->ScrollToBottom();
 }
 
-TSharedRef<ITableRow> SInputFlowLogView::GenerateRow(TSharedPtr<FInputEventLog> Item, const TSharedRef<STableViewBase>& OwnerTable)
+TSharedRef<ITableRow> SInputFlowLogView::GenerateRow(TSharedPtr<FInputEventLog> Item,
+													 const TSharedRef<STableViewBase>& OwnerTable)
 {
 	bool bIsSameFrame = false;
-	
+
 	int32 Idx = SourceData.Find(Item);
 	if (Idx > 0)
 	{
@@ -514,7 +532,7 @@ TSharedRef<SWidget> SInputFlowLogView::MakeFilterMenu()
 	FMenuBuilder MenuBuilder(true, nullptr);
 
 	MenuBuilder.BeginSection("EventTypes", FText::FromString("Event Types"));
-	
+
 	// Sort types alphabetically for the menu
 	TArray<FString> SortedTypes = KnownEventTypes.Array();
 	SortedTypes.Sort();
@@ -552,7 +570,8 @@ TSharedRef<SWidget> SInputFlowLogView::MakeFilterMenu()
 		FText::FromString("Show All"),
 		FText::GetEmpty(),
 		FSlateIcon(),
-		FUIAction(FExecuteAction::CreateLambda([this]() {
+		FUIAction(FExecuteAction::CreateLambda([this]()
+		{
 			HiddenEventTypes.Empty();
 			LastObservedVersion = 0;
 			ListView->RequestListRefresh();
@@ -631,21 +650,21 @@ TSharedPtr<SWidget> SInputFlowLogView::MakeRowContextMenu(TSharedPtr<FInputEvent
 					AddExclusionFilter(InputFlowLogColumns::Widget, Name);
 				}))
 			);
-			
+
 			MenuBuilder.AddMenuEntry(
-			FText::FromString(FString::Printf(TEXT("Filter to Widget '%s'"), *Item->WidgetName)),
-			FText::GetEmpty(),
-			FSlateIcon(FAppStyle::GetAppStyleSetName(), "Icons.Filter"),
-			FUIAction(FExecuteAction::CreateLambda([this, Name = Item->WidgetName]()
-			{
-				SetSearchFilter(Name);
-			}))
-		);
+				FText::FromString(FString::Printf(TEXT("Filter to Widget '%s'"), *Item->WidgetName)),
+				FText::GetEmpty(),
+				FSlateIcon(FAppStyle::GetAppStyleSetName(), "Icons.Filter"),
+				FUIAction(FExecuteAction::CreateLambda([this, Name = Item->WidgetName]()
+				{
+					SetSearchFilter(Name);
+				}))
+			);
 		}
 	}
 	MenuBuilder.EndSection();
 
-	 MenuBuilder.BeginSection("Copy", FText::FromString("Copy"));
+	MenuBuilder.BeginSection("Copy", FText::FromString("Copy"));
 	{
 		MenuBuilder.AddMenuEntry(
 			FText::FromString("Copy Selected Rows"),
@@ -655,12 +674,13 @@ TSharedPtr<SWidget> SInputFlowLogView::MakeRowContextMenu(TSharedPtr<FInputEvent
 			{
 				// Get all selected items from the ListView
 				TArray<TSharedPtr<FInputEventLog>> SelectedItems = ListView->GetSelectedItems();
-				
+
 				if (SelectedItems.Num() == 0) return;
 
 				// Sort them by time
-				SelectedItems.Sort([](const TSharedPtr<FInputEventLog>& A, const TSharedPtr<FInputEventLog>& B) {
-					 return A->TimeSeconds < B->TimeSeconds;
+				SelectedItems.Sort([](const TSharedPtr<FInputEventLog>& A, const TSharedPtr<FInputEventLog>& B)
+				{
+					return A->TimeSeconds < B->TimeSeconds;
 				});
 
 				// Build string
@@ -669,12 +689,12 @@ TSharedPtr<SWidget> SInputFlowLogView::MakeRowContextMenu(TSharedPtr<FInputEvent
 				{
 					if (!Log.IsValid()) continue;
 
-					OutputBuilder.Appendf(TEXT("[%s] %s | %s | %s | %s\n"), 
-						*Log->CaptureTime.ToString(TEXT("%H:%M:%S.%s")), 
-						*Log->EventType, 
-						*Log->WidgetName, 
-						*Log->WidgetState, 
-						*Log->InputDetails
+					OutputBuilder.Appendf(TEXT("[%s] %s | %s | %s | %s\n"),
+										  *Log->CaptureTime.ToString(TEXT("%H:%M:%S.%s")),
+										  *Log->EventType,
+										  *Log->WidgetName,
+										  *Log->WidgetState,
+										  *Log->InputDetails
 					);
 				}
 

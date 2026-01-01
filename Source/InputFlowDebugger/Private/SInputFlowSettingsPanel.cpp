@@ -54,6 +54,7 @@ void SInputFlowSettingsPanel::Construct(const FArguments& InArgs, UInputDebugSub
 	
 	// Enable Tick so we can keep the Subsystem pointer fresh across PIE restarts
 	SetCanTick(true);
+	bCanSupportFocus = false;
 
 	TAttribute<bool> VizEnabledAttr = TAttribute<bool>::Create([this]()
 	{
@@ -67,6 +68,7 @@ void SInputFlowSettingsPanel::Construct(const FArguments& InArgs, UInputDebugSub
 	[
 		SNew(SComboButton)
 		.ComboButtonStyle(FAppStyle::Get(), "SimpleComboButton")
+		.IsFocusable(false)
 		.OnGetMenuContent(this, &SInputFlowSettingsPanel::MakeFilterMenu)
 		.Cursor(EMouseCursor::Default)
 		.ButtonContent()
@@ -85,6 +87,7 @@ void SInputFlowSettingsPanel::Construct(const FArguments& InArgs, UInputDebugSub
 		SNew(SComboButton)
 		.ComboButtonStyle(FAppStyle::Get(), "SimpleComboButton")
 		.IsEnabled(VizEnabledAttr)
+		.IsFocusable(false)
 		.OnGetMenuContent(this, &SInputFlowSettingsPanel::MakePanelMenu)
 		.Cursor(EMouseCursor::Default)
 		.ButtonContent()
@@ -105,6 +108,7 @@ void SInputFlowSettingsPanel::Construct(const FArguments& InArgs, UInputDebugSub
 		SNew(SComboButton)
 		.ComboButtonStyle(FAppStyle::Get(), "SimpleComboButton")
 		.IsEnabled(VizEnabledAttr)
+		.IsFocusable(false)
 		.OnGetMenuContent(this, &SInputFlowSettingsPanel::MakeNavMenu)
 		.Cursor(EMouseCursor::Default)
 		.ButtonContent()
@@ -125,6 +129,7 @@ void SInputFlowSettingsPanel::Construct(const FArguments& InArgs, UInputDebugSub
 		SNew(SCheckBox)
 		.Style(FAppStyle::Get(), "ToggleButtonCheckbox")
 		.IsEnabled(VizEnabledAttr)
+		.IsFocusable(false)
 		.IsChecked_Lambda([this](){ return UInputFlowSettings::Get()->IsFocusHighlightEnabled() ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; })
 		.OnCheckStateChanged_Lambda([this](ECheckBoxState){ 
 			UInputFlowSettings* S = GetMutableDefault<UInputFlowSettings>();
@@ -146,7 +151,7 @@ void SInputFlowSettingsPanel::Construct(const FArguments& InArgs, UInputDebugSub
 	[
 		SNew(SCheckBox)
 		.Style(FAppStyle::Get(), "ToggleButtonCheckbox")
-		.IsEnabled(VizEnabledAttr)
+		.IsEnabled(VizEnabledAttr)		.IsFocusable(false)
 		.IsChecked_Lambda([this](){ return UInputFlowSettings::Get()->IsHitTestGridShown() ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; })
 		.OnCheckStateChanged_Lambda([this](ECheckBoxState){ OnToggleHitTestGrid(); })
 		.Cursor(EMouseCursor::Default)
@@ -196,13 +201,7 @@ void SInputFlowSettingsPanel::Tick(const FGeometry& AllottedGeometry, const doub
 {
 	// Ensure we always have a valid subsystem pointer.
 	// This is critical for the Editor Tab which persists while PIE sessions (and their subsystems) die and respawn.
-	const bool bWasValid = WeakSubsystem.IsValid();
-
-	const UInputFlowSettings* Settings = UInputFlowSettings::Get();
-
-	// Ensure we always have a valid subsystem pointer.
-	// This is critical for the Editor Tab which persists while PIE sessions (and their subsystems) die and respawn.
-	if (!bWasValid)
+	if (!WeakSubsystem.IsValid())
 	{
 		WeakSubsystem = InputFlowHelpers::GetActiveDebugSubsystem();
 	}

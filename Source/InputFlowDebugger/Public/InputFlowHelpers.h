@@ -37,7 +37,7 @@ public:
 	// e.g. "ConfirmButton (from PopupDialog)"
 	static FString GetWidgetDisplayName(const TSharedPtr<SWidget>& Widget);
 	
-	
+	static FString GetSimpleDirectionName(EUINavigation Direction);
 
 	static TSharedPtr<SWidget> FindInteractiveDescendant(TSharedPtr<SWidget> Root);
 	static bool IsDescendantOf(TSharedPtr<SWidget> Child, TSharedPtr<SWidget> PotentialParent);
