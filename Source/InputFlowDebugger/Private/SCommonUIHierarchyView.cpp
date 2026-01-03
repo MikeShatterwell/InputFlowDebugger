@@ -105,66 +105,86 @@ public:
 			if (!InItem->InputConfig.IsEmpty()) Parts.Add(InItem->InputConfig);
 			if (!InItem->DesiredFocusTarget.IsEmpty() && InItem->DesiredFocusTarget != TEXT("None"))
 			{
-				Parts.Add(FString::Printf(TEXT("Target: %s"), *InItem->DesiredFocusTarget));
+				Parts.Add(FString::Printf(TEXT("Desired Focus Target: %s"), *InItem->DesiredFocusTarget));
 			}
 			return FText::FromString(FString::Join(Parts, TEXT(" | ")));
 		};
-
+		
+		auto GetRowColor = [this]() -> FLinearColor
+		{
+			return (Item.IsValid() && Item->bIsActive) ? FLinearColor::White : FLinearColor(1.0f, 1.0f, 1.0f, 0.5f);
+		};
+		
 		this->ChildSlot
 		[
 			SNew(SBox).Padding(FMargin(0, 2))
 			[
-				SNew(SHorizontalBox)
-				.RenderOpacity(InItem->bIsActive ? 1.0f : 0.4f)
-				
-				+ SHorizontalBox::Slot().AutoWidth()
+				SNew(SBorder)
+				.Padding(0)
+				.BorderImage(FAppStyle::GetBrush("NoBrush"))
+				.ColorAndOpacity_Lambda(GetRowColor)
 				[
-					SNew(SExpanderArrow, SharedThis(this)).IndentAmount(12)
-				]
-				
-				+ SHorizontalBox::Slot().FillWidth(1.0f)
-				[
-					SNew(SVerticalBox)
-					+ SVerticalBox::Slot().AutoHeight()
+					SNew(SHorizontalBox)
+					+ SHorizontalBox::Slot().AutoWidth()
 					[
-						SNew(SHorizontalBox)
-						// Badge: Container
-						+ SHorizontalBox::Slot().AutoWidth().Padding(0, 0, 4, 0).VAlign(VAlign_Center)
-						[
-							CreateBadge(TEXT("STACK"), FLinearColor(0.2f, 0.6f, 1.0f), 
-								TAttribute<EVisibility>::CreateLambda([InItem]{ return InItem->bIsContainer ? EVisibility::Visible : EVisibility::Collapsed; }))
-						]
-						// Badge: Slate Focus
-						+ SHorizontalBox::Slot().AutoWidth().Padding(0, 0, 4, 0).VAlign(VAlign_Center)
-						[
-							CreateBadge(TEXT("FOCUS"), FLinearColor(0.0f, 1.0f, 0.4f), 
-								TAttribute<EVisibility>::CreateLambda([InItem]{ return InItem->bIsFocused ? EVisibility::Visible : EVisibility::Collapsed; }))
-						]
-						// Badge: Leaf
-						+ SHorizontalBox::Slot().AutoWidth().Padding(0, 0, 4, 0).VAlign(VAlign_Center)
-						[
-							CreateBadge(TEXT("INPUT LEAF"), FLinearColor(1.0f, 0.4f, 0.8f), 
-								TAttribute<EVisibility>::CreateLambda([InItem]{ return InItem->bIsLeaf ? EVisibility::Visible : EVisibility::Collapsed; }))
-						]
-						// Badge: Route (Only shown for ancestors, not the Focus/Leaf itself)
-						+ SHorizontalBox::Slot().AutoWidth().Padding(0, 0, 4, 0).VAlign(VAlign_Center)
-						[
-							CreateBadge(TEXT("ROUTE"), FLinearColor(0.8f, 0.8f, 0.8f), 
-								TAttribute<EVisibility>::CreateLambda([InItem]{ return (InItem->bIsInActivePath && !InItem->bIsFocused && !InItem->bIsLeaf) ? EVisibility::Visible : EVisibility::Collapsed; }))
-						]
-
-						+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
-						[
-							NameWidget
-						]
+						SNew(SExpanderArrow, SharedThis(this)).IndentAmount(12)
 					]
-					+ SVerticalBox::Slot().AutoHeight()
+					
+					+ SHorizontalBox::Slot().FillWidth(1.0f)
 					[
-						SNew(STextBlock)
-						.Text_Lambda(GetSubText)
-						.ColorAndOpacity(FLinearColor(0.5f, 0.5f, 0.5f))
-						.Font(FCoreStyle::GetDefaultFontStyle("Italic", 8))
-						.Visibility_Lambda([GetSubText](){ return GetSubText().IsEmpty() ? EVisibility::Collapsed : EVisibility::Visible; })
+						SNew(SVerticalBox)
+						+ SVerticalBox::Slot().AutoHeight()
+						[
+							SNew(SHorizontalBox)
+							// Badge: Container
+							+ SHorizontalBox::Slot().AutoWidth().Padding(0, 0, 4, 0).VAlign(VAlign_Center)
+							[
+								CreateBadge(TEXT("STACK"), FLinearColor(0.2f, 0.6f, 1.0f), 
+									TAttribute<EVisibility>::CreateLambda([InItem]{ return InItem->bIsContainer ? EVisibility::SelfHitTestInvisible : EVisibility::Collapsed; }))
+							]
+							// Badge: Slate Focus
+							+ SHorizontalBox::Slot().AutoWidth().Padding(0, 0, 4, 0).VAlign(VAlign_Center)
+							[
+								CreateBadge(TEXT("FOCUS"), FLinearColor(0.0f, 1.0f, 0.4f), 
+									TAttribute<EVisibility>::CreateLambda([InItem]{ return InItem->bIsFocused ? EVisibility::SelfHitTestInvisible : EVisibility::Collapsed; }))
+							]
+							// Badge: Active Leaf
+							+ SHorizontalBox::Slot().AutoWidth().Padding(0, 0, 4, 0).VAlign(VAlign_Center)
+							[
+								CreateBadge(TEXT("INPUT TARGET"), FLinearColor(0.0f, 1.0f, 0.8f), 
+									TAttribute<EVisibility>::CreateLambda([InItem]{ return InItem->bIsLeaf ? EVisibility::SelfHitTestInvisible : EVisibility::Collapsed; }))
+							]
+							// Badge: Route (Only shown for ancestors, not the Focus/Leaf itself)
+							+ SHorizontalBox::Slot().AutoWidth().Padding(0, 0, 4, 0).VAlign(VAlign_Center)
+							[
+								CreateBadge(TEXT("ROUTE"), FLinearColor(0.8f, 0.8f, 0.8f), 
+									TAttribute<EVisibility>::CreateLambda([InItem]{ return (InItem->bIsInActivePath && !InItem->bIsFocused && !InItem->bIsLeaf) ? EVisibility::SelfHitTestInvisible : EVisibility::Collapsed; }))
+							]
+							// Badge: Deactivated
+							+ SHorizontalBox::Slot().AutoWidth().Padding(0, 0, 4, 0).VAlign(VAlign_Center)
+							[
+								CreateBadge(TEXT("DEACTIVATED"), FLinearColor(0.15f, 0.15f, 0.15f), 
+									TAttribute<EVisibility>::CreateLambda([InItem]{ return !InItem->bIsActive ? EVisibility::SelfHitTestInvisible : EVisibility::Collapsed; }))
+							]
+							// Badge: Active
+							/*+ SHorizontalBox::Slot().AutoWidth().Padding(0, 0, 4, 0).VAlign(VAlign_Center)
+							[
+								CreateBadge(TEXT("ACTIVE"), FLinearColor(0.4f, 0.8f, 0.5f), 
+									TAttribute<EVisibility>::CreateLambda([InItem]{ return InItem->bIsActive ? EVisibility::SelfHitTestInvisible : EVisibility::Collapsed; }))
+							]*/
+							+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+							[
+								NameWidget
+							]
+						]
+						+ SVerticalBox::Slot().AutoHeight()
+						[
+							SNew(STextBlock)
+							.Text_Lambda(GetSubText)
+							.ColorAndOpacity(FLinearColor(0.5f, 0.5f, 0.5f))
+							.Font(FCoreStyle::GetDefaultFontStyle("Italic", 8))
+							.Visibility_Lambda([GetSubText](){ return GetSubText().IsEmpty() ? EVisibility::Collapsed : EVisibility::Visible; })
+						]
 					]
 				]
 			]
@@ -292,20 +312,75 @@ void SCommonUIHierarchyView::UpdateTree()
 	if (!DebugSubsystem.IsValid()) return;
 	UGameInstance* GI = DebugSubsystem->GetGameInstance();
 	ULocalPlayer* LP = GI ? GI->GetFirstGamePlayer() : nullptr;
-	if (!LP) return;
+	if (!IsValid(LP)) return;
 
 	TSet<TSharedPtr<FCommonUITreeItem>> ActiveItems;
 	TMap<UWidget*, TSharedPtr<FCommonUITreeItem>> WorkingMap;
+	TMap<UWidget*, UWidget*> LogicalParentMap;
 
 	// Gather Nodes
 	TArray<UWidget*> FoundWidgets;
+	TArray<UCommonActivatableWidgetContainerBase*> FoundContainers;
 	for (TObjectIterator<UWidget> It; It; ++It)
 	{
-		const bool bIsActivatable = It->IsA<UCommonActivatableWidget>();
-		const bool bIsContainer = It->IsA<UCommonActivatableWidgetContainerBase>();
-		if ((bIsActivatable || bIsContainer) && It->GetWorld() == DebugSubsystem->GetWorld())
+		// Filter out widgets from other worlds (e.g. PIE vs Editor)
+		if (It->GetWorld() != DebugSubsystem->GetWorld()) continue;
+
+		if (UCommonActivatableWidget* AW = Cast<UCommonActivatableWidget>(*It))
 		{
-			FoundWidgets.Add(*It);
+			FoundWidgets.Add(AW);
+		}
+
+		if (UCommonActivatableWidgetContainerBase* Container = Cast<UCommonActivatableWidgetContainerBase>(*It))
+		{
+			FoundContainers.Add(Container);
+			FoundWidgets.Add(Container);
+		}
+	}
+
+	for (UCommonActivatableWidgetContainerBase* Container : FoundContainers)
+	{
+		for (UCommonActivatableWidget* Child : Container->GetWidgetList())
+		{
+			if (IsValid(Child)) LogicalParentMap.Add(Child, Container);
+		}
+	}
+
+	// Peek inside the protected GeneratedWidgetsPool via reflection to find pooled widgets
+	// These widgets are not in the active Slate hierarchy or Container's active list
+	static FStructProperty* PoolProp = FindFProperty<FStructProperty>(UCommonActivatableWidgetContainerBase::StaticClass(), TEXT("GeneratedWidgetsPool"));
+	if (PoolProp)
+	{
+		for (UCommonActivatableWidgetContainerBase* Container : FoundContainers)
+		{
+			// Pointer to the FUserWidgetPool struct instance on this container
+			FUserWidgetPool* PoolAddr = PoolProp->ContainerPtrToValuePtr<FUserWidgetPool>(Container);
+
+			// Iterate all arrays inside the FUserWidgetPool struct (ActiveWidgets, InactiveWidgets, etc.)
+			for (TFieldIterator<FArrayProperty> ArrayIt(PoolProp->Struct); ArrayIt; ++ArrayIt)
+			{
+				FArrayProperty* ArrayProp = *ArrayIt;
+				
+				// We look for TArray<UUserWidget*> or TArray<TObjectPtr<UUserWidget>>
+				// The Inner property of the array must be an ObjectProperty
+				if (FObjectProperty* InnerObjProp = CastField<FObjectProperty>(ArrayProp->Inner))
+				{
+					FScriptArrayHelper ArrayHelper(ArrayProp, ArrayProp->ContainerPtrToValuePtr<void>(PoolAddr));
+					for (int32 i = 0; i < ArrayHelper.Num(); ++i)
+					{
+						// Extract the widget pointer
+						UObject* Obj = InnerObjProp->GetObjectPropertyValue(ArrayHelper.GetRawPtr(i));
+						if (UWidget* PooledWidget = Cast<UWidget>(Obj))
+						{
+							// Map it to the container if we haven't already
+							if (!LogicalParentMap.Contains(PooledWidget))
+							{
+								LogicalParentMap.Add(PooledWidget, Container);
+							}
+						}
+					}
+				}
+			}
 		}
 	}
 
@@ -323,7 +398,7 @@ void SCommonUIHierarchyView::UpdateTree()
 
 		Item->Name = Widget->GetName();
 		Item->bIsContainer = Widget->IsA<UCommonActivatableWidgetContainerBase>();
-		Item->bIsFocused = Widget->HasKeyboardFocus() || Widget->HasUserFocus(LP->GetPlayerController(LP->GetWorld()));
+		Item->bIsFocused = Widget->HasAnyUserFocus();
 		Item->bIsLeaf = false;
 		Item->bIsInActivePath = false;
 		Item->Children.Empty();
@@ -365,19 +440,31 @@ void SCommonUIHierarchyView::UpdateTree()
 			Item->bIsLeaf = true;
 		}
 
-		// Find parent via Slate tree
+		// Priority 1: Check Explicit Logical Parent (Active in Stack/Queue)
 		UWidget* FoundParent = nullptr;
-		TSharedPtr<SWidget> Walker = Widget->GetCachedWidget();
-		while (Walker.IsValid())
+		if (UWidget** LogParent = LogicalParentMap.Find(Widget))
 		{
-			Walker = Walker->GetParentWidget();
-			if (!Walker.IsValid()) break;
-
-			UWidget* Owner = InputFlowHelpers::GetOwnerUWidget(Walker);
-			if (Owner && Owner != Widget && WorkingMap.Contains(Owner))
+			if (WorkingMap.Contains(*LogParent))
 			{
-				FoundParent = Owner;
-				break;
+				FoundParent = *LogParent;
+			}
+		}
+
+		// Priority 2: Find parent via Slate tree (Visual Hierarchy)
+		if (!IsValid(FoundParent))
+		{
+			TSharedPtr<SWidget> Walker = Widget->GetCachedWidget();
+			while (Walker.IsValid())
+			{
+				Walker = Walker->GetParentWidget();
+				if (!Walker.IsValid()) break;
+
+				UWidget* Owner = InputFlowHelpers::GetOwnerUWidget(Walker);
+				if (Owner && Owner != Widget && WorkingMap.Contains(Owner))
+				{
+					FoundParent = Owner;
+					break;
+				}
 			}
 		}
 
@@ -405,17 +492,24 @@ void SCommonUIHierarchyView::UpdateTree()
 					PathItem->bIsInActivePath = true;
 				}
 
-				// Find next parent in our map
 				UWidget* NextParent = nullptr;
-				TSharedPtr<SWidget> SWalker = PathWalker->GetCachedWidget();
-				if (SWalker.IsValid())
+				if (UWidget** LogParent = LogicalParentMap.Find(PathWalker))
 				{
-					SWalker = SWalker->GetParentWidget();
-					while (SWalker.IsValid())
+					if (WorkingMap.Contains(*LogParent)) NextParent = *LogParent;
+				}
+				
+				if (!IsValid(NextParent))
+				{
+					TSharedPtr<SWidget> SWalker = PathWalker->GetCachedWidget();
+					if (SWalker.IsValid())
 					{
-						UWidget* Owner = InputFlowHelpers::GetOwnerUWidget(SWalker);
-						if (Owner && WorkingMap.Contains(Owner)) { NextParent = Owner; break; }
 						SWalker = SWalker->GetParentWidget();
+						while (SWalker.IsValid())
+						{
+							UWidget* Owner = InputFlowHelpers::GetOwnerUWidget(SWalker);
+							if (IsValid(Owner) && WorkingMap.Contains(Owner)) { NextParent = Owner; break; }
+							SWalker = SWalker->GetParentWidget();
+						}
 					}
 				}
 				PathWalker = NextParent;
@@ -424,13 +518,65 @@ void SCommonUIHierarchyView::UpdateTree()
 	}
 
 	// Final Sort and Refresh
-	auto SortFunc = [](const TSharedPtr<FCommonUITreeItem>& A, const TSharedPtr<FCommonUITreeItem>& B)
+	// We use the Slate hierarchy to determine the sort order of siblings
+	auto GetSlatePath = [](TSharedPtr<SWidget> Widget)
 	{
-		return A->Name < B->Name;
+		TArray<TSharedPtr<SWidget>> Path;
+		while (Widget.IsValid())
+		{
+			Path.Add(Widget);
+			Widget = Widget->GetParentWidget();
+		}
+		// Reverse to get Root -> Leaf
+		for (int32 i = 0; i < Path.Num() / 2; ++i)
+		{
+			Path.Swap(i, Path.Num() - 1 - i);
+		}
+		return Path;
 	};
 
-	NewRoots.Sort(SortFunc);
-	for (auto& Pair : WorkingMap) Pair.Value->Children.Sort(SortFunc);
+	auto HierarchySort = [&](const TSharedPtr<FCommonUITreeItem>& A, const TSharedPtr<FCommonUITreeItem>& B)
+	{
+		if (A == B) return false;
+		if (!A.IsValid() || !B.IsValid()) return false;
+		if (!A->Widget.IsValid() || !B->Widget.IsValid()) return A->Name < B->Name;
+
+		// Always put Active widgets before Inactive/Pooled widgets
+		if (A->bIsActive != B->bIsActive) return A->bIsActive > B->bIsActive;
+
+		TSharedPtr<SWidget> SA = A->Widget->GetCachedWidget();
+		TSharedPtr<SWidget> SB = B->Widget->GetCachedWidget();
+
+		if (!SA.IsValid() || !SB.IsValid()) return SA.IsValid(); 
+
+		const TArray<TSharedPtr<SWidget>> PathA = GetSlatePath(SA);
+		const TArray<TSharedPtr<SWidget>> PathB = GetSlatePath(SB);
+		const int32 Count = FMath::Min(PathA.Num(), PathB.Num());
+		
+		for (int32 i = 0; i < Count; ++i)
+		{
+			if (PathA[i] != PathB[i])
+			{
+				if (i > 0)
+				{
+					TSharedPtr<SWidget> CommonParent = PathA[i - 1];
+					FChildren* Children = CommonParent->GetChildren();
+					int32 IndexA = -1, IndexB = -1;
+					for (int32 c = 0; c < Children->Num(); ++c)
+					{
+						if (Children->GetChildAt(c) == PathA[i].ToSharedRef()) IndexA = c;
+						if (Children->GetChildAt(c) == PathB[i].ToSharedRef()) IndexB = c;
+					}
+					if (IndexA != IndexB) return IndexA < IndexB;
+				}
+				return A->Name < B->Name;
+			}
+		}
+		return PathA.Num() < PathB.Num();
+	};
+
+	NewRoots.Sort(HierarchySort);
+	for (auto& Pair : WorkingMap) Pair.Value->Children.Sort(HierarchySort);
 
 	Roots = NewRoots;
 	TreeView->RequestTreeRefresh();

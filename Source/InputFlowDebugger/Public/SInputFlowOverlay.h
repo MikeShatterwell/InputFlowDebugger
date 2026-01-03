@@ -74,7 +74,7 @@ private:
 	void DrawWidgetHighlight(const TSharedPtr<SWidget>& Widget, const FLinearColor& Color, const FString& Label, const FGeometry& OverlayGeometry, FSlateWindowElementList& OutDrawElements, int32& LayerId, float Thickness = 2.f) const;
 	
 	/** Draws a smooth Bezier curve connecting two widgets. */
-	void DrawConnectionSpline(const FGeometry& AllottedGeometry, TSharedPtr<SWidget> Start, TSharedPtr<SWidget> End, EUINavigation Direction, FLinearColor Color, FSlateWindowElementList& OutDrawElements, int32& LayerId) const;
+	void DrawConnectionSpline(const FGeometry& AllottedGeometry, TSharedPtr<SWidget> Start, TSharedPtr<SWidget> End, const FString& Label, EUINavigation Direction, FLinearColor Color, FSlateWindowElementList& OutDrawElements, int32& LayerId) const;
 	
 	/** Draws a short directional indicator (stub) for blocked or void navigation. */
 	void DrawDirectionalIndicator(const FGeometry& AllottedGeometry, const FGeometry& StartGeo, EUINavigation Direction, const FString& Label, const FLinearColor& Color, FSlateWindowElementList& OutDrawElements, int32& LayerId) const;

@@ -55,6 +55,10 @@ private:
 	void UpdateLogView();
 	TSharedRef<ITableRow> GenerateRow(TSharedPtr<FInputEventLog> Item, const TSharedRef<STableViewBase>& OwnerTable);
 	TSharedRef<SWidget> MakeFilterMenu();
+
+	TSharedRef<SWidget> MakeCaptureMenu();
+	void OnToggleCapture(FName PropertyName);
+	bool IsCaptureChecked(FName PropertyName) const;
 	
 	void OnSearchTextChanged(const FText& InText);
 	void OnTogglePause(ECheckBoxState State);

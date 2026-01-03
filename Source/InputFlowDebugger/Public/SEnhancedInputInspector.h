@@ -21,14 +21,28 @@ struct FEnhancedInputInfoItem
 	FString ValueStr;
 	FString TriggerState;
 	FString ModifiersStr;
+	FString ModifierChainStr;
+	FString TriggersStr;
+	FString OwnerStr;
+	
 	FColor StateColor;
 	bool bIsInputMappingContext = false; 
 	int32 Priority = 0;
 	TArray<TSharedPtr<FEnhancedInputInfoItem>> Children;
+	
+	// Decay properties (inputs can be noisy so we keep them visible for a short time)
+	float CurrentDecayTime = 0.0f; 
+	float MaxDecayTime = 3.0f;
 
 	bool operator==(const FEnhancedInputInfoItem& Other) const
 	{
-		return Name == Other.Name && ValueStr == Other.ValueStr && TriggerState == Other.TriggerState && ModifiersStr == Other.ModifiersStr;
+		return Name == Other.Name &&
+			ValueStr == Other.ValueStr && 
+			TriggerState == Other.TriggerState && 
+			ModifiersStr == Other.ModifiersStr &&
+			ModifierChainStr == Other.ModifierChainStr &&
+			TriggersStr == Other.TriggersStr &&
+			OwnerStr == Other.OwnerStr;
 	}
 };
 
@@ -43,7 +57,7 @@ public:
 	virtual void Tick(const FGeometry& AllottedGeometry, const double InCurrentTime, const float InDeltaTime) override;
 
 private:
-	void UpdateData();
+	void UpdateData(float DeltaTime);
 	TSharedRef<ITableRow> GenerateRow(TSharedPtr<FEnhancedInputInfoItem> Item, const TSharedRef<STableViewBase>& OwnerTable);
 	void OnGetChildren(TSharedPtr<FEnhancedInputInfoItem> Item, TArray<TSharedPtr<FEnhancedInputInfoItem>>& OutChildren);
 

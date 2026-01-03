@@ -211,11 +211,12 @@ FString InputFlowHelpers::GetWidgetDisplayName(const TSharedPtr<SWidget>& Widget
 	{
 		DisplayName += FString::Printf(TEXT("\n(from %s)"), *ActivatableParent->GetName());
 	}
-#endif // WITH_PLUGIN_COMMONUI
+#else // WITH_PLUGIN_COMMONUI
 	if (IsValid(ImmediateUserParent))
 	{
 		DisplayName += FString::Printf(TEXT("\n(from %s)"), *ImmediateUserParent->GetName());
 	}
+#endif // WITH_PLUGIN_COMMONUI
 
 	return DisplayName;
 }

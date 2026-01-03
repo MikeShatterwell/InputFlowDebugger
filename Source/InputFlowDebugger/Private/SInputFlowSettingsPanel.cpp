@@ -63,24 +63,6 @@ void SInputFlowSettingsPanel::Construct(const FArguments& InArgs, UInputDebugSub
 
 	const TSharedRef<SHorizontalBox> Toolbar = SNew(SHorizontalBox);
 
-	// Capture Filters (Combo Button)
-	Toolbar->AddSlot().AutoWidth().Padding(2, 0)
-	[
-		SNew(SComboButton)
-		.ComboButtonStyle(FAppStyle::Get(), "SimpleComboButton")
-		.IsFocusable(false)
-		.OnGetMenuContent(this, &SInputFlowSettingsPanel::MakeFilterMenu)
-		.Cursor(EMouseCursor::Default)
-		.ButtonContent()
-		[
-			SNew(SHorizontalBox)
-			+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0, 0, 4, 0)
-			[ SNew(SImage).Image(FAppStyle::Get().GetBrush("Icons.Filter")) ]
-			+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
-			[ SNew(STextBlock).Text(INVTEXT("Capture Filters")) ]
-		]
-	];
-
 	// Panel Visibility (Combo Button)
 	Toolbar->AddSlot().AutoWidth().Padding(2, 0)
 	[
@@ -161,7 +143,7 @@ void SInputFlowSettingsPanel::Construct(const FArguments& InArgs, UInputDebugSub
 			+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(4, 2)
 			[ SNew(SImage).Image(FAppStyle::Get().GetBrush("Icons.Visible")) ]
 			+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(4, 2)
-			[ SNew(STextBlock).Text(INVTEXT("Hit Test")) ]
+			[ SNew(STextBlock).Text(INVTEXT("Hit Test X-Ray")) ]
 		]
 	];
 
@@ -244,7 +226,25 @@ TSharedRef<SWidget> SInputFlowSettingsPanel::MakeNavMenu()
 				GetMutableDefault<UInputFlowSettings>()->SetNavigationSearchDepth(NewVal);
 			})
 		];
-	
+
+	MenuBuilder.AddMenuEntry(
+		INVTEXT("Show Labels"),
+		INVTEXT("Show text labels on navigation simulation"),
+		FSlateIcon(),
+		FUIAction(
+			FExecuteAction::CreateLambda([this]() {
+				UInputFlowSettings* S = GetMutableDefault<UInputFlowSettings>();
+				S->SetShowNavLabels(!S->IsNavLabelsEnabled());
+			}),
+			FCanExecuteAction(),
+			FIsActionChecked::CreateLambda([this]() {
+				return UInputFlowSettings::Get()->IsNavLabelsEnabled();
+			})
+		),
+		NAME_None,
+		EUserInterfaceActionType::ToggleButton
+	);
+
 	if (bIsOverlay && DepthSpinBox.IsValid()) DepthSpinBox->SetCanSupportFocus(false);
 	MenuBuilder.AddWidget(DepthWidget, FText::GetEmpty());
 	return MenuBuilder.MakeWidget();
@@ -280,73 +280,6 @@ TSharedRef<SWidget> SInputFlowSettingsPanel::MakePanelMenu()
 #endif
 
 	return MenuBuilder.MakeWidget();
-}
-
-TSharedRef<SWidget> SInputFlowSettingsPanel::MakeFilterMenu()
-{
-	FMenuBuilder MenuBuilder(true, nullptr);
-
-	auto AddFilterEntry = [&](const FText& Label, FName PropertyName, const FText& Tooltip)
-	{
-		MenuBuilder.AddMenuEntry(
-			Label,
-			Tooltip,
-			FSlateIcon(),
-			FUIAction(
-				FExecuteAction::CreateSP(this, &SInputFlowSettingsPanel::OnToggleFilter, PropertyName),
-				FCanExecuteAction(),
-				FIsActionChecked::CreateSP(this, &SInputFlowSettingsPanel::IsFilterChecked, PropertyName)
-			),
-			NAME_None,
-			EUserInterfaceActionType::ToggleButton
-		);
-	};
-
-	MenuBuilder.BeginSection("Events", INVTEXT("Event Types"));
-	AddFilterEntry(INVTEXT("Log Clicks"), "bCaptureClicks", INVTEXT("Log Mouse Down/Up/DoubleClick"));
-	AddFilterEntry(INVTEXT("Log Keys"), "bCaptureKeyEvents", INVTEXT("Log Key Down/Up"));
-	AddFilterEntry(INVTEXT("Log Analog"), "bCaptureAnalog", INVTEXT("Log Analog Axis inputs"));
-	AddFilterEntry(INVTEXT("Log Focus"), "bCaptureFocus", INVTEXT("Log Focus change events"));
-	MenuBuilder.EndSection();
-
-	MenuBuilder.BeginSection("Noise", INVTEXT("High Frequency"));
-	AddFilterEntry(INVTEXT("Log Hover"), "bCaptureHover", INVTEXT("Log Hover Enter/Leave (Noisy)"));
-	AddFilterEntry(INVTEXT("Log Mouse Move"), "bCaptureMouseMove", INVTEXT("Log raw Mouse Move (Very Noisy)"));
-	MenuBuilder.EndSection();
-
-	MenuBuilder.BeginSection("Handled", INVTEXT("Status"));
-	AddFilterEntry(INVTEXT("Show Handled"), "bShowHandledEvents", INVTEXT("Show events handled by Slate widgets"));
-	MenuBuilder.EndSection();
-
-	return MenuBuilder.MakeWidget();
-}
-
-void SInputFlowSettingsPanel::OnToggleFilter(FName PropertyName)
-{
-	UInputFlowSettings* Settings = GetMutableDefault<UInputFlowSettings>();
-	if (FProperty* Prop = Settings->GetClass()->FindPropertyByName(PropertyName))
-	{
-		if (const FBoolProperty* BoolProp = CastField<FBoolProperty>(Prop))
-		{
-			const bool bCurrent = BoolProp->GetPropertyValue_InContainer(Settings);
-			BoolProp->SetPropertyValue_InContainer(Settings, !bCurrent);
-			Settings->SaveConfig();
-			Settings->GetOnSettingsChanged().Broadcast();
-		}
-	}
-}
-
-bool SInputFlowSettingsPanel::IsFilterChecked(FName PropertyName) const
-{
-	const UInputFlowSettings* Settings = UInputFlowSettings::Get();
-	if (FProperty* Prop = Settings->GetClass()->FindPropertyByName(PropertyName))
-	{
-		if (const FBoolProperty* BoolProp = CastField<FBoolProperty>(Prop))
-		{
-			return BoolProp->GetPropertyValue_InContainer(Settings);
-		}
-	}
-	return false;
 }
 
 void SInputFlowSettingsPanel::OnTogglePanel(FName PropertyName)

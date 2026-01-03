@@ -492,7 +492,6 @@ void FInputFlowSpy::OnSlateInputEvent(const FSlateDebuggingInputEventArgs& Event
 {
 #if WITH_SLATE_DEBUGGING
 	const UInputFlowSettings* Settings = UInputFlowSettings::Get();
-	if (!Settings->GetShowHandledEventsEnabled()) return;
 
 	// We only care about events that were actually CONSUMED (Handled)
 	if (!EventArgs.Reply.IsEventHandled())
@@ -508,7 +507,7 @@ void FInputFlowSpy::OnSlateInputEvent(const FSlateDebuggingInputEventArgs& Event
 	// -- Key Events --
 	if (EventType == ESlateDebuggingInputEvent::KeyDown || EventType == ESlateDebuggingInputEvent::KeyUp)
 	{
-		if (!Settings->IsCaptureKeyEventsEnabled()) return;
+		//if (!Settings->IsCaptureKeyEventsEnabled()) return;
 
 		const FKeyEvent* KeyEvent = static_cast<const FKeyEvent*>(EventArgs.InputEvent);
 		InputDetail = KeyEvent->GetKey().ToString();
@@ -524,7 +523,7 @@ void FInputFlowSpy::OnSlateInputEvent(const FSlateDebuggingInputEventArgs& Event
 			 EventType == ESlateDebuggingInputEvent::MouseButtonDoubleClick ||
 			 EventType == ESlateDebuggingInputEvent::MouseWheel)
 	{
-		if (!Settings->IsCaptureClicksEnabled()) return;
+		//if (!Settings->IsCaptureClicksEnabled()) return;
 
 		const FPointerEvent* PointerEvent = static_cast<const FPointerEvent*>(EventArgs.InputEvent);
 		
@@ -545,7 +544,7 @@ void FInputFlowSpy::OnSlateInputEvent(const FSlateDebuggingInputEventArgs& Event
 	// -- Analog --
 	else if (EventType == ESlateDebuggingInputEvent::AnalogInput)
 	{
-		if (!Settings->IsCaptureAnalogEnabled()) return;
+		//if (!Settings->IsCaptureAnalogEnabled()) return;
 		
 		const FAnalogInputEvent* AnalogEvent = static_cast<const FAnalogInputEvent*>(EventArgs.InputEvent);
 		if (FMath::Abs(AnalogEvent->GetAnalogValue()) < 0.15f) return;
@@ -581,7 +580,7 @@ void FInputFlowSpy::OnSlateInputEvent(const FSlateDebuggingInputEventArgs& Event
 
 	// Log the Consumption
 	const TSharedPtr<SWidget> Handler = EventArgs.HandlerWidget;
-	if (Handler.IsValid())
+	if (Settings->GetShowHandledEventsEnabled() && Handler.IsValid())
 	{
 		TArray<FInputLogRichTextPart> Parts;
 		FString Name;
@@ -589,14 +588,13 @@ void FInputFlowSpy::OnSlateInputEvent(const FSlateDebuggingInputEventArgs& Event
 		GenerateWidgetContextParts(Handler, Parts, Name);
 		
 		FString WidgetType = Handler->GetTypeAsString();
-		if (UWidget* UObj = InputFlowHelpers::GetOwnerUWidget(Handler))
+		if (const UWidget* UObj = InputFlowHelpers::GetOwnerUWidget(Handler))
 		{
 			WidgetType = UObj->GetClass()->GetName();
 		}
 
 		// Combine detail with side effects
-		FString FinalDetail = InputDetail + SideEffects;
-
+		const FString& FinalDetail = InputDetail + SideEffects;
 		AddLog(
 			TEXT("Slate | Handled Event"), 
 			FinalDetail, 

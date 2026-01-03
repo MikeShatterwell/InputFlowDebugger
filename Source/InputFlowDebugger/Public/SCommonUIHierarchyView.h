@@ -27,10 +27,10 @@ struct FCommonUITreeItem : public TSharedFromThis<FCommonUITreeItem>
 	// State flags
 	bool bIsContainer = false; // true if this widget is a UCommonActivatableWidgetContainerBase Stack/Queue
 	bool bIsRoot = false;
-	bool bIsFocused = false;      
-	bool bIsInActivePath = false; 
-	bool bIsActive = false;
-	bool bIsLeaf = false;
+	bool bIsFocused = false;
+	bool bIsInActivePath = false;
+	bool bIsActive = false; // Is the widget Activated
+	bool bIsLeaf = false; // This is the active leaf
 
 	TArray<TSharedPtr<FCommonUITreeItem>> Children;
 };

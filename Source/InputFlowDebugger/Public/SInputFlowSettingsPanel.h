@@ -29,11 +29,6 @@ public:
 private:
 	TSharedRef<SWidget> MakeNavMenu();
 	TSharedRef<SWidget> MakePanelMenu();
-	TSharedRef<SWidget> MakeFilterMenu();
-
-	// Generic toggles for filters
-	void OnToggleFilter(FName PropertyName);
-	bool IsFilterChecked(FName PropertyName) const;
 
 	// Generic toggles for panels
 	void OnTogglePanel(FName PanelName);

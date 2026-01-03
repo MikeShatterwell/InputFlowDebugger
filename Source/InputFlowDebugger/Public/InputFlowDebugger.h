@@ -35,7 +35,8 @@ public:
 		FGlobalTabmanager::Get()->RegisterNomadTabSpawner(InputFlowTabName, FOnSpawnTab::CreateRaw(this, &FInputFlowDebuggerModule::OnSpawnPluginTab))
 			.SetDisplayName(LOCTEXT("InputFlowTabTitle", "Input Flow Debugger"))
 			.SetMenuType(ETabSpawnerMenuType::Enabled)
-			.SetGroup(WorkspaceMenu::GetMenuStructure().GetDeveloperToolsMiscCategory());
+			.SetGroup(WorkspaceMenu::GetMenuStructure().GetDeveloperToolsDebugCategory())
+			.SetIcon(FSlateIcon(FAppStyle::GetAppStyleSetName(), "Icons.Layout"));;
 #endif
 	}
 

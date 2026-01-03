@@ -2,11 +2,14 @@
 
 #include "SEnhancedInputInspector.h"
 
+
+
 #if WITH_PLUGIN_ENHANCEDINPUT
 
 // Engine
 #include <Engine/GameInstance.h>
 #include <Engine/LocalPlayer.h>
+#include <Engine/LevelScriptActor.h>
 
 // EnhancedInput
 #include <EnhancedInputSubsystems.h>
@@ -14,12 +17,14 @@
 #include <InputAction.h>
 #include <InputMappingContext.h>
 #include <InputModifiers.h>
+#include <EnhancedInputComponent.h>
 
 // Slate
 #include <Styling/AppStyle.h>
 #include <Widgets/Layout/SBorder.h>
 #include <Widgets/Layout/SBox.h>
 #include <Widgets/Text/STextBlock.h>
+#include <Widgets/Notifications/SProgressBar.h>
 
 // Internal
 #include "InputDebugSubsystem.h"
@@ -81,6 +86,13 @@ public:
 					.ColorAndOpacity(FLinearColor(1.0f, 0.8f, 0.2f))
 					.Font(FCoreStyle::GetDefaultFontStyle("Bold", 9))
 				]
+				+ SHorizontalBox::Slot().FillWidth(1.0f).HAlign(HAlign_Right).VAlign(VAlign_Center).Padding(4, 0)
+				[
+					SNew(STextBlock)
+					.Text_Lambda([InItem](){ return FText::FromString(InItem->OwnerStr); })
+					.ColorAndOpacity(FLinearColor(0.6f, 0.6f, 0.6f))
+					.Font(FCoreStyle::GetDefaultFontStyle("Italic", 8))
+				]
 			]
 		];
 	}
@@ -130,10 +142,10 @@ void SEnhancedInputInspector::Construct(const FArguments& InArgs, UInputDebugSub
 
 void SEnhancedInputInspector::Tick(const FGeometry& AllottedGeometry, const double InCurrentTime, const float InDeltaTime)
 {
-	UpdateData();
+	UpdateData(InDeltaTime);
 }
 
-void SEnhancedInputInspector::UpdateData()
+void SEnhancedInputInspector::UpdateData(float DeltaTime)
 {
 	// Recover subsystem if lost (re-PIE)
 	if (!DebugSubsystem.IsValid())
@@ -143,17 +155,75 @@ void SEnhancedInputInspector::UpdateData()
 
 	if (!DebugSubsystem.IsValid()) return;
 
-	UGameInstance* GameInstance = DebugSubsystem->GetGameInstance();
-	if (!GameInstance) return;
+	const UGameInstance* GameInstance = DebugSubsystem->GetGameInstance();
+	if (!IsValid(GameInstance)) return;
+
+	auto LocalPlayer = GameInstance->GetFirstGamePlayer();
+	if (!IsValid(LocalPlayer)) return;
+
+	const UEnhancedInputLocalPlayerSubsystem* EISub = LocalPlayer->GetSubsystem<UEnhancedInputLocalPlayerSubsystem>();
+	if (!IsValid(EISub)) return;
+
+	const UEnhancedPlayerInput* PlayerInput = EISub->GetPlayerInput();
+	if (!IsValid(PlayerInput)) return;
+
+	const UWorld* World = EISub->GetWorld();
+	if (!IsValid(World)) return;
 	
-	ULocalPlayer* LocalPlayer = GameInstance->GetFirstGamePlayer();
-	if (!LocalPlayer) return;
+	// We mimic APlayerController::BuildInputStack logic to find active components.
+	TArray<UInputComponent*> PotentialComponents;
+	const APlayerController* PC = LocalPlayer->GetPlayerController(GameInstance->GetWorld());
+	if (IsValid(PC))
+	{
+		const APawn* Pawn = PC->GetPawn();
+		if (IsValid(Pawn) && Pawn->InputEnabled())
+		{
+			if (Pawn->InputComponent) PotentialComponents.Add(Pawn->InputComponent);
+			
+			// Check other components on pawn
+			TArray<UInputComponent*> PawnComponents;
+			Pawn->GetComponents(PawnComponents);
+			for (UInputComponent* IC : PawnComponents)
+			{
+				if (IsValid(IC) && IC != Pawn->InputComponent) PotentialComponents.Add(IC);
+			}
+		}
+		
+		for (ULevel* Level : World->GetLevels())
+		{
+			if (ALevelScriptActor* ScriptActor = Level->GetLevelScriptActor())
+			{
+				if (ScriptActor->InputEnabled() && ScriptActor->InputComponent)
+				{
+					PotentialComponents.Add(ScriptActor->InputComponent);
+				}
+			}
+		}
+		
+		if (PC->InputEnabled() && PC->InputComponent)
+		{
+			PotentialComponents.Add(PC->InputComponent);
+		}
+	}
 
-	UEnhancedInputLocalPlayerSubsystem* EISub = LocalPlayer->GetSubsystem<UEnhancedInputLocalPlayerSubsystem>();
-	if (!EISub) return;
-
-	UEnhancedPlayerInput* PlayerInput = EISub->GetPlayerInput();
-	if (!PlayerInput) return;
+	// Map Action -> List of Owner Names
+	TMap<const UInputAction*, TArray<FString>> ActionOwners;
+	for (UInputComponent* IC : PotentialComponents)
+	{
+		if (UEnhancedInputComponent* EIC = Cast<UEnhancedInputComponent>(IC))
+		{
+			FString OwnerName = IC->GetOwner() ? IC->GetOwner()->GetActorNameOrLabel() : TEXT("Unknown");
+			
+			// Iterate Bindings
+			for (const auto& Binding : EIC->GetActionEventBindings())
+			{
+				if (const UInputAction* BoundAction = Binding->GetAction())
+				{
+					ActionOwners.FindOrAdd(BoundAction).AddUnique(OwnerName);
+				}
+			}
+		}
+	}
 
 	// --- Sync Data ---
 	// To preserve tree expansion state, we update existing items in-place where possible
@@ -176,7 +246,7 @@ void SEnhancedInputInspector::UpdateData()
 	{
 		// Find existing root or create new
 		TSharedPtr<FEnhancedInputInfoItem> ContextItem = nullptr;
-		FString IMCName = IMC->GetName();
+		const FString& IMCName = IMC->GetName();
 		
 		auto FoundItem = SourceData.FindByPredicate([&](const TSharedPtr<FEnhancedInputInfoItem>& Item){
 			return Item->Name == IMCName && Item->bIsInputMappingContext;
@@ -196,15 +266,36 @@ void SEnhancedInputInspector::UpdateData()
 
 		// Update Context Properties
 		ContextItem->Priority = ContextMap[IMC].Priority;
+
+		TArray<FString> ContextOwnerList;
+		for (const auto& Mapping : IMC->GetMappings())
+		{
+			if (Mapping.Action && ActionOwners.Contains(Mapping.Action))
+			{
+				for (const FString& Owner : ActionOwners[Mapping.Action])
+				{
+					ContextOwnerList.AddUnique(Owner);
+				}
+			}
+		}
+		if (ContextOwnerList.Num() > 0)
+		{
+			ContextItem->OwnerStr = FString::Join(ContextOwnerList, TEXT(", "));
+		}
+		else
+		{
+			ContextItem->OwnerStr = TEXT("Unbound");
+		}
 		
 		// Process Children (Actions)
 		TArray<TSharedPtr<FEnhancedInputInfoItem>> NewChildren;
 		TSet<const UInputAction*> ActionsProcessedInContext;
+		TSet<TSharedPtr<FEnhancedInputInfoItem>> ProcessedItems; // Track reused items
 
-		for (const auto& Mapping : IMC->GetMappings())
+		for (const FEnhancedActionKeyMapping& Mapping : IMC->GetMappings())
 		{
 			const UInputAction* Action = Mapping.Action;
-			if (!Action) continue;
+			if (!IsValid(Action)) continue;
 			if (ActionsProcessedInContext.Contains(Action)) continue;
 
 			ActionsProcessedInContext.Add(Action);
@@ -215,7 +306,7 @@ void SEnhancedInputInspector::UpdateData()
 				FInputActionValue Val = PlayerInput->GetActionValue(Action);
 				
 				// Checking TriggerState or Magnitude > 0 to filter only active/relevant inputs
-				// NOTE: We only show items that are 'active' to reduce noise, similar to original logic
+				// NOTE: We only show items that are 'active' to reduce noise. If an input doesn't appear here when pressed, it isn't being processed by Enhanced Input.
 				if (Trigger != ETriggerEvent::None || Val.GetMagnitudeSq() > 0.001f)
 				{
 					FString ActionName = Action->GetName();
@@ -235,30 +326,98 @@ void SEnhancedInputInspector::UpdateData()
 						ActionItem = MakeShared<FEnhancedInputInfoItem>();
 						ActionItem->Name = ActionName;
 						ActionItem->bIsInputMappingContext = false;
-						// Child added, but parent structure doesn't change from View perspective unless we set flag
-						// However, we rebuild the child list below, so we detect diffs there.
 					}
+					
+					// Reset Decay
+					ActionItem->CurrentDecayTime = 0.0f;
+					ProcessedItems.Add(ActionItem);
 
 					// Update Action Values
-					ActionItem->TriggerState = InputFlowHelpers::TriggerEventToString((int32)Trigger);
-					ActionItem->StateColor = InputFlowHelpers::GetColorForTriggerEvent((int32)Trigger);
+					ActionItem->TriggerState = InputFlowHelpers::TriggerEventToString(static_cast<int32>(Trigger));
+					ActionItem->StateColor = InputFlowHelpers::GetColorForTriggerEvent(static_cast<int32>(Trigger));
 					ActionItem->ValueStr = Val.ToString();
+					if (ActionOwners.Contains(Action))
+					{
+						ActionItem->OwnerStr = FString::Join(ActionOwners[Action], TEXT(", "));
+					}
 
-					// Modifiers
-					FString ModStr;
-					for (const UInputModifier* Mod : Data->GetModifiers())
+					// --- Modifier Simulation Logic ---
+					// To visualize the steps, we need to find which key is actually driving this action.
+					// We iterate all mappings for this action in this context and pick the one with the highest raw magnitude.
+					FEnhancedActionKeyMapping BestMapping = Mapping;
+					FInputActionValue BestRawValue(Action->ValueType, FVector::ZeroVector);
+					
+					for (const auto& SearchMapping : IMC->GetMappings())
+					{
+						if (SearchMapping.Action == Action)
+						{
+							FInputActionValue Raw = PlayerInput->GetKeyValue(SearchMapping.Key);
+							if (Raw.GetMagnitudeSq() > BestRawValue.GetMagnitudeSq())
+							{
+								BestRawValue = Raw;
+								BestMapping = SearchMapping;
+							}
+						}
+					}
+
+					// Build the Simulation String: [Key] -> [MapMods] -> [ActionMods]
+					FString SimulationStr = FString::Printf(TEXT("[%s: %s]\n"), *BestMapping.Key.GetDisplayName().ToString(), *BestRawValue.ToString());
+					
+					// Mapping Modifiers
+					FInputActionValue CurrentVal = BestRawValue;
+					for (UInputModifier* Mod : BestMapping.Modifiers)
+					{
+						if (!IsValid(Mod)) continue;
+						
+						CurrentVal = Mod->ModifyRaw(PlayerInput, CurrentVal, DeltaTime);
+						FString ClassName = Mod->GetClass()->GetName().Replace(TEXT("InputModifier"), TEXT(""));
+						SimulationStr += FString::Printf(TEXT(" -> IMC: [%s: %s]\n"), *ClassName, *CurrentVal.ToString());
+					}
+
+					// Action Modifiers
+					for (UInputModifier* Mod : Action->Modifiers)
 					{
 						if (Mod)
 						{
-							if (!ModStr.IsEmpty()) ModStr += TEXT(", ");
-							FString ClassName = Mod->GetClass()->GetName();
-							ClassName.RemoveFromStart("InputModifier");
-							ModStr += ClassName;
+							CurrentVal = Mod->ModifyRaw(PlayerInput, CurrentVal, DeltaTime);
+							FString ClassName = Mod->GetClass()->GetName().Replace(TEXT("InputModifier"), TEXT(""));
+							SimulationStr += FString::Printf(TEXT(" -> IA: [%s: %s]\n"), *ClassName, *CurrentVal.ToString());
 						}
 					}
-					ActionItem->ModifiersStr = ModStr;
+
+					ActionItem->ModifierChainStr = SimulationStr;
+
+					// Populate legacy/simple strings for other columns/tooltips if needed
+					auto GetName = [](UObject* Obj) { 
+						return Obj ? Obj->GetClass()->GetName().Replace(TEXT("InputModifier"), TEXT("")).Replace(TEXT("InputTrigger"), TEXT("")) : TEXT("Null"); 
+					};
+
+					FString TrigStr;
+					for (const UInputTrigger* Trig : Action->Triggers) { if (Trig) TrigStr += (TrigStr.IsEmpty() ? "" : ", ") + FString::Printf(TEXT("%s (IA)"), *GetName((UObject*)Trig)); }
+					for (const UInputTrigger* Trig : BestMapping.Triggers) { if (Trig) TrigStr += (TrigStr.IsEmpty() ? "" : ", ") + FString::Printf(TEXT("%s (IMC)"), *GetName((UObject*)Trig)); }
+					ActionItem->TriggersStr = TrigStr;
 
 					NewChildren.Add(ActionItem);
+				}
+			}
+		}
+
+		// Process lingering children for decay
+		if (ContextItem.IsValid())
+		{
+			for (TSharedPtr<FEnhancedInputInfoItem>& OldChild : ContextItem->Children)
+			{
+				// If we haven't processed (re-added/updated) this child yet...
+				if (!ProcessedItems.Contains(OldChild))
+				{
+					// Increment Decay
+					OldChild->CurrentDecayTime += DeltaTime;
+
+					// If still within decay window, keep it
+					if (OldChild->CurrentDecayTime < OldChild->MaxDecayTime)
+					{
+						NewChildren.Add(OldChild);
+					}
 				}
 			}
 		}
@@ -326,57 +485,95 @@ TSharedRef<ITableRow> SEnhancedInputInspector::GenerateRow(TSharedPtr<FEnhancedI
 
 	// Action Row with Modifier Support
 	return SNew(STableRow<TSharedPtr<FEnhancedInputInfoItem>>, OwnerTable)
-	.Padding(FMargin(16, 0, 0, 0)) // Indent actions
 	.Style(&RowStyle)
 	[
-		SNew(SVerticalBox)
-		+ SVerticalBox::Slot().AutoHeight()
+		SNew(SOverlay)
+		// Decay Progress Bar
+		+ SOverlay::Slot().Padding(0, 2, 0, 0).HAlign(HAlign_Fill).VAlign(VAlign_Fill)
 		[
-			SNew(SHorizontalBox)
-			+ SHorizontalBox::Slot().AutoWidth().Padding(0, 0, 5, 0)
-			[
-				SNew(STextBlock)
-				.Text_Lambda([Item](){ return FText::FromString(Item->Name); })
-				.ColorAndOpacity(FLinearColor::White)
-				.Font(FCoreStyle::GetDefaultFontStyle("Regular", 9))
-			]
-			+ SHorizontalBox::Slot().FillWidth(1.0f).HAlign(HAlign_Right)
+			SNew(SProgressBar)
+			.Percent_Lambda([Item]()
+			{
+				// Invert logic: Full when active (Decay=0), Empty when decayed (Decay=Max)
+				return FMath::Clamp(1.0f - (Item->CurrentDecayTime / Item->MaxDecayTime), 0.0f, 1.0f);
+			})
+			.FillColorAndOpacity(FLinearColor(0.1f, 0.1f, 0.1f, 0.2f))
+			.Visibility(EVisibility::HitTestInvisible)
+			.Style(FAppStyle::Get(), "ProgressBar")
+		]
+		// Main Content
+		+ SOverlay::Slot().HAlign(HAlign_Fill).VAlign(VAlign_Fill)
+		[
+			SNew(SVerticalBox)
+			// Top Row: Name, Value, State
+			+ SVerticalBox::Slot().AutoHeight()
 			[
 				SNew(SHorizontalBox)
-				+ SHorizontalBox::Slot().AutoWidth().Padding(5, 0)
+				+ SHorizontalBox::Slot().AutoWidth().Padding(0, 0, 5, 0)
 				[
 					SNew(STextBlock)
-					.Text_Lambda([Item](){ return FText::FromString(Item->ValueStr); })
-					.ColorAndOpacity(FLinearColor::Gray)
-					.Font(FCoreStyle::GetDefaultFontStyle("Mono", 8))
+					.Text_Lambda([Item](){ return FText::FromString(Item->Name); })
+					.ColorAndOpacity(FLinearColor::White)
+					.Font(FCoreStyle::GetDefaultFontStyle("Regular", 9))
 				]
-				+ SHorizontalBox::Slot().AutoWidth().Padding(5, 0)
+				+ SHorizontalBox::Slot().FillWidth(1.0f).HAlign(HAlign_Right)
+				[
+					SNew(SHorizontalBox)
+					+ SHorizontalBox::Slot().AutoWidth().Padding(5, 0)
+					[
+						SNew(STextBlock)
+						.Text_Lambda([Item](){ return FText::FromString(Item->ValueStr); })
+						.ColorAndOpacity(FLinearColor::Gray)
+						.Font(FCoreStyle::GetDefaultFontStyle("Mono", 8))
+					]
+					+ SHorizontalBox::Slot().AutoWidth().Padding(5, 0)
+					[
+						SNew(STextBlock)
+						.Text_Lambda([Item](){ return FText::FromString(Item->TriggerState); })
+						.ColorAndOpacity_Lambda([Item](){ return Item->StateColor; })
+						.Font(FCoreStyle::GetDefaultFontStyle("Bold", 8))
+					]
+				]
+			]
+			// Modifiers Row
+			+ SVerticalBox::Slot().AutoHeight()
+			[
+				SNew(SHorizontalBox)
+				.Visibility_Lambda([Item](){ return Item->ModifierChainStr.IsEmpty() ? EVisibility::Collapsed : EVisibility::Visible; })
+				+ SHorizontalBox::Slot().AutoWidth()
 				[
 					SNew(STextBlock)
-					.Text_Lambda([Item](){ return FText::FromString(Item->TriggerState); })
-					.ColorAndOpacity_Lambda([Item](){ return Item->StateColor; })
-					.Font(FCoreStyle::GetDefaultFontStyle("Bold", 8))
+					.Text(FText::FromString("Chain: "))
+					.ColorAndOpacity(FLinearColor(0.5f, 0.5f, 0.5f))
+					.Font(FCoreStyle::GetDefaultFontStyle("Regular", 7))
+				]
+				+ SHorizontalBox::Slot().AutoWidth()
+				[
+					SNew(STextBlock)
+					.Text_Lambda([Item](){ return FText::FromString(Item->ModifierChainStr); })
+					.ColorAndOpacity(FLinearColor(0.4f, 0.8f, 1.0f))
+					.Font(FCoreStyle::GetDefaultFontStyle("Mono", 7))
 				]
 			]
-		]
-		// Modifiers Row
-		+ SVerticalBox::Slot().AutoHeight()
-		[
-			SNew(SHorizontalBox)
-			.Visibility_Lambda([Item](){ return Item->ModifiersStr.IsEmpty() ? EVisibility::Collapsed : EVisibility::Visible; })
-			+ SHorizontalBox::Slot().AutoWidth()
+			// Triggers Row
+			+ SVerticalBox::Slot().AutoHeight()
 			[
-				SNew(STextBlock)
-				.Text_Lambda([Item](){ return FText::FromString(Item->ModifiersStr); })
-				.ColorAndOpacity(FLinearColor(0.4f, 0.6f, 1.0f))
-				.Font(FCoreStyle::GetDefaultFontStyle("Italic", 7))
-			]
-			+ SHorizontalBox::Slot().AutoWidth().Padding(4, 0, 0, 0)
-			[
-				SNew(STextBlock)
-				.Text_Lambda([Item](){ return FText::FromString(FString::Printf(TEXT("=> %s"), *Item->ValueStr)); })
-				.ColorAndOpacity(FLinearColor(0.4f, 0.6f, 1.0f))
-				.Font(FCoreStyle::GetDefaultFontStyle("Mono", 7))
+				SNew(SHorizontalBox)
+				.Visibility_Lambda([Item](){ return Item->TriggersStr.IsEmpty() ? EVisibility::Collapsed : EVisibility::Visible; })
+				+ SHorizontalBox::Slot().AutoWidth()
+				[
+					SNew(STextBlock)
+					.Text(FText::FromString("Trigs: "))
+					.ColorAndOpacity(FLinearColor(0.5f, 0.5f, 0.5f))
+					.Font(FCoreStyle::GetDefaultFontStyle("Regular", 7))
+				]
+				+ SHorizontalBox::Slot().AutoWidth()
+				[
+					SNew(STextBlock)
+					.Text_Lambda([Item](){ return FText::FromString(Item->TriggersStr); })
+					.ColorAndOpacity(FLinearColor(1.0f, 0.4f, 0.4f)) // Light Red
+					.Font(FCoreStyle::GetDefaultFontStyle("Italic", 7))
+				]
 			]
 		]
 	];

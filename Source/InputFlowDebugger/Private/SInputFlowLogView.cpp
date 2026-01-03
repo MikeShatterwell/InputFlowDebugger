@@ -19,6 +19,7 @@
 #include "InputDebugSubsystem.h"
 #include "InputFlowHelpers.h"
 #include "InputFlowSpy.h"
+#include "InputFlowSettings.h"
 
 // -----------------------------------------------------------------------------
 // SInputLogTableRow Implementation
@@ -239,6 +240,30 @@ void SInputFlowLogView::Construct(const FArguments& InArgs, UInputDebugSubsystem
 			SAssignNew(SearchBoxWidget, SSearchBox)
 			.HintText(FText::FromString("Search log..."))
 			.OnTextChanged(this, &SInputFlowLogView::OnSearchTextChanged)
+		]
+		// Capture Settings Button
+		+ SHorizontalBox::Slot().AutoWidth().Padding(4, 0).VAlign(VAlign_Center)
+		[
+			SNew(SComboButton)
+			.ComboButtonStyle(FAppStyle::Get(), "GenericFilters.ComboButtonStyle")
+			.IsFocusable(false)
+			.ForegroundColor(FLinearColor::White)
+			.ContentPadding(0)
+			.ToolTipText(FText::FromString("Configure what events are recorded"))
+			.OnGetMenuContent(this, &SInputFlowLogView::MakeCaptureMenu)
+			.ButtonContent()
+			[
+				SNew(SHorizontalBox)
+				+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+				[
+					// Using "Icons.Settings" to differentiate from the view filter
+					SNew(SImage).Image(FAppStyle::GetBrush("Icons.Settings")) 
+				]
+				+ SHorizontalBox::Slot().AutoWidth().Padding(2, 0).VAlign(VAlign_Center)
+				[
+					SNew(STextBlock).Text(FText::FromString("Capture"))
+				]
+			]
 		]
 		// Filter Dropdown
 		+ SHorizontalBox::Slot().AutoWidth().Padding(4, 0).VAlign(VAlign_Center)
@@ -580,6 +605,73 @@ TSharedRef<SWidget> SInputFlowLogView::MakeFilterMenu()
 	MenuBuilder.EndSection();
 
 	return MenuBuilder.MakeWidget();
+}
+
+TSharedRef<SWidget> SInputFlowLogView::MakeCaptureMenu()
+{
+	FMenuBuilder MenuBuilder(true, nullptr);
+
+	auto AddFilterEntry = [&](const FText& Label, FName PropertyName, const FText& Tooltip)
+	{
+		MenuBuilder.AddMenuEntry(
+			Label,
+			Tooltip,
+			FSlateIcon(),
+			FUIAction(
+				FExecuteAction::CreateSP(this, &SInputFlowLogView::OnToggleCapture, PropertyName),
+				FCanExecuteAction(),
+				FIsActionChecked::CreateSP(this, &SInputFlowLogView::IsCaptureChecked, PropertyName)
+			),
+			NAME_None,
+			EUserInterfaceActionType::ToggleButton
+		);
+	};
+
+	MenuBuilder.BeginSection("Events", INVTEXT("Event Types"));
+	AddFilterEntry(INVTEXT("Log Clicks"), "bCaptureClicks", INVTEXT("Log Mouse Down/Up/DoubleClick"));
+	AddFilterEntry(INVTEXT("Log Keys"), "bCaptureKeyEvents", INVTEXT("Log Key Down/Up"));
+	AddFilterEntry(INVTEXT("Log Analog"), "bCaptureAnalog", INVTEXT("Log Analog Axis inputs"));
+	AddFilterEntry(INVTEXT("Log Focus"), "bCaptureFocus", INVTEXT("Log Focus change events"));
+	MenuBuilder.EndSection();
+
+	MenuBuilder.BeginSection("Noise", INVTEXT("High Frequency"));
+	AddFilterEntry(INVTEXT("Log Hover"), "bCaptureHover", INVTEXT("Log Hover Enter/Leave (Noisy)"));
+	AddFilterEntry(INVTEXT("Log Mouse Move"), "bCaptureMouseMove", INVTEXT("Log raw Mouse Move (Very Noisy)"));
+	MenuBuilder.EndSection();
+
+	MenuBuilder.BeginSection("Handled", INVTEXT("Status"));
+	AddFilterEntry(INVTEXT("Show Handled"), "bShowHandledEvents", INVTEXT("Show events handled by Slate widgets"));
+	MenuBuilder.EndSection();
+
+	return MenuBuilder.MakeWidget();
+}
+
+void SInputFlowLogView::OnToggleCapture(FName PropertyName)
+{
+	UInputFlowSettings* Settings = GetMutableDefault<UInputFlowSettings>();
+	if (FProperty* Prop = Settings->GetClass()->FindPropertyByName(PropertyName))
+	{
+		if (const FBoolProperty* BoolProp = CastField<FBoolProperty>(Prop))
+		{
+			const bool bCurrent = BoolProp->GetPropertyValue_InContainer(Settings);
+			BoolProp->SetPropertyValue_InContainer(Settings, !bCurrent);
+			Settings->SaveConfig();
+			Settings->GetOnSettingsChanged().Broadcast();
+		}
+	}
+}
+
+bool SInputFlowLogView::IsCaptureChecked(FName PropertyName) const
+{
+	const UInputFlowSettings* Settings = UInputFlowSettings::Get();
+	if (FProperty* Prop = Settings->GetClass()->FindPropertyByName(PropertyName))
+	{
+		if (const FBoolProperty* BoolProp = CastField<FBoolProperty>(Prop))
+		{
+			return BoolProp->GetPropertyValue_InContainer(Settings);
+		}
+	}
+	return false;
 }
 
 // -----------------------------------------------------------------------------

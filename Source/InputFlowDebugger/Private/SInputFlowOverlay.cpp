@@ -172,7 +172,7 @@ void Construct(const FArguments& InArgs)
 			[
 				SAssignNew(PanelBorder, SBorder)
 				.BorderImage(FCoreStyle::Get().GetBrush("ToolPanel.GroupBorder"))
-				.BorderBackgroundColor(FLinearColor(0.0f, 0.0f, 0.0f, 0.5f))
+				.BorderBackgroundColor(FLinearColor(0.0f, 0.0f, 0.0f, 0.65f))
 				.Padding(0)
 				.VAlign(VAlign_Fill)
 				.HAlign(HAlign_Fill)
@@ -261,7 +261,13 @@ void Construct(const FArguments& InArgs)
 				const FVector2D ParentSize = Parent->GetPaintSpaceGeometry().GetLocalSize();
 				if (ParentSize.X > 1.0f)
 				{
-					UpdateAnchorAndOffset(PendingInitialPosition, ParentSize);
+					// Clamp Initial Position so we don't spawn off-screen
+					const float ActualHeight = bIsMinimized ? InputFlowPanelConstants::HeaderHeight : CurrentSize.Y;
+					FVector2D ClampedPos = PendingInitialPosition;
+					ClampedPos.X = FMath::Clamp(ClampedPos.X, 0.0f, FMath::Max(0.0f, ParentSize.X - CurrentSize.X));
+					ClampedPos.Y = FMath::Clamp(ClampedPos.Y, 0.0f, FMath::Max(0.0f, ParentSize.Y - ActualHeight));
+
+					UpdateAnchorAndOffset(ClampedPos, ParentSize);
 					bAnchorInitialized = true;
 				}
 			}
@@ -415,7 +421,7 @@ void Construct(const FArguments& InArgs)
 			const FVector2D MouseDelta = (MouseEvent.GetScreenSpacePosition() - DragStartMousePos) / Scale;
 			FVector2D NewVisualPos = DragStartVisualPos + MouseDelta;
 
-			TSharedPtr<SWidget> Parent = GetParentWidget();
+			const TSharedPtr<SWidget> Parent = GetParentWidget();
 			if (Parent.IsValid())
 			{
 				FVector2D ParentSize = Parent->GetPaintSpaceGeometry().GetLocalSize();
@@ -460,6 +466,9 @@ void Construct(const FArguments& InArgs)
 				if (FMath::Abs((NewVisualPos.Y + ActualHeight) - ParentSize.Y) < SnapDist)
 					NewVisualPos.Y = ParentSize.Y - ActualHeight;
 
+				// Ensures panel never leaves the viewport entirely
+				NewVisualPos.X = FMath::Clamp(NewVisualPos.X, 0.0f, FMath::Max(0.0f, ParentSize.X - CurrentSize.X));
+				NewVisualPos.Y = FMath::Clamp(NewVisualPos.Y, 0.0f, FMath::Max(0.0f, ParentSize.Y - InputFlowPanelConstants::HeaderHeight));
 				UpdateAnchorAndOffset(NewVisualPos, ParentSize);
 			}
 			return FReply::Handled();
@@ -802,6 +811,8 @@ void SInputFlowOverlay::ResolveAndDrawLabels(const FGeometry& AllottedGeometry,
 
 	for (const FPendingLabel& Label : LabelBatch)
 	{
+		if (Label.Text.IsEmpty()) continue;
+
 		FInputFlowPhysicsItem Item;
 		Item.Position = Label.CurrentPos;
 		Item.Size = Label.Size;
@@ -817,6 +828,8 @@ void SInputFlowOverlay::ResolveAndDrawLabels(const FGeometry& AllottedGeometry,
 	for (int32 i = 0; i < LabelBatch.Num(); ++i)
 	{
 		const FPendingLabel& Label = LabelBatch[i];
+		if (Label.Text.IsEmpty()) continue;
+		
 		const FInputFlowPhysicsItem& Resolved = PhysicsItems[i];
 		FVector2D FinalPos = Resolved.Position;
 
@@ -824,17 +837,16 @@ void SInputFlowOverlay::ResolveAndDrawLabels(const FGeometry& AllottedGeometry,
 		if (FVector2D::DistSquared(Label.OriginalPos, FinalPos) > 100.0f)
 		{
 			TArray<FVector2D> LinePoints;
-			LinePoints.Add(Label.OriginalPos + FVector2D(0.0f, Label.Size.Y * 0.5f));
-			LinePoints.Add(FinalPos + (Label.Size * 0.5f));
+			LinePoints.Add(Label.OriginalPos);
+			LinePoints.Add(FinalPos);
 
 			FSlateDrawElement::MakeLines(OutDrawElements, LayerId, AllottedGeometry.ToPaintGeometry(), LinePoints,
 										 ESlateDrawEffect::None, Label.Color.CopyWithNewOpacity(0.8f), true, 5.0f);
 
-			FPaintGeometry OriginDot = AllottedGeometry.ToPaintGeometry(UE::Slate::CastToVector2f(FVector2D(8, 8)),
-																		FSlateLayoutTransform(
-																			UE::Slate::CastToVector2f(
-																				Label.OriginalPos + FVector2D(
-																					-2, (Label.Size.Y * 0.5f) - 2))));
+			FPaintGeometry OriginDot = AllottedGeometry.ToPaintGeometry(
+				UE::Slate::CastToVector2f(FVector2D(8, 8)),
+				FSlateLayoutTransform(UE::Slate::CastToVector2f(Label.OriginalPos))
+			);
 			FSlateDrawElement::MakeBox(OutDrawElements, LayerId, OriginDot, InputFlowStyle::GetBrush("WhiteBrush"),
 									   ESlateDrawEffect::None, Label.Color);
 		}
@@ -897,7 +909,7 @@ void SInputFlowOverlay::PaintFocusedWidget(const FGeometry& AllottedGeometry, FS
 }
 
 void SInputFlowOverlay::PaintNavigationSimulation(const FGeometry& AllottedGeometry,
-                                                  FSlateWindowElementList& OutDrawElements, int32& LayerId) const
+												  FSlateWindowElementList& OutDrawElements, int32& LayerId) const
 {
 	UInputDebugSubsystem* Sub = GetSubsystem();
 	if (!Sub || !UInputFlowSettings::Get()->IsNavSimulationEnabled())
@@ -922,6 +934,8 @@ void SInputFlowOverlay::PaintNavigationSimulation(const FGeometry& AllottedGeome
 		const FString DirectionStr = UEnum::GetValueAsString(Link.Direction);
 		const FString DepthStr = FString::Printf(TEXT("NAV DEPTH [%d/%d]"), Link.DepthStep, MaxDepth);
 		const FString TargetName = End.IsValid() ? InputFlowHelpers::GetWidgetDisplayName(End) : TEXT("Unknown");
+		const bool bDrawNavLabels = UInputFlowSettings::Get()->IsNavLabelsEnabled();
+		FString NavLabel;
 
 		auto DrawIndicatorWithLabel = [&](const FLinearColor& BaseColor, const FString& StatusLabel)
 		{
@@ -935,33 +949,53 @@ void SInputFlowOverlay::PaintNavigationSimulation(const FGeometry& AllottedGeome
 			if (End.IsValid())
 			{
 				const FLinearColor LinkColor = InputFlowStyle::Color_NavNormal.CopyWithNewOpacity(Alpha);
-				const FString Label = FString::Printf(TEXT("%s\n%s\nTarget: %s"), *DirectionStr, *DepthStr, *TargetName);
+				if (bDrawNavLabels)
+				{
+					NavLabel = FString::Printf(TEXT("%s\n%s\nTarget: %s"), *DirectionStr, *DepthStr, *TargetName);
+				}
 				
-				DrawWidgetHighlight(End, LinkColor, Label, AllottedGeometry, OutDrawElements, LayerId);
-				DrawConnectionSpline(AllottedGeometry, Start, End, Link.Direction, LinkColor, OutDrawElements, LayerId);
+				DrawWidgetHighlight(End, LinkColor, NavLabel, AllottedGeometry, OutDrawElements, LayerId);
+				DrawConnectionSpline(AllottedGeometry, Start, End, FString(), Link.Direction, LinkColor, OutDrawElements, LayerId);
 			}
 			break;
 
 		case ENavSimResult::Handled:
-			DrawIndicatorWithLabel(
-				InputFlowStyle::Color_NavHandled,
-				FString::Printf(TEXT("%s\n%s\nHANDLED by %s"), *DepthStr, *DirectionStr, *TargetName));
-			break;
+			{
+				if (bDrawNavLabels)
+				{
+					NavLabel = FString::Printf(TEXT("%s\n%s\nHANDLED by %s"), *DirectionStr, *DepthStr, *TargetName);
+				}
+				DrawIndicatorWithLabel(
+					InputFlowStyle::Color_NavHandled,
+					NavLabel);
+				break;
+			}
+
 
 		case ENavSimResult::Stopped:
-			DrawIndicatorWithLabel(
-				InputFlowStyle::Color_NavBlocked,
-				FString::Printf(TEXT("%s\n%s\nSTOPPED by %s"), *DirectionStr, *DepthStr, *TargetName));
-			break;
+			{
+				if (bDrawNavLabels)
+				{
+					NavLabel = FString::Printf(TEXT("%s\n%s\nSTOPPED by %s"), *DirectionStr, *DepthStr, *TargetName);
+				}
+				DrawIndicatorWithLabel(
+						InputFlowStyle::Color_NavBlocked,
+						NavLabel);
+				break;
+			}
+
 
 		case ENavSimResult::Explicit:
 			{
 				const FLinearColor Color = InputFlowStyle::Color_NavExplicit.CopyWithNewOpacity(Alpha);
-				const FString StatusLabel = FString::Printf(TEXT("%s\n%s\nEXPLICIT to %s"), *DirectionStr, *DepthStr, *TargetName);
+				if (bDrawNavLabels)
+				{
+					NavLabel = FString::Printf(TEXT("%s\n%s\nEXPLICIT to %s"), *DirectionStr, *DepthStr, *TargetName);
+				}
 				
-				DrawDirectionalIndicator(AllottedGeometry, Start->GetPaintSpaceGeometry(), Link.Direction, StatusLabel, Color, OutDrawElements, LayerId);
-				DrawConnectionSpline(AllottedGeometry, Start, End, Link.Direction, Color.CopyWithNewOpacity(0.5f), OutDrawElements, LayerId);
-				DrawWidgetHighlight(End, Color, TargetName, AllottedGeometry, OutDrawElements, LayerId);
+				DrawDirectionalIndicator(AllottedGeometry, Start->GetPaintSpaceGeometry(), Link.Direction, NavLabel, Color, OutDrawElements, LayerId);
+				DrawConnectionSpline(AllottedGeometry, Start, End, FString(), Link.Direction, Color.CopyWithNewOpacity(0.5f), OutDrawElements, LayerId);
+				DrawWidgetHighlight(End, Color, FString(), AllottedGeometry, OutDrawElements, LayerId);
 			}
 			break;
 		}
@@ -1179,7 +1213,7 @@ void SInputFlowOverlay::DrawWidgetHighlight(const TSharedPtr<SWidget>& Widget, c
 
 	if (!Label.IsEmpty())
 	{
-		DrawTextLabelWithBackground(OverlayGeometry, TopLeft + FVector2D(0, -22), Label, Color,
+		DrawTextLabelWithBackground(OverlayGeometry, TopLeft, Label, Color,
 									OutDrawElements, LayerId);
 	}
 }
@@ -1202,61 +1236,116 @@ void SInputFlowOverlay::DrawTextLabelWithBackground(const FGeometry& AllottedGeo
 	LabelBatch.Add(NewLabel);
 }
 
-void SInputFlowOverlay::DrawConnectionSpline(const FGeometry& AllottedGeometry, TSharedPtr<SWidget> Start,
-											 TSharedPtr<SWidget> End, EUINavigation Direction, FLinearColor Color,
+void SInputFlowOverlay::DrawConnectionSpline(const FGeometry& AllottedGeometry, TSharedPtr<SWidget> Start, TSharedPtr<SWidget> End, const FString& Label, const EUINavigation Direction, const FLinearColor Color,
 											 FSlateWindowElementList& OutDrawElements, int32& LayerId) const
 {
 	const FGeometry& StartGeo = Start->GetPaintSpaceGeometry();
 	const FGeometry& EndGeo = End->GetPaintSpaceGeometry();
 	if (StartGeo.GetAbsoluteSize().IsZero() || EndGeo.GetAbsoluteSize().IsZero()) return;
 
-	const FVector2D StartP = AllottedGeometry.AbsoluteToLocal(
-		StartGeo.GetAbsolutePositionAtCoordinates(FVector2D(0.5f, 0.5f)));
-	const FVector2D EndP = AllottedGeometry.AbsoluteToLocal(EndGeo.GetAbsolutePositionAtCoordinates(FVector2D(0.5f, 0.5f)));
-	const float ControlDist = FMath::Max((EndP - StartP).Size() * 0.5f, 50.0f);
+	// --- CALCULATE LOCAL BOUNDS ---
+	const FVector2D StartTL = AllottedGeometry.AbsoluteToLocal(StartGeo.GetAbsolutePosition());
+	const FVector2D StartBR = AllottedGeometry.AbsoluteToLocal(StartGeo.GetAbsolutePositionAtCoordinates(FVector2D(1.0f, 1.0f)));
+	const FVector2D StartCenter = (StartTL + StartBR) * 0.5f;
 
+	const FVector2D EndTL = AllottedGeometry.AbsoluteToLocal(EndGeo.GetAbsolutePosition());
+	const FVector2D EndBR = AllottedGeometry.AbsoluteToLocal(EndGeo.GetAbsolutePositionAtCoordinates(FVector2D(1.0f, 1.0f)));
+	const FVector2D EndCenter = (EndTL + EndBR) * 0.5f;
+
+	// --- DETERMINE ANCHOR POINTS ---
+	FVector2D StartP = StartCenter;
+	FVector2D EndP = EndCenter;
 	FVector2D StartTangent(0, 0);
+
+	// Determines which edge to leave from, and which edge to arrive at
 	switch (Direction)
 	{
-	case EUINavigation::Left: StartTangent = FVector2D(-1, 0);
+	case EUINavigation::Left:
+		StartP = FVector2D(StartTL.X, StartCenter.Y); // Leave Left Edge
+		EndP   = FVector2D(EndBR.X, EndCenter.Y);     // Enter Right Edge
+		StartTangent = FVector2D(-1, 0);
 		break;
-	case EUINavigation::Right: StartTangent = FVector2D(1, 0);
+	case EUINavigation::Right:
+		StartP = FVector2D(StartBR.X, StartCenter.Y); // Leave Right Edge
+		EndP   = FVector2D(EndTL.X, EndCenter.Y);     // Enter Left Edge
+		StartTangent = FVector2D(1, 0);
 		break;
-	case EUINavigation::Up: StartTangent = FVector2D(0, -1);
+	case EUINavigation::Up:
+		StartP = FVector2D(StartCenter.X, StartTL.Y); // Leave Top Edge
+		EndP   = FVector2D(EndCenter.X, EndBR.Y);     // Enter Bottom Edge
+		StartTangent = FVector2D(0, -1);
 		break;
-	case EUINavigation::Down: StartTangent = FVector2D(0, 1);
+	case EUINavigation::Down:
+		StartP = FVector2D(StartCenter.X, StartBR.Y); // Leave Bottom Edge
+		EndP   = FVector2D(EndCenter.X, EndTL.Y);     // Enter Top Edge
+		StartTangent = FVector2D(0, 1);
 		break;
-	default: break;
+	default:
+		// Fallback for Next/Previous/Num or custom types to use Center-to-Center
+		// We can just set a default tangent (e.g. Right) for the curve math
+		StartTangent = FVector2D(1, 0); 
+		break;
 	}
 
+	// --- COMPUTE SPLINE ---
+	// Calculate distance between edges
+	const float Dist = (EndP - StartP).Size();
+	
+	// Dynamic control distance: 
+	// If widgets are very close, reduce the curve intensity to prevent looping.
+	// If far, clamp to a reasonable max so lines don't swing wildly off-screen.
+	const float ControlDist = FMath::Clamp(Dist * 0.5f, 20.0f, 150.0f);
+
 	const FVector2D CP1 = StartP + (StartTangent * ControlDist);
-	const FVector2D CP2 = EndP - (StartTangent * (ControlDist * 0.5f));
+	const FVector2D CP2 = EndP - (StartTangent * (ControlDist * 0.8f)); // Slightly tighter entry curve
 
 	TArray<FVector2D> Points;
-	for (int32 i = 0; i <= 20; ++i)
+	// Increased segments slightly for smoother curves on long distances
+	for (int32 i = 0; i <= 24; ++i)
 	{
-		const float T = (float)i / 20.0f;
+		const float T = (float)i / 24.0f;
 		const float OneMinusT = 1.0f - T;
 		Points.Add(
-			(OneMinusT * OneMinusT * OneMinusT) * StartP + (3.0f * OneMinusT * OneMinusT * T) * CP1 + (3.0f * OneMinusT
-				* T * T) * CP2 + (T * T * T) * EndP);
+			(OneMinusT * OneMinusT * OneMinusT) * StartP + 
+			(3.0f * OneMinusT * OneMinusT * T) * CP1 + 
+			(3.0f * OneMinusT * T * T) * CP2 + 
+			(T * T * T) * EndP);
 	}
 
 	FSlateDrawElement::MakeLines(OutDrawElements, LayerId + 2, AllottedGeometry.ToPaintGeometry(), Points,
 								 ESlateDrawEffect::None, Color, true, 3.0f);
 
-	// Arrowhead
+	// --- ARROWHEAD ---
 	const FVector2D Dir = (Points.Last() - Points[Points.Num() - 2]).GetSafeNormal();
 	const FVector2D Tangent = FVector2D(-Dir.Y, Dir.X);
 	const TArray<FVector2D> HeadPoints = {
-		EndP + Dir * 2.0f, EndP - Dir * 12.0f + Tangent * 7.2f, EndP - Dir * 12.0f - Tangent * 7.2f, EndP + Dir * 2.0f
+		EndP + Dir * 2.0f, 
+		EndP - Dir * 12.0f + Tangent * 7.2f, 
+		EndP - Dir * 12.0f - Tangent * 7.2f, 
+		EndP + Dir * 2.0f
 	};
+	
 	FSlateDrawElement::MakeLines(OutDrawElements, LayerId + 3, AllottedGeometry.ToPaintGeometry(), HeadPoints,
-								 ESlateDrawEffect::None, Color, true, 3.0f);
+								 ESlateDrawEffect::None, Color, true, 6.0f);
+	
+	// Small dot at target contact point
 	FSlateDrawElement::MakeBox(OutDrawElements, LayerId + 2,
-							   AllottedGeometry.ToPaintGeometry(UE::Slate::CastToVector2f(FVector2D(1, 1)),
-																FSlateLayoutTransform(UE::Slate::CastToVector2f(EndP))),
+							   AllottedGeometry.ToPaintGeometry(UE::Slate::CastToVector2f(FVector2D(4, 4)),
+																FSlateLayoutTransform(UE::Slate::CastToVector2f(EndP - FVector2D(2,2)))),
 							   InputFlowStyle::GetBrush("WhiteBrush"), ESlateDrawEffect::None, Color);
+
+	if (!Label.IsEmpty())
+	{
+		constexpr float T = 0.5f;
+		constexpr float OneMinusT = 0.5f;
+		const FVector2D CenterPos = 
+			(OneMinusT * OneMinusT * OneMinusT) * StartP + 
+			(3.0f * OneMinusT * OneMinusT * T) * CP1 + 
+			(3.0f * OneMinusT * T * T) * CP2 + 
+			(T * T * T) * EndP;
+
+		DrawTextLabelWithBackground(AllottedGeometry, CenterPos, Label, Color, OutDrawElements, LayerId);
+	}
 }
 
 void SInputFlowOverlay::DrawDirectionalIndicator(const FGeometry& AllottedGeometry, const FGeometry& StartGeo,

@@ -75,6 +75,9 @@ public:
 	int32 GetNavigationSearchDepth() const { return NavigationSearchDepth; }
 	void SetNavigationSearchDepth(int32 NewDepth) { NewDepth = FMath::Clamp(NewDepth, 1, 5); if (NavigationSearchDepth != NewDepth) { NavigationSearchDepth = NewDepth; SaveConfig(); OnSettingsChanged.Broadcast(); } }
 
+	bool IsNavLabelsEnabled() const { return bShowNavLabels; }
+	void SetShowNavLabels(bool bEnabled) { if (bShowNavLabels != bEnabled) { bShowNavLabels = bEnabled; SaveConfig(); OnSettingsChanged.Broadcast(); } }
+
 	// Accessor for the settings changed delegate
 	FOnInputFlowSettingsChanged& GetOnSettingsChanged() { return OnSettingsChanged; }
 
@@ -132,6 +135,9 @@ private:
 
 	UPROPERTY(EditAnywhere, Config, Category = "Navigation Simulation", meta=(ClampMin=1, ClampMax=5))
 	int32 NavigationSearchDepth = 1;
+
+	UPROPERTY(EditAnywhere, Config, Category = "Navigation Simulation")
+	bool bShowNavLabels = true;
 	
 	FOnInputFlowSettingsChanged OnSettingsChanged;
 
