@@ -49,15 +49,15 @@
 
 static TAutoConsoleVariable<bool> CVarInputFlowOverlay(
 	TEXT("InputFlow.Overlay"),
-	true, // TODO: Default false after testing
+	false,
 	TEXT("Toggles the Input Flow Debugger in-game overlay"),
 	ECVF_Default
 );
 
 static TAutoConsoleVariable<bool> CVarInputFlowNavSpiderDebugLog(
 	TEXT("InputFlow.NavSpider.DebugLogEnabled"),
-	true, // TODO: Default false after testing
-	TEXT("Toggles the Input Flow Debugger in-game overlay"),
+	false,
+	TEXT("Toggles logging nav sim events to the Output Log"),
 	ECVF_Default
 );
 
