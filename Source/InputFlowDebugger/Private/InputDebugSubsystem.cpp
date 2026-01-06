@@ -575,6 +575,35 @@ TPair<TSharedPtr<SWidget>, ENavSimResult> UInputDebugSubsystem::SimulateNavigati
 		const TSharedRef<SWidget>& BoundaryWidget = ArrangedBoundary.Widget;
 
 		if (!BoundaryWidget->IsEnabled()) continue;
+
+		static const FName TypeSEditableText("SEditableText");
+		static const FName TypeSMultiLineEditableText("SMultiLineEditableText");
+		const FName WidgetType = BoundaryWidget->GetType();
+
+		bool bEditableConsumesInput = false;
+
+		if (WidgetType == TypeSEditableText)
+		{
+			// Single line text consumes Left/Right for caret
+			if (Direction == EUINavigation::Left || Direction == EUINavigation::Right)
+			{
+				bEditableConsumesInput = true;
+			}
+		}
+		else if (WidgetType == TypeSMultiLineEditableText)
+		{
+			// Multi line consumes all directions for caret
+			bEditableConsumesInput = true;
+		}
+
+		if (bEditableConsumesInput)
+		{
+			UE_CLOG(bDebugLog, LogInputFlow, Log, 
+				TEXT("  [Editable] Boundary '%s' consumes input for caret movement. Navigation Handled internally."),
+				*BoundaryWidget->ToString());
+			
+			return {ConstCastSharedRef<SWidget>(BoundaryWidget), ENavSimResult::Handled};
+		}
 		
 		FNavigationReply Reply = FNavigationReply::Escape();
 
