@@ -11,6 +11,7 @@
 #include <Widgets/Text/STextBlock.h>
 #include <Fonts/FontMeasure.h>
 #include <Widgets/Images/SImage.h>
+#include <Widgets/Input/SButton.h>
 
 // Internal
 #include "InputFlowSettings.h"

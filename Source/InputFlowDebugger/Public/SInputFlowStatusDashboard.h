@@ -9,6 +9,7 @@
 #include <Widgets/SCompoundWidget.h>
 
 class UInputDebugSubsystem;
+class STextBlock;
 
 /**
 * A reusable dashboard widget that displays current focus, input config, and bound actions.

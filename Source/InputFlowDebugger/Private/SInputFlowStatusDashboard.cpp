@@ -1,11 +1,22 @@
 ﻿// Copyright Mike Desrosiers, All Rights Reserved
 
 #include "SInputFlowStatusDashboard.h"
+#include "InputFlowHelpers.h"
+
+// Engine
+#include <Engine/GameInstance.h>
 
 // CommonUI
+#if WITH_PLUGIN_COMMONUI
 #include <CommonInputSubsystem.h>
+#endif
 
-#include "InputFlowHelpers.h"
+// Slate
+#include <Widgets/Layout/SBorder.h>
+#include <Widgets/Layout/SBox.h>
+#include <Widgets/Layout/SExpandableArea.h>
+#include <Widgets/Layout/SScrollBox.h>
+#include <Widgets/Text/STextBlock.h>
 
 void SInputFlowStatusDashboard::Construct(const FArguments& InArgs, UInputDebugSubsystem* InSubsystem)
 {

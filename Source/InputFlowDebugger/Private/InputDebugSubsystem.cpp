@@ -392,9 +392,10 @@ void UInputDebugSubsystem::UpdateDataSnapshot()
 						}
 					}
 				}
+				else 
 #endif // WITH_PLUGIN_ENHANCEDINPUT
 				// Case B: Legacy CommonUI (Data Table)
-				else if (const FCommonInputActionDataBase* LegacyData = CommonUI::GetInputActionData(
+				if (const FCommonInputActionDataBase* LegacyData = CommonUI::GetInputActionData(
 					BindingPtr->LegacyActionTableRow))
 				{
 					KeyString += TEXT("CommonUI: ");
@@ -619,39 +620,36 @@ TPair<TSharedPtr<SWidget>, ENavSimResult> UInputDebugSubsystem::SimulateNavigati
 			
 			return {ConstCastSharedRef<SWidget>(BoundaryWidget), ENavSimResult::Handled};
 		}
-		else
-		{
 #if UE_WITH_SLATE_SIMULATEDNAVIGATIONMETADATA
-			// Handle UMG Designer metadata if present
-			if (TSharedPtr<FSimulatedNavigationMetaData> SimMeta = BoundaryWidget->GetMetaData<FSimulatedNavigationMetaData>())
+		// Handle UMG Designer metadata if present
+		if (TSharedPtr<FSimulatedNavigationMetaData> SimMeta = BoundaryWidget->GetMetaData<FSimulatedNavigationMetaData>())
+		{
+			if (SimMeta->IsOnNavigationConst())
 			{
-				if (SimMeta->IsOnNavigationConst())
-				{
-					Reply = BoundaryWidget->OnNavigation(ArrangedBoundary.Geometry, VirtualNavEvent);
-				}
-				else
-				{
-					EUINavigation Type = VirtualNavEvent.GetNavigationType();
-					EUINavigationRule MetaRule = SimMeta->GetBoundaryRule(Type);
-					TSharedPtr<SWidget> MetaTarget = SimMeta->GetFocusRecipient(Type).Pin();
-
-					switch (MetaRule)
-					{
-					case EUINavigationRule::Explicit: Reply = FNavigationReply::Explicit(MetaTarget); break;
-					case EUINavigationRule::Custom:
-					case EUINavigationRule::CustomBoundary: Reply = FNavigationReply::Custom(FNavigationDelegate()); break;
-					case EUINavigationRule::Stop: Reply = FNavigationReply::Stop(); break;
-					case EUINavigationRule::Wrap: Reply = FNavigationReply::Wrap(); break;
-					case EUINavigationRule::Escape: default: Reply = FNavigationReply::Escape(); break;
-					}
-				}
-			}
-			else
-#endif
-			{
-				// Query the widget's navigation
 				Reply = BoundaryWidget->OnNavigation(ArrangedBoundary.Geometry, VirtualNavEvent);
 			}
+			else
+			{
+				EUINavigation Type = VirtualNavEvent.GetNavigationType();
+				EUINavigationRule MetaRule = SimMeta->GetBoundaryRule(Type);
+				TSharedPtr<SWidget> MetaTarget = SimMeta->GetFocusRecipient(Type).Pin();
+
+				switch (MetaRule)
+				{
+				case EUINavigationRule::Explicit: Reply = FNavigationReply::Explicit(MetaTarget); break;
+				case EUINavigationRule::Custom:
+				case EUINavigationRule::CustomBoundary: Reply = FNavigationReply::Custom(FNavigationDelegate()); break;
+				case EUINavigationRule::Stop: Reply = FNavigationReply::Stop(); break;
+				case EUINavigationRule::Wrap: Reply = FNavigationReply::Wrap(); break;
+				case EUINavigationRule::Escape: default: Reply = FNavigationReply::Escape(); break;
+				}
+			}
+		}
+		else
+#endif
+		{
+			// Query the widget's navigation
+			Reply = BoundaryWidget->OnNavigation(ArrangedBoundary.Geometry, VirtualNavEvent);
 		}
 
 		EUINavigationRule Rule = Reply.GetBoundaryRule();

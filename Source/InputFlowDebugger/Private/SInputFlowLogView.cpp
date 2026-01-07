@@ -2,6 +2,9 @@
 
 #include "SInputFlowLogView.h"
 
+// ApplicationCore
+#include <HAL/PlatformApplicationMisc.h>
+
 // Slate
 #include <Styling/AppStyle.h>
 #include <Widgets/Images/SImage.h>
@@ -12,8 +15,8 @@
 #include <Widgets/Layout/SBorder.h>
 #include <Widgets/Layout/SBox.h>
 #include <Widgets/Text/STextBlock.h>
+#include <Widgets/Input/SComboButton.h>
 #include <Framework/MultiBox/MultiBoxBuilder.h>
-#include <HAL/PlatformApplicationMisc.h>
 
 // Internal
 #include "InputDebugSubsystem.h"

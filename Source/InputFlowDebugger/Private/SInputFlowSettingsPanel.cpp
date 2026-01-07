@@ -6,6 +6,11 @@
 
 // Slate
 #include <Widgets/Input/SSpinBox.h>
+#include <Framework/MultiBox/MultiBoxBuilder.h>
+#include <Widgets/Input/SCheckBox.h>
+#include <Widgets/Input/SComboButton.h>
+#include <Widgets/Layout/SSeparator.h>
+#include <Widgets/Images/SImage.h>
 
 // Standard SSpinBox does not allow toggling SupportsKeyboardFocus via arguments.
 class SInputFlowSpinBox : public SSpinBox<int32>

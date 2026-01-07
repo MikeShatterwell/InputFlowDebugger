@@ -20,5 +20,8 @@
 			"LoadingPhase": "Default"
 		}
 	],
+	"TargetAllowList": [
+		"Editor"
+	],
 	"SupportURL": ""
 }
