@@ -2,14 +2,14 @@
 
 #include "SEnhancedInputInspector.h"
 
-
-
 #if WITH_PLUGIN_ENHANCEDINPUT
-
 // Engine
 #include <Engine/GameInstance.h>
 #include <Engine/LocalPlayer.h>
+#include <Engine/Level.h>
 #include <Engine/LevelScriptActor.h>
+#include <Engine/World.h>
+#include <GameFramework/Pawn.h>
 
 // EnhancedInput
 #include <EnhancedInputSubsystems.h>
