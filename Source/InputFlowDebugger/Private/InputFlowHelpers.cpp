@@ -14,7 +14,9 @@
 #endif
 
 // Developer
+#if WITH_EDITOR
 #include <SourceCodeNavigation.h>
+#endif
 
 // Editor
 #if WITH_EDITOR
