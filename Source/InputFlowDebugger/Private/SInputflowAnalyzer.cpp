@@ -2,6 +2,14 @@
 
 #include "SInputFlowAnalyzer.h"
 
+// CoreUObject
+#include <UObject/Package.h>
+
+// Engine
+#include <Engine/Engine.h>
+#include <Engine/World.h>
+#include <Engine/GameInstance.h>
+
 // Editor
 #if WITH_EDITOR
 #include <Editor.h>

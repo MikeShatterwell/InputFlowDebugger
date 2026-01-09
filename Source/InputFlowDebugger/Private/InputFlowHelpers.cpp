@@ -2,6 +2,9 @@
 
 #include "InputFlowHelpers.h"
 
+// CoreUObject
+#include <UObject/Package.h>
+
 #if WITH_PLUGIN_COMMONUI
 // CommonUI
 #include <CommonActivatableWidget.h>
