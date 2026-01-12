@@ -66,15 +66,18 @@ static TAutoConsoleVariable<bool> CVarInputFlowNavSpiderDebugLog(
 // ----------------------------------------------------------------------------------
 
 #if WITH_PLUGIN_ENHANCEDINPUT
-class FInputFlowDebugAccessor : public UEnhancedPlayerInput
+namespace InputDebugSubsystem_Accessors
 {
-public:
-	static const TMap<TObjectPtr<const UInputMappingContext>, FAppliedInputContextData>& GetContextData(
-		const UEnhancedPlayerInput* PInput)
+	class FInputFlowDebugAccessor : public UEnhancedPlayerInput
 	{
-		return static_cast<const FInputFlowDebugAccessor*>(PInput)->GetAppliedInputContextData();
-	}
-};
+	public:
+		static const TMap<TObjectPtr<const UInputMappingContext>, FAppliedInputContextData>& GetContextData(
+			const UEnhancedPlayerInput* PInput)
+		{
+			return static_cast<const FInputFlowDebugAccessor*>(PInput)->GetAppliedInputContextData();
+		}
+	};
+}
 #endif // WITH_PLUGIN_ENHANCEDINPUT
 
 // ----------------------------------------------------------------------------------
@@ -445,7 +448,7 @@ void UInputDebugSubsystem::UpdateDataSnapshot()
 	{
 		if (UEnhancedPlayerInput* PlayerInput = EISub->GetPlayerInput())
 		{
-			const auto& ContextMap = FInputFlowDebugAccessor::GetContextData(PlayerInput);
+			const auto& ContextMap = InputDebugSubsystem_Accessors::FInputFlowDebugAccessor::GetContextData(PlayerInput);
 			for (const auto& Pair : ContextMap)
 			{
 				if (const UInputMappingContext* IMC = Pair.Key)

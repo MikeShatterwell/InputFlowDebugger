@@ -31,14 +31,17 @@
 #include "InputFlowHelpers.h"
 
 // Accessor hack to get internal Context Data
-class FInputFlowDebugAccessor : public UEnhancedPlayerInput
+namespace EnhancedInputInspector_Accessors
 {
-public:
-	static const TMap<TObjectPtr<const UInputMappingContext>, FAppliedInputContextData>& GetContextData(const UEnhancedPlayerInput* PlayerInput)
+	class FInputFlowDebugAccessor : public UEnhancedPlayerInput
 	{
-		return static_cast<const FInputFlowDebugAccessor*>(PlayerInput)->GetAppliedInputContextData();
-	}
-};
+	public:
+		static const TMap<TObjectPtr<const UInputMappingContext>, FAppliedInputContextData>& GetContextData(const UEnhancedPlayerInput* PlayerInput)
+		{
+			return static_cast<const FInputFlowDebugAccessor*>(PlayerInput)->GetAppliedInputContextData();
+		}
+	};
+}
 
 class SEnhancedInputContextRow : public STableRow<TSharedPtr<FEnhancedInputInfoItem>>
 {
@@ -230,7 +233,7 @@ void SEnhancedInputInspector::UpdateData(float DeltaTime)
 	// and only modify the list structure when Contexts/Actions are added/removed.
 
 	const TMap<TObjectPtr<const UInputMappingContext>, FAppliedInputContextData>& ContextMap =
-		FInputFlowDebugAccessor::GetContextData(PlayerInput);
+		EnhancedInputInspector_Accessors::FInputFlowDebugAccessor::GetContextData(PlayerInput);
 	
 	TArray<const UInputMappingContext*> SortedContexts;
 	for (auto& Pair : ContextMap) { if(Pair.Key) SortedContexts.Add(Pair.Key); }
