@@ -10,7 +10,6 @@
 
 class UInputDebugSubsystem;
 class SInputFlowLogView;
-class SInputFlowSpinBox;
 class SCommonUIHierarchyView;
 class SEnhancedInputInspector;
 class STextBlock;

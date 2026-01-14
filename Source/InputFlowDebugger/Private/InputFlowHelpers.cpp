@@ -14,6 +14,8 @@
 // EnhancedInput
 #if WITH_PLUGIN_ENHANCEDINPUT
 #include <InputTriggers.h>
+#include <EnhancedPlayerInput.h>
+#include <InputMappingContext.h>
 #endif
 
 // Developer
@@ -707,6 +709,31 @@ FArrangedWidget InputFlowHelpers::ToWindowSpace(const FArrangedWidget& InArrange
 	Out.Geometry.AppendTransform(WindowInverse);
 	return Out;
 }
+
+#if WITH_PLUGIN_ENHANCEDINPUT
+
+// The accessor class is now defined ONLY here.
+class FInputFlowDebugAccessor : public UEnhancedPlayerInput
+{
+public:
+	static const TMap<TObjectPtr<const UInputMappingContext>, FAppliedInputContextData>& GetContextData(const UEnhancedPlayerInput* PlayerInput)
+	{
+		// Safe cast because we are just accessing memory layout, not changing it
+		return static_cast<const FInputFlowDebugAccessor*>(PlayerInput)->GetAppliedInputContextData();
+	}
+};
+
+const TMap<TObjectPtr<const UInputMappingContext>, FAppliedInputContextData>& InputFlowHelpers::GetInputContextData(const UEnhancedPlayerInput* PlayerInput)
+{
+	if (!PlayerInput)
+	{
+		static const TMap<TObjectPtr<const UInputMappingContext>, FAppliedInputContextData> EmptyMap;
+		return EmptyMap;
+	}
+	return FInputFlowDebugAccessor::GetContextData(PlayerInput);
+}
+
+#endif
 
 
 /** Finds the first focusable descendant using a Depth-First Search. */

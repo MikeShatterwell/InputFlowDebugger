@@ -6,9 +6,49 @@
 #include <CoreMinimal.h>
 
 // Slate
+#include <Widgets/Input/SSpinBox.h>
 #include <Widgets/SCompoundWidget.h>
 
-class SInputFlowSpinBox;
+// Standard SSpinBox does not allow toggling SupportsKeyboardFocus via arguments.
+template<typename NumericType>
+class SInputFlowSpinBox : public SSpinBox<NumericType>
+{
+public:
+	SLATE_BEGIN_ARGS(SInputFlowSpinBox<NumericType>)
+			: _MinValue(1)
+			, _MaxValue(100)
+			, _Value(1)
+	{}
+		SLATE_ATTRIBUTE(TOptional<NumericType>, MinValue)
+		SLATE_ATTRIBUTE(TOptional<NumericType>, MaxValue)
+		SLATE_ATTRIBUTE(NumericType, Value)
+		SLATE_EVENT(typename SSpinBox<NumericType>::FOnValueChanged, OnValueChanged)
+	SLATE_END_ARGS()
+
+	void Construct(const FArguments& InArgs)
+	{
+		SSpinBox<NumericType>::Construct(typename SSpinBox<NumericType>::FArguments()
+			.MinValue(InArgs._MinValue)
+			.MaxValue(InArgs._MaxValue)
+			.Value(InArgs._Value)
+			.OnValueChanged(InArgs._OnValueChanged)
+		);
+	}
+
+	virtual bool SupportsKeyboardFocus() const override
+	{
+		return bCanSupportFocus && SSpinBox<NumericType>::SupportsKeyboardFocus();
+	}
+
+	void SetCanSupportFocus(bool bInCanSupport)
+	{
+		bCanSupportFocus = bInCanSupport;
+	}
+
+private:
+	bool bCanSupportFocus = true;
+};
+
 class UInputDebugSubsystem;
 
 /**
@@ -27,6 +67,7 @@ public:
 
 
 private:
+	TSharedRef<SWidget> MakeScaleMenu();
 	TSharedRef<SWidget> MakeNavMenu();
 	TSharedRef<SWidget> MakePanelMenu();
 
@@ -40,6 +81,7 @@ private:
 	UInputDebugSubsystem* GetSubsystem() const;
 	TWeakObjectPtr<UInputDebugSubsystem> WeakSubsystem;
 	
-	TSharedPtr<SInputFlowSpinBox> DepthSpinBox; 
+	TSharedPtr<SInputFlowSpinBox<int32>> DepthSpinBox;
+	TSharedPtr<SInputFlowSpinBox<float>> ScaleSpinBox;
 	bool bIsOverlay = false;
 };

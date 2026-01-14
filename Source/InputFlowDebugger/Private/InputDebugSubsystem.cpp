@@ -61,24 +61,12 @@ static TAutoConsoleVariable<bool> CVarInputFlowNavSpiderDebugLog(
 	ECVF_Default
 );
 
-// ----------------------------------------------------------------------------------
-// Accessor Hacks
-// ----------------------------------------------------------------------------------
-
-#if WITH_PLUGIN_ENHANCEDINPUT
-namespace InputDebugSubsystem_Accessors
-{
-	class FInputFlowDebugAccessor : public UEnhancedPlayerInput
-	{
-	public:
-		static const TMap<TObjectPtr<const UInputMappingContext>, FAppliedInputContextData>& GetContextData(
-			const UEnhancedPlayerInput* PInput)
-		{
-			return static_cast<const FInputFlowDebugAccessor*>(PInput)->GetAppliedInputContextData();
-		}
-	};
-}
-#endif // WITH_PLUGIN_ENHANCEDINPUT
+static TAutoConsoleVariable<float> CVarInputFlowOverlayScale(
+	TEXT("InputFlow.OverlayScale"),
+	1.0f,
+	TEXT("Scales the Input Flow Debugger overlay UI (0.5 to 3.0)"),
+	ECVF_Default
+);
 
 // ----------------------------------------------------------------------------------
 // UInputDebugSubsystem Implementation
@@ -166,6 +154,16 @@ void UInputDebugSubsystem::ClearLogHistory()
 void UInputDebugSubsystem::HandleSettingsChanged()
 {
 	const UInputFlowSettings* Settings = UInputFlowSettings::Get();
+	if (CVarInputFlowOverlayScale.AsVariable() && CVarInputFlowOverlayScale.AsVariable()->GetFloat() != Settings->GetOverlayScale())
+	{
+		CVarInputFlowOverlayScale.AsVariable()->Set(Settings->GetOverlayScale(), ECVF_SetByCode);
+	}
+	
+	if (CVarInputFlowOverlayScale.AsVariable() && CVarInputFlowOverlayScale.AsVariable()->GetFloat() != Settings->GetOverlayScale())
+	{
+		CVarInputFlowOverlayScale.AsVariable()->Set(Settings->GetOverlayScale(), ECVF_SetByCode);
+	}
+
 	UGameViewportClient* GameViewport = (GetWorld()) ? GetWorld()->GetGameViewport() : nullptr;
 	const bool bIsViewportReady = IsValid(GameViewport);
 
@@ -305,6 +303,7 @@ bool UInputDebugSubsystem::TickSyncLogs(float DeltaTime)
 
 void UInputDebugSubsystem::UpdateDataSnapshot()
 {
+	if (!bOverlayActive) return;
 	OverlayState = FInputOverlayState(); // Reset
 
 	ULocalPlayer* LP = GetGameInstance()->GetFirstGamePlayer();
@@ -448,26 +447,26 @@ void UInputDebugSubsystem::UpdateDataSnapshot()
 	{
 		if (UEnhancedPlayerInput* PlayerInput = EISub->GetPlayerInput())
 		{
-			const auto& ContextMap = InputDebugSubsystem_Accessors::FInputFlowDebugAccessor::GetContextData(PlayerInput);
+			const TMap<TObjectPtr<const UInputMappingContext>, FAppliedInputContextData>& ContextMap =
+				InputFlowHelpers::GetInputContextData(PlayerInput);
 			for (const auto& Pair : ContextMap)
 			{
-				if (const UInputMappingContext* IMC = Pair.Key)
+				const UInputMappingContext* IMC = Pair.Key;
+				if (!IsValid(IMC)) continue;
+				
+				for (const FEnhancedActionKeyMapping& Mapping : IMC->GetMappings())
 				{
-					for (const auto& Mapping : IMC->GetMappings())
+					const UInputAction* Action = Mapping.Action;
+					if (!IsValid(Action)) continue;
+					const FInputActionInstance* Data = PlayerInput->FindActionInstanceData(Action);
+					if (Data == nullptr) continue;
+
+					const ETriggerEvent Trigger = Data->GetTriggerEvent();
+					if (Trigger == ETriggerEvent::Triggered || Trigger == ETriggerEvent::Ongoing)
 					{
-						if (const UInputAction* Action = Mapping.Action)
-						{
-							if (const FInputActionInstance* Data = PlayerInput->FindActionInstanceData(Action))
-							{
-								const ETriggerEvent Trigger = Data->GetTriggerEvent();
-								if (Trigger == ETriggerEvent::Triggered || Trigger == ETriggerEvent::Ongoing)
-								{
-									const FString Val = PlayerInput->GetActionValue(Action).ToString();
-									FString Entry = FString::Printf(TEXT("%s: %s"), *Action->GetName(), *Val);
-									OverlayState.ActiveEnhancedInputActions.AddUnique(Entry);
-								}
-							}
-						}
+						const FString Val = PlayerInput->GetActionValue(Action).ToString();
+						FString Entry = FString::Printf(TEXT("%s: %s"), *Action->GetName(), *Val);
+						OverlayState.ActiveEnhancedInputActions.AddUnique(Entry);
 					}
 				}
 			}

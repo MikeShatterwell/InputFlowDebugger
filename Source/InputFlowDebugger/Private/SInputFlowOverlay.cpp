@@ -9,9 +9,10 @@
 #include <Widgets/Layout/SBorder.h>
 #include <Widgets/Layout/SBox.h>
 #include <Widgets/Text/STextBlock.h>
-#include <Fonts/FontMeasure.h>
 #include <Widgets/Images/SImage.h>
 #include <Widgets/Input/SButton.h>
+#include <Widgets/SCanvas.h>
+#include <Widgets/Layout/SDPIScaler.h>
 
 // Internal
 #include "InputFlowSettings.h"
@@ -92,7 +93,7 @@ public:
 		SLATE_DEFAULT_SLOT(FArguments, Content)
 	SLATE_END_ARGS()
 
-void Construct(const FArguments& InArgs)
+	void Construct(const FArguments& InArgs)
 	{
 		CurrentSize = InArgs._InitialSize;
 		GetSnapTargetsDelegate = InArgs._OnGetSnapTargets;
@@ -425,8 +426,8 @@ void Construct(const FArguments& InArgs)
 			const TSharedPtr<SWidget> Parent = GetParentWidget();
 			if (Parent.IsValid())
 			{
-				FVector2D ParentSize = Parent->GetPaintSpaceGeometry().GetLocalSize();
-				const float SnapDist = 15.0f;
+				const FVector2D ParentSize = Parent->GetPaintSpaceGeometry().GetLocalSize();
+				constexpr float SnapDist = 15.0f;
 
 				if (GetSnapTargetsDelegate.IsBound())
 				{
@@ -610,6 +611,40 @@ private:
 };
 
 // --------------------------------------------------------------------
+// LABEL IMPLEMENTATION
+// --------------------------------------------------------------------
+void SInputFlowLabel::Construct(const FArguments& InArgs)
+{
+	ChildSlot
+	[
+		SAssignNew(BackgroundBorder, SBorder)
+		.Padding(FMargin(12.0f, 6.0f))
+		.BorderImage(InputFlowStyle::GetBrush("WhiteBrush"))
+		[
+			SAssignNew(TextBlock, STextBlock)
+			.Font(FCoreStyle::GetDefaultFontStyle("Bold", 9))
+			.ShadowOffset(FVector2D(1,1))
+			.ColorAndOpacity(FLinearColor::White)
+			.LineHeightPercentage(1.25f)
+		]
+	];
+}
+
+void SInputFlowLabel::SetData(const FString& Text, const FLinearColor& Color)
+{
+	if (TextBlock.IsValid())
+	{
+		TextBlock->SetText(FText::FromString(Text));
+		TextBlock->SetColorAndOpacity(Color);
+	}
+	if (BackgroundBorder.IsValid())
+	{
+		// Make background a darker version of the label color
+		BackgroundBorder->SetBorderBackgroundColor((Color * 0.1f).CopyWithNewOpacity(0.7f));
+	}
+}
+
+// --------------------------------------------------------------------
 // MAIN OVERLAY IMPLEMENTATION
 // --------------------------------------------------------------------
 
@@ -618,6 +653,8 @@ void SInputFlowOverlay::Construct(const FArguments& InArgs)
 	DebugSubsystem = InArgs._Subsystem;
 	UInputDebugSubsystem* Sub = DebugSubsystem.Get();
 	SetTag(InputFlowHelpers::InputFlowAnalyzerTag);
+
+	QueuedLabels.Reserve(64);
 
 	SetVisibility(EVisibility::SelfHitTestInvisible);
 
@@ -652,7 +689,15 @@ void SInputFlowOverlay::Construct(const FArguments& InArgs)
 
 	ChildSlot
 	[
-		SAssignNew(RootOverlay, SOverlay)
+		SAssignNew(MainDPIScaler, SDPIScaler)
+		.Visibility(EVisibility::SelfHitTestInvisible)
+		[
+			SAssignNew(RootOverlay, SOverlay)
+			+ SOverlay::Slot()
+			[
+				SAssignNew(LabelCanvas, SCanvas)
+			]
+		]
 	];
 
 	auto AddPanel = [&](TSharedRef<SInputFlowDraggablePanel> Panel)
@@ -679,25 +724,25 @@ void SInputFlowOverlay::Construct(const FArguments& InArgs)
 
 	// Status Dashboard
 	AddPanel(
-			SNew(SInputFlowDraggablePanel)
-			.Title(TEXT("Status Dashboard"))
-			.InitialPosition(FVector2D(1400, 20))
-			.InitialSize(FVector2D(600, 220))
-			.OnGetSnapTargets_Lambda(GetSnapTargets)
-			.OnClose_Lambda([]() 
-			{ 
-				GetMutableDefault<UInputFlowSettings>()->SetShowDashboardPanel(false);
-			})
-			.Visibility_Lambda([]() -> EVisibility
-			{
-				return UInputFlowSettings::Get()->IsDashboardPanelShown()
-					? EVisibility::SelfHitTestInvisible
-					: EVisibility::Collapsed;
-			})
-			[
-				SNew(SInputFlowStatusDashboard, Sub)
-			]
-		);
+		SNew(SInputFlowDraggablePanel)
+		.Title(TEXT("Status Dashboard"))
+		.InitialPosition(FVector2D(1400, 20))
+		.InitialSize(FVector2D(600, 220))
+		.OnGetSnapTargets_Lambda(GetSnapTargets)
+		.OnClose_Lambda([]() 
+		{ 
+			GetMutableDefault<UInputFlowSettings>()->SetShowDashboardPanel(false);
+		})
+		.Visibility_Lambda([]() -> EVisibility
+		{
+			return UInputFlowSettings::Get()->IsDashboardPanelShown()
+				? EVisibility::SelfHitTestInvisible
+				: EVisibility::Collapsed;
+		})
+		[
+			SNew(SInputFlowStatusDashboard, Sub)
+		]
+	);
 
 	// Log View
 	AddPanel(
@@ -770,6 +815,25 @@ void SInputFlowOverlay::Construct(const FArguments& InArgs)
 #endif
 }
 
+void SInputFlowOverlay::Tick(const FGeometry& AllottedGeometry, const double InCurrentTime, const float InDeltaTime)
+{
+	SCompoundWidget::Tick(AllottedGeometry, InCurrentTime, InDeltaTime);
+
+	if (!UInputFlowSettings::Get()->IsOverlayEnabled())
+	{
+		LabelCanvas->SetVisibility(EVisibility::Collapsed);
+		return;
+	}
+	LabelCanvas->SetVisibility(EVisibility::SelfHitTestInvisible);
+
+	// Gather new labels
+	QueuedLabels.Reset();
+	GatherLabelsFromSubsystem(AllottedGeometry); // Populates QueuedLabels
+	
+	// Update Canvas
+	UpdateLabelCanvas(AllottedGeometry);
+}
+
 UInputDebugSubsystem* SInputFlowOverlay::GetSubsystem() const
 {
 	return DebugSubsystem.Get();
@@ -779,11 +843,16 @@ int32 SInputFlowOverlay::OnPaint(const FPaintArgs& Args, const FGeometry& Allott
 								 const FSlateRect& MyCullingRect, FSlateWindowElementList& OutDrawElements,
 								 int32 LayerId, const FWidgetStyle& InWidgetStyle, bool bParentEnabled) const
 {
-	LabelBatch.Reset();
-
 	if (!UInputFlowSettings::Get()->IsOverlayEnabled())
 	{
 		return LayerId;
+	}
+
+	// Apply the UI scale from settings to the ScaleBox
+	if (MainDPIScaler.IsValid())
+	{
+		const float Scale = UInputFlowSettings::Get()->GetOverlayScale();
+		MainDPIScaler->SetDPIScale(Scale);
 	}
 
 	PaintFocusedWidget(AllottedGeometry, OutDrawElements, LayerId);
@@ -791,87 +860,9 @@ int32 SInputFlowOverlay::OnPaint(const FPaintArgs& Args, const FGeometry& Allott
 	PaintFocusHistory(AllottedGeometry, OutDrawElements, LayerId);
 	PaintHitTestGrid(AllottedGeometry, OutDrawElements, LayerId);
 
-	ResolveAndDrawLabels(AllottedGeometry, OutDrawElements, LayerId + 50);
-
-	int32 PanelLayerId = LayerId + 100;
+	const int32 PanelLayerId = LayerId + 100;
 	return SCompoundWidget::OnPaint(Args, AllottedGeometry, MyCullingRect, OutDrawElements, PanelLayerId, InWidgetStyle,
 									bParentEnabled);
-}
-
-void SInputFlowOverlay::ResolveAndDrawLabels(const FGeometry& AllottedGeometry,
-											 FSlateWindowElementList& OutDrawElements, int32 LayerId) const
-{
-	if (LabelBatch.IsEmpty()) return;
-
-	const FVector2D ScreenSize = AllottedGeometry.GetLocalSize();
-	const FSlateFontInfo FontInfo = FCoreStyle::GetDefaultFontStyle("Bold", 9);
-
-	// Convert Pending Labels to Physics Items
-	TArray<FInputFlowPhysicsItem> PhysicsItems;
-	PhysicsItems.Reserve(LabelBatch.Num());
-
-	for (const FPendingLabel& Label : LabelBatch)
-	{
-		if (Label.Text.IsEmpty()) continue;
-
-		FInputFlowPhysicsItem Item;
-		Item.Position = Label.CurrentPos;
-		Item.Size = Label.Size;
-		Item.TargetPosition = Label.OriginalPos;
-		Item.bIsFixed = false;
-		PhysicsItems.Add(Item);
-	}
-
-	// Solve Collisions
-	InputFlowHelpers::SolveAABBCollisions(PhysicsItems, ScreenSize, 20);
-
-	// Apply Results & Draw
-	for (int32 i = 0; i < LabelBatch.Num(); ++i)
-	{
-		const FPendingLabel& Label = LabelBatch[i];
-		if (Label.Text.IsEmpty()) continue;
-		
-		const FInputFlowPhysicsItem& Resolved = PhysicsItems[i];
-		FVector2D FinalPos = Resolved.Position;
-
-		// Draw Connector
-		if (FVector2D::DistSquared(Label.OriginalPos, FinalPos) > 100.0f)
-		{
-			TArray<FVector2D> LinePoints;
-			LinePoints.Add(Label.OriginalPos);
-			LinePoints.Add(FinalPos);
-
-			FSlateDrawElement::MakeLines(OutDrawElements, LayerId, AllottedGeometry.ToPaintGeometry(), LinePoints,
-										 ESlateDrawEffect::None, Label.Color.CopyWithNewOpacity(0.8f), true, 5.0f);
-
-			FPaintGeometry OriginDot = AllottedGeometry.ToPaintGeometry(
-				UE::Slate::CastToVector2f(FVector2D(8, 8)),
-				FSlateLayoutTransform(UE::Slate::CastToVector2f(Label.OriginalPos))
-			);
-			FSlateDrawElement::MakeBox(OutDrawElements, LayerId, OriginDot, InputFlowStyle::GetBrush("WhiteBrush"),
-									   ESlateDrawEffect::None, Label.Color);
-		}
-
-		// Draw Box & Text
-		const FLinearColor DarkerColor = (Label.Color * 0.1f).CopyWithNewOpacity(0.8f);
-			
-		FPaintGeometry BoxGeo = AllottedGeometry.ToPaintGeometry(UE::Slate::CastToVector2f(Label.Size),
-																 FSlateLayoutTransform(
-																	 UE::Slate::CastToVector2f(FinalPos)));
-		FSlateDrawElement::MakeBox(OutDrawElements, LayerId + 1, BoxGeo,
-								   InputFlowStyle::GetBrush("ChildWindow.Background"), ESlateDrawEffect::None,
-								   DarkerColor);
-
-		FVector2D Padding(8.0f, 4.0f);
-		FPaintGeometry TextGeo = AllottedGeometry.ToPaintGeometry(
-			UE::Slate::CastToVector2f(Label.Size - (Padding * 2.0f)),
-			FSlateLayoutTransform(UE::Slate::CastToVector2f(FinalPos + Padding)));
-
-		FSlateDrawElement::MakeText(OutDrawElements, LayerId + 2, TextGeo, Label.Text, FontInfo, ESlateDrawEffect::None,
-									FLinearColor::Black); // Shadow
-		FSlateDrawElement::MakeText(OutDrawElements, LayerId + 3, TextGeo, Label.Text, FontInfo, ESlateDrawEffect::None,
-									Label.Color); // Main
-	}
 }
 
 void SInputFlowOverlay::PaintFocusedWidget(const FGeometry& AllottedGeometry, FSlateWindowElementList& OutDrawElements,
@@ -879,7 +870,7 @@ void SInputFlowOverlay::PaintFocusedWidget(const FGeometry& AllottedGeometry, FS
 {
 	const UInputDebugSubsystem* Sub = GetSubsystem();
 	if (!IsValid(Sub) || !UInputFlowSettings::Get()->IsFocusHighlightEnabled()) return;
-
+	
 	// Draw Focus
 	if (const TSharedPtr<SWidget> Focus = Sub->GetFocusedWidget())
 	{
@@ -891,20 +882,22 @@ void SInputFlowOverlay::PaintFocusedWidget(const FGeometry& AllottedGeometry, FS
 		const FGeometry& FocusGeo = Focus->GetPaintSpaceGeometry();
 		if (FocusGeo.GetAbsoluteSize().GetMin() > 0.0f)
 		{
+			const float Scale = UInputFlowSettings::Get()->GetOverlayScale();
+
 			FVector2D Center = AllottedGeometry.AbsoluteToLocal(
 				FocusGeo.GetAbsolutePositionAtCoordinates(FVector2D(0.5f, 0.5f)));
 
 			// Draw Crosshair/Ring
 			TArray<FVector2D> RingPoints;
 			constexpr int32 Segments = 16;
-			constexpr float RingRadius = 6.0f;
+			const float RingRadius = 6.0f * Scale;
 			for (int32 i = 0; i <= Segments; ++i)
 			{
 				const float Angle = ((float)i / (float)Segments) * 2.0f * PI;
 				RingPoints.Add(Center + FVector2D(FMath::Cos(Angle), FMath::Sin(Angle)) * RingRadius);
 			}
 			FSlateDrawElement::MakeLines(OutDrawElements, LayerId + 10, AllottedGeometry.ToPaintGeometry(), RingPoints,
-										 ESlateDrawEffect::None, InputFlowStyle::Color_Focus, true, 3.f);
+										 ESlateDrawEffect::None, InputFlowStyle::Color_Focus, true, 3.f * Scale);
 		}
 	}
 }
@@ -1205,36 +1198,216 @@ void SInputFlowOverlay::DrawWidgetHighlight(const TSharedPtr<SWidget>& Widget, c
 	FSlateDrawElement::MakeBox(OutDrawElements, LayerId, PaintGeo, InputFlowStyle::GetBrush("WhiteBrush"),
 							   ESlateDrawEffect::None, Color.CopyWithNewOpacity(Color.A * 0.15f));
 
+	const float Scale = UInputFlowSettings::Get()->GetOverlayScale();
 	const TArray<FVector2D> LinePoints = {
 		FVector2D::ZeroVector, FVector2D(Size.X, 0), FVector2D(Size.X, Size.Y), FVector2D(0, Size.Y),
 		FVector2D::ZeroVector
 	};
 	FSlateDrawElement::MakeLines(OutDrawElements, LayerId + 1, PaintGeo, LinePoints, ESlateDrawEffect::None, Color,
-								 true, Thickness);
+								 true, Thickness * Scale);
 
 	if (!Label.IsEmpty())
 	{
-		DrawTextLabelWithBackground(OverlayGeometry, TopLeft, Label, Color,
-									OutDrawElements, LayerId);
+		QueueLabel(TopLeft, Label, Color);
 	}
 }
 
-void SInputFlowOverlay::DrawTextLabelWithBackground(const FGeometry& AllottedGeometry, FVector2D Position,
-													const FString& Text, const FLinearColor& Color,
-													FSlateWindowElementList& OutDrawElements, int32& LayerId) const
+void SInputFlowOverlay::QueueLabel(const FVector2D& Position, const FString& Text, const FLinearColor& Color, const FVector2D& Pivot) const
 {
-	const FSlateFontInfo FontInfo = FCoreStyle::GetDefaultFontStyle("Bold", 9);
-	const TSharedRef<FSlateFontMeasure> FontMeasure = FSlateApplication::Get().GetRenderer()->GetFontMeasureService();
-	FVector2D BoxSize = FontMeasure->Measure(Text, FontInfo) + FVector2D(16.0f, 8.0f);
+	FQueuedLabel& Item = QueuedLabels.AddDefaulted_GetRef();
+	Item.OriginalPos = Position;
+	Item.Text = Text;
+	Item.Color = Color;
+	Item.Pivot = Pivot;
+}
 
-	FPendingLabel NewLabel;
-	NewLabel.OriginalPos = Position;
-	NewLabel.CurrentPos = Position;
-	NewLabel.Size = BoxSize;
-	NewLabel.Text = Text;
-	NewLabel.Color = Color;
-	NewLabel.LayerId = LayerId;
-	LabelBatch.Add(NewLabel);
+void SInputFlowOverlay::GatherLabelsFromSubsystem(const FGeometry& AllottedGeometry)
+{
+	UInputDebugSubsystem* Sub = GetSubsystem();
+	if (!IsValid(Sub)) return;
+
+	// --- FOCUS ---
+	if (UInputFlowSettings::Get()->IsFocusHighlightEnabled())
+	{
+		if (const TSharedPtr<SWidget> Focus = Sub->GetFocusedWidget())
+		{
+			const FGeometry& WidgetGeo = Focus->GetPaintSpaceGeometry();
+			if (WidgetGeo.GetAbsoluteSize().GetMin() > 0.0f)
+			{
+				const FVector2D TopLeft = AllottedGeometry.AbsoluteToLocal(WidgetGeo.GetAbsolutePosition());
+				const FString Label = FString::Printf(TEXT("FOCUS: %s"), *InputFlowHelpers::GetWidgetDisplayName(Focus));
+				QueueLabel(TopLeft, Label, InputFlowStyle::Color_Focus);
+			}
+		}
+	}
+
+	// --- NAVIGATION ---
+	if (UInputFlowSettings::Get()->IsNavSimulationEnabled())
+	{
+	   const TArray<FNavigationLink>& Links = Sub->GetNavigationLinks();
+	   const int32 MaxDepth = UInputFlowSettings::Get()->GetNavigationSearchDepth();
+	   const bool bDrawNavLabels = UInputFlowSettings::Get()->IsNavLabelsEnabled();
+
+	   for (const FNavigationLink& Link : Links)
+	   {
+		  if (!bDrawNavLabels) continue;
+
+		  TSharedPtr<SWidget> Start = Link.StartWidget.Pin();
+		  TSharedPtr<SWidget> End = Link.EndWidget.Pin();
+		  if (!Start) continue;
+
+		  const FString DirectionStr = UEnum::GetValueAsString(Link.Direction);
+		  const FString DepthStr = FString::Printf(TEXT("[%d/%d]"), Link.DepthStep, MaxDepth);
+		  const FString TargetName = End.IsValid() ? InputFlowHelpers::GetWidgetDisplayName(End) : TEXT("Unknown");
+		  
+		  // Calculate Source Geometry
+		  const FGeometry& StartGeo = Start->GetPaintSpaceGeometry();
+		  const FVector2D StartTL = AllottedGeometry.AbsoluteToLocal(StartGeo.GetAbsolutePosition());
+		  const FVector2D StartBR = AllottedGeometry.AbsoluteToLocal(StartGeo.GetAbsolutePositionAtCoordinates(FVector2D(1, 1)));
+		  const FVector2D StartCenter = (StartTL + StartBR) * 0.5f;
+
+		  // Determine Label Position & Alignment based on Source Geometry
+		  FVector2D LabelPos = StartCenter; 
+		  FVector2D LabelPivot = FVector2D(0.5f, 0.5f); // Default Center
+		  constexpr float OffsetDist = 15.0f; // "A bit away"
+
+		  switch(Link.Direction) 
+		  {
+			case EUINavigation::Up:
+				// Pos: Top Middle of Source - Offset
+				LabelPos = FVector2D(StartCenter.X, StartTL.Y - OffsetDist);
+				// Pivot: Bottom Middle of Label (0.5, 1.0)
+				LabelPivot = FVector2D(0.5f, 1.0f);
+				break;
+			case EUINavigation::Down:
+				// Pos: Bottom Middle of Source + Offset
+				LabelPos = FVector2D(StartCenter.X, StartBR.Y + OffsetDist);
+				// Pivot: Top Middle of Label (0.5, 0.0)
+				LabelPivot = FVector2D(0.5f, 0.0f);
+				break;
+			case EUINavigation::Left:
+				// Pos: Left Middle of Source - Offset
+				LabelPos = FVector2D(StartTL.X - OffsetDist, StartCenter.Y);
+				// Pivot: Right Middle of Label (1.0, 0.5)
+				LabelPivot = FVector2D(1.0f, 0.5f);
+				break;
+			case EUINavigation::Right:
+				// Pos: Right Middle of Source + Offset
+				LabelPos = FVector2D(StartBR.X + OffsetDist, StartCenter.Y);
+				// Pivot: Left Middle of Label (0.0, 0.5)
+				LabelPivot = FVector2D(0.0f, 0.5f);
+				break;
+			default: break;
+		  }
+
+		  FString NavLabelText;
+		  FLinearColor LabelColor = InputFlowStyle::Color_NavNormal;
+
+		  switch (Link.ResultType)
+		  {
+		  case ENavSimResult::Normal:
+			 if (End.IsValid())
+			 {
+				NavLabelText = FString::Printf(TEXT("%s %s\nTarget: %s"), *DirectionStr, *DepthStr, *TargetName);
+				LabelColor = InputFlowStyle::Color_NavNormal;
+			 }
+			 break;
+		  case ENavSimResult::Handled:
+			 NavLabelText = FString::Printf(TEXT("%s %s\nHANDLED by %s"), *DirectionStr, *DepthStr, *TargetName);
+			 LabelColor = InputFlowStyle::Color_NavHandled;
+			 break;
+		  case ENavSimResult::Stopped:
+			 NavLabelText = FString::Printf(TEXT("%s %s\nSTOPPED by %s"), *DirectionStr, *DepthStr, *TargetName);
+			 LabelColor = InputFlowStyle::Color_NavBlocked;
+			 break;
+		  case ENavSimResult::Explicit:
+			 NavLabelText = FString::Printf(TEXT("%s %s\nEXPLICIT to %s"), *DirectionStr, *DepthStr, *TargetName);
+			 LabelColor = InputFlowStyle::Color_NavExplicit;
+			 break;
+		  }
+
+		  if (!NavLabelText.IsEmpty())
+		  {
+			 QueueLabel(LabelPos, NavLabelText, LabelColor, LabelPivot);
+		  }
+	   }
+	}
+}
+
+void SInputFlowOverlay::UpdateLabelCanvas(const FGeometry& AllottedGeometry)
+{
+	// Manage Pool Size
+	if (ActiveLabels.Num() > QueuedLabels.Num())
+	{
+		// Deactivate excess
+		for (int32 i = QueuedLabels.Num(); i < ActiveLabels.Num(); ++i)
+		{
+			LabelPool.Add(ActiveLabels[i]);
+		}
+		ActiveLabels.SetNum(QueuedLabels.Num());
+	}
+	else if (ActiveLabels.Num() < QueuedLabels.Num())
+	{
+		// Activate from pool or create
+		const int32 Needed = QueuedLabels.Num() - ActiveLabels.Num();
+		for (int32 i = 0; i < Needed; ++i)
+		{
+			TSharedPtr<SInputFlowLabel> Widget;
+			if (LabelPool.Num() > 0)
+			{
+				Widget = LabelPool.Pop();
+			}
+			else
+			{
+				Widget = SNew(SInputFlowLabel);
+			}
+			ActiveLabels.Add(Widget);
+		}
+	}
+
+	LabelCanvas->ClearChildren();
+
+	// Prepare Physics Items
+	TArray<FInputFlowPhysicsItem> PhysicsItems;
+	PhysicsItems.Reserve(QueuedLabels.Num());
+
+	const float Scale = UInputFlowSettings::Get()->GetOverlayScale();
+
+	// Initialize Physics Items
+	for (int32 i = 0; i < QueuedLabels.Num(); ++i)
+	{
+		// Update Content
+		ActiveLabels[i]->SetData(QueuedLabels[i].Text, QueuedLabels[i].Color);
+		
+		// Get Size (SInputFlowLabel has fixed padding/font, so Prepass gives correct size)
+		ActiveLabels[i]->SlatePrepass(AllottedGeometry.GetAccumulatedLayoutTransform().GetScale());
+		
+		const FVector2D WidgetSize = ActiveLabels[i]->GetDesiredSize();
+		
+		FInputFlowPhysicsItem Item;
+		Item.Position = (QueuedLabels[i].OriginalPos / Scale) - (WidgetSize * QueuedLabels[i].Pivot);
+		Item.TargetPosition = Item.Position;
+		Item.Size = ActiveLabels[i]->GetDesiredSize();
+		Item.bIsFixed = false;
+		PhysicsItems.Add(Item);
+	}
+
+	// Solve Collisions (Logical Space)
+	// We use the local size, as ScaleBox handles the visual scaling.
+	InputFlowHelpers::SolveAABBCollisions(PhysicsItems, AllottedGeometry.GetLocalSize(), 20);
+
+	// Add to Canvas
+	for (int32 i = 0; i < ActiveLabels.Num(); ++i)
+	{
+		const FVector2D FinalPos = PhysicsItems[i].Position;
+
+		LabelCanvas->AddSlot()
+			.Position(FinalPos)
+			.Size(PhysicsItems[i].Size)
+			[
+				ActiveLabels[i].ToSharedRef()
+			];
+	}
 }
 
 void SInputFlowOverlay::DrawConnectionSpline(const FGeometry& AllottedGeometry, TSharedPtr<SWidget> Start, TSharedPtr<SWidget> End, const FString& Label, const EUINavigation Direction, const FLinearColor Color,
@@ -1345,7 +1518,7 @@ void SInputFlowOverlay::DrawConnectionSpline(const FGeometry& AllottedGeometry, 
 			(3.0f * OneMinusT * T * T) * CP2 + 
 			(T * T * T) * EndP;
 
-		DrawTextLabelWithBackground(AllottedGeometry, CenterPos, Label, Color, OutDrawElements, LayerId);
+		QueueLabel(CenterPos + FVector2D(0, -10), Label, Color);
 	}
 }
 
@@ -1387,6 +1560,4 @@ void SInputFlowOverlay::DrawDirectionalIndicator(const FGeometry& AllottedGeomet
 	const TArray<FVector2D> BarPoints = {EndPos + (Tangent * 8.0f), EndPos - (Tangent * 8.0f)};
 	FSlateDrawElement::MakeLines(OutDrawElements, LayerId + 2, AllottedGeometry.ToPaintGeometry(), BarPoints,
 								 ESlateDrawEffect::None, Color, true, 3.0f);
-
-	DrawTextLabelWithBackground(AllottedGeometry, EndPos + FVector2D(5, 5), Label, Color, OutDrawElements, LayerId);
 }

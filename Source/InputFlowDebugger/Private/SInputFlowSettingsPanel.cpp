@@ -5,52 +5,11 @@
 #include "InputFlowSettings.h"
 
 // Slate
-#include <Widgets/Input/SSpinBox.h>
 #include <Framework/MultiBox/MultiBoxBuilder.h>
 #include <Widgets/Input/SCheckBox.h>
 #include <Widgets/Input/SComboButton.h>
 #include <Widgets/Layout/SSeparator.h>
 #include <Widgets/Images/SImage.h>
-
-// Standard SSpinBox does not allow toggling SupportsKeyboardFocus via arguments.
-class SInputFlowSpinBox : public SSpinBox<int32>
-{
-public:
-	SLATE_BEGIN_ARGS(SInputFlowSpinBox)
-			: _MinValue(1)
-			, _MaxValue(100)
-			, _Value(1)
-		{}
-		SLATE_ATTRIBUTE(TOptional<int32>, MinValue)
-		SLATE_ATTRIBUTE(TOptional<int32>, MaxValue)
-		SLATE_ATTRIBUTE(int32, Value)
-		SLATE_EVENT(FOnValueChanged, OnValueChanged)
-	SLATE_END_ARGS()
-
-	void Construct(const FArguments& InArgs)
-	{
-		SSpinBox<int32>::Construct(SSpinBox<int32>::FArguments()
-			.MinValue(InArgs._MinValue)
-			.MaxValue(InArgs._MaxValue)
-			.Value(InArgs._Value)
-			.OnValueChanged(InArgs._OnValueChanged)
-		);
-	}
-
-	virtual bool SupportsKeyboardFocus() const override
-	{
-		// Only support focus if explicitly allowed
-		return bCanSupportFocus && SSpinBox<int32>::SupportsKeyboardFocus();
-	}
-
-	void SetCanSupportFocus(bool bInCanSupport)
-	{
-		bCanSupportFocus = bInCanSupport;
-	}
-
-private:
-	bool bCanSupportFocus = true;
-};
 
 void SInputFlowSettingsPanel::Construct(const FArguments& InArgs, UInputDebugSubsystem* InSubsystem)
 {
@@ -88,6 +47,24 @@ void SInputFlowSettingsPanel::Construct(const FArguments& InArgs, UInputDebugSub
 	];
 	
 	Toolbar->AddSlot().AutoWidth().Padding(8, 2) [ SNew(SSeparator).Orientation(Orient_Vertical) ];
+
+	Toolbar->AddSlot().AutoWidth().Padding(2, 0)
+	[
+		SNew(SComboButton)
+		.ComboButtonStyle(FAppStyle::Get(), "SimpleComboButton")
+		.IsEnabled(VizEnabledAttr)
+		.IsFocusable(false)
+		.OnGetMenuContent(this, &SInputFlowSettingsPanel::MakeScaleMenu)
+		.Cursor(EMouseCursor::Default)
+		.ButtonContent()
+		[
+			SNew(SHorizontalBox)
+			+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0, 0, 4, 0)
+			[ SNew(SImage).Image(FAppStyle::Get().GetBrush("ViewportToolbar.TransformScale")) ]
+			+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+			[ SNew(STextBlock).Text(INVTEXT("Scale")) ]
+		]
+	];
 
 	// Navigation Simulation
 	Toolbar->AddSlot().AutoWidth().Padding(2, 0)
@@ -194,6 +171,28 @@ void SInputFlowSettingsPanel::Tick(const FGeometry& AllottedGeometry, const doub
 	}
 }
 
+TSharedRef<SWidget> SInputFlowSettingsPanel::MakeScaleMenu()
+{
+	FMenuBuilder MenuBuilder(true, nullptr);
+
+	TSharedRef<SWidget> ScaleWidget = SNew(SHorizontalBox)
+		+ SHorizontalBox::Slot().AutoWidth().Padding(4, 0).VAlign(VAlign_Center)
+		[ SNew(STextBlock).Text(INVTEXT("Overlay UI Scale")) ]
+		+ SHorizontalBox::Slot().AutoWidth().Padding(4, 0)
+		[
+			SNew(SInputFlowSpinBox<float>)
+			.MinValue(0.5f)
+			.MaxValue(3.0f)
+			.Value_Lambda([]() { return UInputFlowSettings::Get()->GetOverlayScale(); })
+			.OnValueChanged_Lambda([](float NewVal) { 
+				GetMutableDefault<UInputFlowSettings>()->SetOverlayScale(NewVal);
+			})
+		];
+
+	MenuBuilder.AddWidget(ScaleWidget, FText::GetEmpty());
+	return MenuBuilder.MakeWidget();
+}
+
 TSharedRef<SWidget> SInputFlowSettingsPanel::MakeNavMenu()
 {
 	FMenuBuilder MenuBuilder(true, nullptr);
@@ -223,7 +222,7 @@ TSharedRef<SWidget> SInputFlowSettingsPanel::MakeNavMenu()
 		[ SNew(STextBlock).Text(INVTEXT("Search Depth")) ]
 		+ SHorizontalBox::Slot().AutoWidth().Padding(4, 0)
 		[
-			SAssignNew(DepthSpinBox, SInputFlowSpinBox)
+			SAssignNew(DepthSpinBox, SInputFlowSpinBox<int32>)
 			.MinValue(1)
 			.MaxValue(5)
 			.Value_Lambda([this]() { return UInputFlowSettings::Get()->GetNavigationSearchDepth(); })

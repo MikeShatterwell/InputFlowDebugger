@@ -71,6 +71,8 @@ public class InputFlowDebugger : ModuleRules
 				}
 			);
 		}
+		
+		bUseUnity = false;
 
 		// -------------------------------------------------------------------------
 		// Selective Inclusion Logic

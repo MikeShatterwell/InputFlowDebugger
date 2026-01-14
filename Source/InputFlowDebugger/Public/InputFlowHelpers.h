@@ -11,6 +11,12 @@
 // Internal
 #include "InputDebugSubsystem.h"
 
+#if WITH_PLUGIN_ENHANCEDINPUT
+class UEnhancedPlayerInput;
+class UInputMappingContext;
+struct FAppliedInputContextData;
+#endif
+
 struct FInputFlowPhysicsItem
 {
 	FVector2D Position;
@@ -72,6 +78,13 @@ public:
 	static FArrangedWidget ToWindowSpace(const FArrangedWidget& InArranged, const TSharedRef<SWindow>& Window);
 
 	static TSharedPtr<SWidget> ResolveFocusableDescendant(TSharedPtr<SWidget> Root);
+	
+#if WITH_PLUGIN_ENHANCEDINPUT
+	/** * Centralized accessor to reach into protected data of UEnhancedPlayerInput.
+	 * Returns the internal Context Map containing priority and mappings.
+	 */
+	static const TMap<TObjectPtr<const UInputMappingContext>, FAppliedInputContextData>& GetInputContextData(const UEnhancedPlayerInput* PlayerInput);
+#endif
 
 	static const FName InputFlowAnalyzerTag;
 };
