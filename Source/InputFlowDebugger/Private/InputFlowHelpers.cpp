@@ -194,7 +194,7 @@ FString InputFlowHelpers::GetWidgetDisplayName(const TSharedPtr<SWidget>& Widget
 			}
 #endif // WITH_PLUGIN_COMMONUI
 			
-			if (!IsValid(ImmediateUserParent) && WalkerObj->IsA<UUserWidget>())
+			if (WalkerObj->IsA<UUserWidget>())
 			{
 				ImmediateUserParent = Cast<UUserWidget>(WalkerObj);
 			}
