@@ -42,7 +42,7 @@ The debugger injects an overlay directly into the game viewport.
 
 ### Editor Analyzer
 For a static view or secondary monitor debugging:
-1.  Go to **Window > Developer Tools > Input Flow Debugger**.
+1.  Go to **Tools > Debug > Input Flow Debugger**.
 2.  Play in Editor (PIE) to populate the data.
 
 ## Visual Guide
