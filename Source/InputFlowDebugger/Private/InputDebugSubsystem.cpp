@@ -176,7 +176,7 @@ void UInputDebugSubsystem::HandleSettingsChanged()
 	{
 		bOverlayActive = bShouldBeActive;
 		
-		if (bOverlayActive && GameViewport)
+		if (bOverlayActive)
 		{
 			// Create the widget if it doesn't exist
 			if (!OverlayWidget.IsValid())

@@ -499,8 +499,8 @@ void SInputFlowLogView::UpdateLogView()
 	LastObservedVersion = CurrentVersion;
 
 	const TArray<TSharedPtr<FInputEventLog>>& Buffer = DebugSubsystem->GetLogHistory();
-	int32 WriteIdx = DebugSubsystem->GetLogHistoryWriteIndex();
-	bool bWrapped = DebugSubsystem->IsLogHistoryWrapped();
+	const int32 WriteIdx = DebugSubsystem->GetLogHistoryWriteIndex();
+	const bool bWrapped = DebugSubsystem->IsLogHistoryWrapped();
 
 	SourceData.Reset();
 
@@ -516,7 +516,7 @@ void SInputFlowLogView::UpdateLogView()
 
 	for (int32 i = 0; i < TotalItems; ++i)
 	{
-		int32 CurrIdx = (Start + i) % Buffer.Num();
+		const int32 CurrIdx = (Start + i) % Buffer.Num();
 		if (!Buffer.IsValidIndex(CurrIdx)) continue;
 
 		const TSharedPtr<FInputEventLog>& Log = Buffer[CurrIdx];
@@ -531,7 +531,7 @@ void SInputFlowLogView::UpdateLogView()
 	}
 
 	ListView->RequestListRefresh();
-	if (!bLogPaused) ListView->ScrollToBottom();
+	ListView->ScrollToBottom();
 }
 
 TSharedRef<ITableRow> SInputFlowLogView::GenerateRow(TSharedPtr<FInputEventLog> Item,
@@ -539,10 +539,10 @@ TSharedRef<ITableRow> SInputFlowLogView::GenerateRow(TSharedPtr<FInputEventLog> 
 {
 	bool bIsSameFrame = false;
 
-	int32 Idx = SourceData.Find(Item);
+	const int32 Idx = SourceData.Find(Item);
 	if (Idx > 0)
 	{
-		TSharedPtr<FInputEventLog> Prev = SourceData[Idx - 1];
+		const TSharedPtr<FInputEventLog> Prev = SourceData[Idx - 1];
 		if (Prev.IsValid())
 		{
 			if (FMath::Abs(Item->TimeSeconds - Prev->TimeSeconds) < 0.01)
