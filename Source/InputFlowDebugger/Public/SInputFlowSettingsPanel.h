@@ -22,7 +22,7 @@ public:
 		SLATE_ATTRIBUTE(TOptional<NumericType>, MinValue)
 		SLATE_ATTRIBUTE(TOptional<NumericType>, MaxValue)
 		SLATE_ATTRIBUTE(NumericType, Value)
-		SLATE_EVENT(typename SSpinBox<NumericType>::FOnValueChanged, OnValueChanged)
+		SLATE_EVENT(SSpinBox<NumericType>::FOnValueChanged, OnValueChanged)
 	SLATE_END_ARGS()
 
 	void Construct(const FArguments& InArgs)
