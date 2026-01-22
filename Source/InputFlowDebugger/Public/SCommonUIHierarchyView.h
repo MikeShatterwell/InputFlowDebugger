@@ -23,14 +23,19 @@ struct FCommonUITreeItem : public TSharedFromThis<FCommonUITreeItem>
 	FString InputConfig = TEXT("");
 	FString DesiredFocusTarget = TEXT("");
 	FString ContainerInfo = TEXT("");
+	FString ActionDomain = TEXT("");
 	
 	// State flags
-	bool bIsContainer = false; // true if this widget is a UCommonActivatableWidgetContainerBase Stack/Queue
-	bool bIsRoot = false;
-	bool bIsFocused = false;
-	bool bIsInActivePath = false;
-	bool bIsActive = false; // Is the widget Activated
-	bool bIsLeaf = false; // This is the active leaf
+	bool bIsContainer = false;     // UCommonActivatableWidgetContainerBase Stack/Queue
+	bool bIsRoot = false;          
+	bool bIsFocused = false;       
+	bool bIsInActivePath = false;  // Widget is ancestor of focused/leaf
+	bool bIsActive = false;        
+	bool bIsLeaf = false;          // This is the leafmost active node
+	bool bIsActiveRoot = false;    // Active root receiving input
+	bool bIsInActiveRoot = false;  // Widget is a child within the currently active root
+	bool bIsModal = false;         // Widget is modal (acts as input root regardless of parentage)
+	bool bSupportsActivationFocus = true; // Widget participates in focus/input routing
 
 	TArray<TSharedPtr<FCommonUITreeItem>> Children;
 };

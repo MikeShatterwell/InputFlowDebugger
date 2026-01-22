@@ -43,7 +43,9 @@ struct FInputLogRichTextPart
 struct FInputEventLog
 {
 	double TimeSeconds = 0.0f; 
-	FDateTime CaptureTime;     
+	FDateTime CaptureTime;
+	FKeyEvent KeyEvent = FKeyEvent();
+	FPointerEvent PointerEvent = FPointerEvent();
 	
 	FString EventType;
 	FString InputDetails; 
@@ -97,7 +99,10 @@ public:
 	FOnInputFlowFocusChanged& OnFocusChanged() { return OnFocusChangedDelegate; }
 
 private:
-	void AddLog(const FString& Type, const FString& InputDetails, FColor Color, const FString& WidgetType = TEXT(""), const FString& WidgetName = TEXT(""), const FString& WidgetState = TEXT(""), bool bIsButton = false, UObject* InSourceObject = nullptr, const TArray<FInputLogRichTextPart>& InParts = TArray<FInputLogRichTextPart>());
+	void AddLog(const FString& Type, const FString& InputDetails, FColor Color, const FString& WidgetType = TEXT(""),
+		const FString& WidgetName = TEXT(""), const FString& WidgetState = TEXT(""), bool bIsButton = false,
+		UObject* InSourceObject = nullptr, const TArray<FInputLogRichTextPart>& InParts = TArray<FInputLogRichTextPart>(),
+		const FKeyEvent& InKeyEvent = FKeyEvent(), const FPointerEvent& InPointerEvent = FPointerEvent());
 	
 	// Helper to build the chain of widgets (Leaf -> Parent -> Root)
 	void GenerateWidgetContextParts(const TSharedPtr<SWidget>& Widget, TArray<FInputLogRichTextPart>& OutParts, FString& OutFlatName) const;

@@ -45,6 +45,13 @@
 #include <CommonUITypes.h>
 #include <Input/CommonUIActionRouterBase.h>
 #include <Input/UIActionBinding.h>
+
+static TAutoConsoleVariable<float> CVarInputFlowCommonUITreeCrawl(
+	TEXT("InputFlow.EnableCommonUITreeCrawl"),
+	0.0f,
+	TEXT("Must be active to enable CommonUI Hierarchy crawling in the Input Flow Debugger.\nCan be disabled to improve performance."),
+	ECVF_Default
+);
 #endif // WITH_PLUGIN_COMMONUI
 
 static TAutoConsoleVariable<bool> CVarInputFlowOverlay(
@@ -303,176 +310,253 @@ bool UInputDebugSubsystem::TickSyncLogs(float DeltaTime)
 
 void UInputDebugSubsystem::UpdateDataSnapshot()
 {
-	if (!bOverlayActive) return;
-	OverlayState = FInputOverlayState(); // Reset
+	if (!WITH_PLUGIN_COMMONUI) return;
 
-	ULocalPlayer* LP = GetGameInstance()->GetFirstGamePlayer();
-	if (!LP) return;
+	DataSnapshot = FInputSnapshotStrings();
 
-	// Snapshot CommonUI Active Leaf & Config
-	TSharedPtr<SWidget> FocusedSlateWidget = FSlateApplication::Get().GetKeyboardFocusedWidget();
+	UGameInstance* GI = GetGameInstance();
+	if (!IsValid(GI)) return;
+	
+	ULocalPlayer* LP = GI->GetFirstGamePlayer();
+	if (!IsValid(LP)) return;
+
 #if WITH_PLUGIN_COMMONUI
-	if (FocusedSlateWidget.IsValid())
+	UCommonUIActionRouterBase* Router = LP->GetSubsystem<UCommonUIActionRouterBase>();
+	if (!IsValid(Router)) return;
+
+	// Snapshot Input Mode & Mouse Capture from Router
+	const ECommonInputMode ActiveMode = Router->GetActiveInputMode();
+	const EMouseCaptureMode ActiveCapture = Router->GetActiveMouseCaptureMode();
+
+	switch (ActiveMode)
 	{
-		if (UCommonActivatableWidget* Active = UCommonUIActionRouterBase::FindActivatable(FocusedSlateWidget, LP))
+	case ECommonInputMode::Game: DataSnapshot.InputConfig = TEXT("Game"); break;
+	case ECommonInputMode::Menu: DataSnapshot.InputConfig = TEXT("Menu"); break;
+	case ECommonInputMode::All:  DataSnapshot.InputConfig = TEXT("All");  break;
+	default:                     DataSnapshot.InputConfig = TEXT("Default"); break;
+	}
+
+	switch (ActiveCapture)
+	{
+	case EMouseCaptureMode::NoCapture:
+		DataSnapshot.MouseCaptureMode = TEXT("No Capture");
+		break;
+	case EMouseCaptureMode::CapturePermanently:
+		DataSnapshot.MouseCaptureMode = TEXT("Capture Perm");
+		break;
+	case EMouseCaptureMode::CapturePermanently_IncludingInitialMouseDown:
+		DataSnapshot.MouseCaptureMode = TEXT("Capture Perm+");
+		break;
+	case EMouseCaptureMode::CaptureDuringMouseDown:
+		DataSnapshot.MouseCaptureMode = TEXT("Capture Down");
+		break;
+	case EMouseCaptureMode::CaptureDuringRightMouseDown:
+		DataSnapshot.MouseCaptureMode = TEXT("Capture RMB");
+		break;
+	default:
+		DataSnapshot.MouseCaptureMode = TEXT("Unknown");
+		break;
+	}
+
+	// ==========================================================================
+	// Find Leafmost Active Widget
+	// ==========================================================================
+	// Strategy:
+	// 1. Gather all activated widgets that are in the active root and support focus
+	// 2. Build parent relationships between them
+	// 3. Find widgets with no active descendants (leaf candidates)
+	// 4. Use paint layer as tiebreaker if multiple leaves exist
+	
+	TArray<UCommonActivatableWidget*> ActiveInRoot;
+	TMap<UCommonActivatableWidget*, UCommonActivatableWidget*> ParentMap;
+
+	for (TObjectIterator<UCommonActivatableWidget> It; It; ++It)
+	{
+		UCommonActivatableWidget* Widget = *It;
+		if (!IsValid(Widget)) continue;
+		if (Widget->GetWorld() != LP->GetWorld()) continue;
+		if (!Widget->IsActivated()) continue;
+		if (!Widget->SupportsActivationFocus()) continue;
+		if (!Router->IsWidgetInActiveRoot(Widget)) continue;
+
+		ActiveInRoot.Add(Widget);
+
+		// Find parent activatable widget
+		TSharedPtr<SWidget> CachedWidget = Widget->GetCachedWidget();
+		if (CachedWidget.IsValid())
 		{
-			OverlayState.ActiveCommonUILeaf = Active->GetName();
-
-			FUIInputConfig Config = Active->GetDesiredInputConfig().Get(FUIInputConfig());
-
-			// Input Mode String
-			switch (Config.GetInputMode())
+			UCommonActivatableWidget* Parent = UCommonUIActionRouterBase::FindOwningActivatable(CachedWidget, LP);
+			if (IsValid(Parent) && Parent != Widget)
 			{
-			case ECommonInputMode::Game: OverlayState.InputConfig = TEXT("Game");
-				break;
-			case ECommonInputMode::Menu: OverlayState.InputConfig = TEXT("Menu");
-				break;
-			case ECommonInputMode::All: OverlayState.InputConfig = TEXT("All");
-				break;
-			default: OverlayState.InputConfig = TEXT("Default");
-				break;
-			}
-
-			// Mouse Capture String
-			switch (Config.GetMouseCaptureMode())
-			{
-			case EMouseCaptureMode::NoCapture: OverlayState.MouseCaptureMode = TEXT("No Capture");
-				break;
-			case EMouseCaptureMode::CapturePermanently: OverlayState.MouseCaptureMode = TEXT("Capture Perm");
-				break;
-			case EMouseCaptureMode::CapturePermanently_IncludingInitialMouseDown: OverlayState.MouseCaptureMode = TEXT(
-					"Capture Perm+");
-				break;
-			case EMouseCaptureMode::CaptureDuringMouseDown: OverlayState.MouseCaptureMode = TEXT("Capture Down");
-				break;
-			default: OverlayState.MouseCaptureMode = TEXT("Unknown");
-				break;
+				ParentMap.Add(Widget, Parent);
 			}
 		}
 	}
 
-	// Snapshot Bound Actions (With Key Names)
-	if (UCommonUIActionRouterBase* Router = ULocalPlayer::GetSubsystem<UCommonUIActionRouterBase>(LP))
+	// Identify widgets that have active children (and thus cannot be the leafmost)
+	TSet<UCommonActivatableWidget*> HasActiveChild;
+	for (const auto& Pair : ParentMap)
 	{
-		TArray<FUIActionBindingHandle> Bindings = Router->GatherActiveBindings();
+		UCommonActivatableWidget* Parent = Pair.Value;
+		// Only count if the parent is also in our active set
+		if (ActiveInRoot.Contains(Parent))
+		{
+			HasActiveChild.Add(Parent);
+		}
+	}
+
+	// Find leaf candidates (no active descendants) and pick the one with highest paint layer
+	UCommonActivatableWidget* LeafmostCandidate = nullptr;
+	int32 HighestPaintLayer = TNumericLimits<int32>::Min();
+
+	for (UCommonActivatableWidget* Widget : ActiveInRoot)
+	{
+		// Skip if this widget has active children
+		if (HasActiveChild.Contains(Widget)) continue;
+
+		TSharedPtr<SWidget> CachedWidget = Widget->GetCachedWidget();
+		if (!CachedWidget.IsValid()) continue;
+
+		// Use paint layer as tiebreaker when multiple leaves exist
+		// (e.g., sibling widgets at the same depth)
+		const int32 PaintLayer = CachedWidget->GetPersistentState().LayerId;
+		
+		if (!LeafmostCandidate || PaintLayer > HighestPaintLayer)
+		{
+			LeafmostCandidate = Widget;
+			HighestPaintLayer = PaintLayer;
+		}
+	}
+
+	DataSnapshot.ActiveCommonUILeaf = LeafmostCandidate
+		? LeafmostCandidate->GetName()
+		: TEXT("None (Viewport/PlayerController)");
+
+	// ==========================================================================
+	// Snapshot Bound Actions
+	// ==========================================================================
+	TArray<FUIActionBindingHandle> Bindings = Router->GatherActiveBindings();
+
 #if WITH_PLUGIN_ENHANCEDINPUT
-		UEnhancedInputLocalPlayerSubsystem* EISub = LP->GetSubsystem<UEnhancedInputLocalPlayerSubsystem>();
+	UEnhancedInputLocalPlayerSubsystem* EISub = LP->GetSubsystem<UEnhancedInputLocalPlayerSubsystem>();
 #endif
 
-		for (const FUIActionBindingHandle& Handle : Bindings)
+	for (const FUIActionBindingHandle& Handle : Bindings)
+	{
+		if (!Handle.IsValid()) continue;
+
+		FString ActionName = Handle.GetActionName().ToString();
+		FString DisplayName = Handle.GetDisplayName().ToString();
+		FString Entry = ActionName;
+
+		if (!DisplayName.IsEmpty() && DisplayName != ActionName)
 		{
-			if (!Handle.IsValid()) continue;
-
-			// Basic Display Name: "Confirm [A]"
-			FString ActionName = Handle.GetActionName().ToString();
-			FString DisplayName = Handle.GetDisplayName().ToString();
-			FString Entry = ActionName;
-
-			if (!DisplayName.IsEmpty() && DisplayName != ActionName)
-			{
-				Entry += FString::Printf(TEXT(" [%s]"), *DisplayName);
-			}
-
-			// --- Resolve Keys ---
-			FString KeyString;
-			TSharedPtr<FUIActionBinding> BindingPtr = FUIActionBinding::FindBinding(Handle);
-
-			if (BindingPtr.IsValid())
-			{
-				// Case A: Enhanced Input 
-#if WITH_PLUGIN_ENHANCEDINPUT
-				if (const UInputAction* InputAction = BindingPtr->InputAction.Get())
-				{
-					if (EISub)
-					{
-						KeyString += TEXT("EInput: ");
-						TArray<FKey> Keys = EISub->QueryKeysMappedToAction(InputAction);
-						for (const FKey& Key : Keys)
-						{
-							if (!KeyString.IsEmpty()) KeyString += TEXT(", ");
-							KeyString += Key.GetDisplayName().ToString();
-						}
-					}
-				}
-				else 
-#endif // WITH_PLUGIN_ENHANCEDINPUT
-				// Case B: Legacy CommonUI (Data Table)
-				if (const FCommonInputActionDataBase* LegacyData = CommonUI::GetInputActionData(
-					BindingPtr->LegacyActionTableRow))
-				{
-					KeyString += TEXT("CommonUI: ");
-
-					// 1. Keyboard
-					const FCommonInputTypeInfo& KbdInfo = LegacyData->GetInputTypeInfo(
-						ECommonInputType::MouseAndKeyboard, NAME_None);
-					FKey KbdKey = KbdInfo.GetKey();
-					if (KbdKey.IsValid())
-					{
-						KeyString += KbdKey.GetDisplayName().ToString();
-					}
-
-					// 2. Gamepad (Default)
-					const FCommonInputTypeInfo& GamepadInfo = LegacyData->GetInputTypeInfo(
-						ECommonInputType::Gamepad, NAME_None);
-					FKey GamepadKey = GamepadInfo.GetKey();
-					if (GamepadKey.IsValid())
-					{
-						if (!KeyString.IsEmpty()) KeyString += TEXT(", ");
-						KeyString += GamepadKey.GetDisplayName().ToString();
-					}
-				}
-			}
-
-			if (!KeyString.IsEmpty())
-			{
-				Entry += FString::Printf(TEXT(" (%s)"), *KeyString);
-			}
-
-			OverlayState.BoundActions.AddUnique(Entry);
+			Entry += FString::Printf(TEXT(" [%s]"), *DisplayName);
 		}
+
+		// Resolve bound keys
+		FString KeyString;
+		TSharedPtr<FUIActionBinding> BindingPtr = FUIActionBinding::FindBinding(Handle);
+
+		if (BindingPtr.IsValid())
+		{
+#if WITH_PLUGIN_ENHANCEDINPUT
+			if (const UInputAction* InputAction = BindingPtr->InputAction.Get())
+			{
+				if (IsValid(EISub))
+				{
+					TArray<FKey> Keys = EISub->QueryKeysMappedToAction(InputAction);
+					TArray<FString> KeyNames;
+					for (const FKey& Key : Keys)
+					{
+						KeyNames.Add(Key.GetDisplayName().ToString());
+					}
+					if (KeyNames.Num() > 0)
+					{
+						KeyString = TEXT("EInput: ") + FString::Join(KeyNames, TEXT(", "));
+					}
+				}
+			}
+			else
+#endif
+			if (const FCommonInputActionDataBase* LegacyData = CommonUI::GetInputActionData(BindingPtr->LegacyActionTableRow))
+			{
+				TArray<FString> KeyNames;
+
+				const FCommonInputTypeInfo& KbdInfo = LegacyData->GetInputTypeInfo(ECommonInputType::MouseAndKeyboard, NAME_None);
+				if (KbdInfo.GetKey().IsValid())
+				{
+					KeyNames.Add(KbdInfo.GetKey().GetDisplayName().ToString());
+				}
+
+				const FCommonInputTypeInfo& GamepadInfo = LegacyData->GetInputTypeInfo(ECommonInputType::Gamepad, NAME_None);
+				if (GamepadInfo.GetKey().IsValid())
+				{
+					KeyNames.Add(GamepadInfo.GetKey().GetDisplayName().ToString());
+				}
+
+				if (KeyNames.Num() > 0)
+				{
+					KeyString = TEXT("CommonUI: ") + FString::Join(KeyNames, TEXT(", "));
+				}
+			}
+		}
+
+		if (!KeyString.IsEmpty())
+		{
+			Entry += FString::Printf(TEXT(" (%s)"), *KeyString);
+		}
+
+		DataSnapshot.BoundActions.AddUnique(Entry);
 	}
+
 #endif // WITH_PLUGIN_COMMONUI
 
-	// Default Fallbacks
-	if (OverlayState.ActiveCommonUILeaf.IsEmpty())
-	{
-		OverlayState.ActiveCommonUILeaf = TEXT("None (Viewport/PlayerController)");
-		OverlayState.InputConfig = TEXT("Game");
-		OverlayState.MouseCaptureMode = TEXT("Default");
-	}
-
-	// Snapshot Triggered Enhanced Input Actions
+	// ==========================================================================
+	// Snapshot Active Enhanced Input Actions
+	// ==========================================================================
 #if WITH_PLUGIN_ENHANCEDINPUT
-	if (UEnhancedInputLocalPlayerSubsystem* EISub = LP->GetSubsystem<UEnhancedInputLocalPlayerSubsystem>())
-	{
-		if (UEnhancedPlayerInput* PlayerInput = EISub->GetPlayerInput())
-		{
-			const TMap<TObjectPtr<const UInputMappingContext>, FAppliedInputContextData>& ContextMap =
-				InputFlowHelpers::GetInputContextData(PlayerInput);
-			for (const auto& Pair : ContextMap)
-			{
-				const UInputMappingContext* IMC = Pair.Key;
-				if (!IsValid(IMC)) continue;
-				
-				for (const FEnhancedActionKeyMapping& Mapping : IMC->GetMappings())
-				{
-					const UInputAction* Action = Mapping.Action;
-					if (!IsValid(Action)) continue;
-					const FInputActionInstance* Data = PlayerInput->FindActionInstanceData(Action);
-					if (Data == nullptr) continue;
 
-					const ETriggerEvent Trigger = Data->GetTriggerEvent();
-					if (Trigger == ETriggerEvent::Triggered || Trigger == ETriggerEvent::Ongoing)
-					{
-						const FString Val = PlayerInput->GetActionValue(Action).ToString();
-						FString Entry = FString::Printf(TEXT("%s: %s"), *Action->GetName(), *Val);
-						OverlayState.ActiveEnhancedInputActions.AddUnique(Entry);
-					}
+	if (UEnhancedPlayerInput* PlayerInput = EISub->GetPlayerInput())
+	{
+		const TMap<TObjectPtr<const UInputMappingContext>, FAppliedInputContextData>& ContextMap =
+			InputFlowHelpers::GetInputContextData(PlayerInput);
+			
+		for (const auto& Pair : ContextMap)
+		{
+			const UInputMappingContext* IMC = Pair.Key;
+			if (!IsValid(IMC)) continue;
+
+			for (const FEnhancedActionKeyMapping& Mapping : IMC->GetMappings())
+			{
+				const UInputAction* Action = Mapping.Action;
+				if (!IsValid(Action)) continue;
+				
+				const FInputActionInstance* Data = PlayerInput->FindActionInstanceData(Action);
+				if (!Data) continue;
+
+				const ETriggerEvent Trigger = Data->GetTriggerEvent();
+				if (Trigger == ETriggerEvent::Triggered || Trigger == ETriggerEvent::Ongoing)
+				{
+					const FString Val = PlayerInput->GetActionValue(Action).ToString();
+					FString Entry = FString::Printf(TEXT("%s: %s"), *Action->GetName(), *Val);
+					DataSnapshot.ActiveEnhancedInputActions.AddUnique(Entry);
 				}
 			}
 		}
 	}
-#endif // WITH_PLUGIN_ENHANCEDINPUT
+	
+#endif
+
+	// Fallback defaults
+	if (DataSnapshot.InputConfig.IsEmpty())
+	{
+		DataSnapshot.InputConfig = TEXT("Game");
+	}
+	if (DataSnapshot.MouseCaptureMode.IsEmpty())
+	{
+		DataSnapshot.MouseCaptureMode = TEXT("Default");
+	}
 }
 
 // ----------------------------------------------------------------------------------

@@ -34,11 +34,11 @@ struct FNavigationLink
 };
 
 // Snapshot of data for the Overlay to render without accessing Editor classes
-struct FInputOverlayState
+struct FInputSnapshotStrings
 {
-	FString ActiveCommonUILeaf;
-	FString InputConfig;
-	FString MouseCaptureMode;
+	FString ActiveCommonUILeaf = TEXT("None");
+	FString InputConfig = TEXT("None");
+	FString MouseCaptureMode = TEXT("None");
 	TArray<FString> ActiveEnhancedInputActions;
 	TArray<FString> BoundActions;
 };
@@ -62,8 +62,10 @@ class INPUTFLOWDEBUGGER_API UInputDebugSubsystem : public UGameInstanceSubsystem
 	GENERATED_BODY()
 
 public:
+	// Begin USubsystem overrides
 	virtual void Initialize(FSubsystemCollectionBase& Collection) override;
 	virtual void Deinitialize() override;
+	// End USubsystem overrides
 
 	const TArray<TSharedPtr<FInputEventLog>>& GetLogHistory() const { return LogHistory; }
 	int32 GetLogHistoryWriteIndex() const { return LogHistoryIndex; }
@@ -71,13 +73,14 @@ public:
 	void ClearLogHistory();
 	uint32 GetLogVersion() const { return LogVersion; }
 
-	// Data Access for Overlay
+	const FInputSnapshotStrings& GetInputSnapshotStrings() const { return DataSnapshot; }
+
+	// Data Access
 	const TArray<FNavigationLink>& GetNavigationLinks() const { return NavigationLinks; }
-	const FInputOverlayState& GetOverlayState() const { return OverlayState; }
 	TSharedPtr<SWidget> GetFocusedWidget() const { return FocusedWidget.Pin(); }
 	const TArray<FFocusHistoryEntry>& GetFocusHistory() const { return FocusHistory; }
 
-	// Callback for settings changes to handle side-effects (like Overlay visibility)
+	// Callback for settings changes to handle side-effects (like Overlay visibility/scale/etc)
 	void HandleSettingsChanged();
 
 private:
@@ -100,6 +103,7 @@ private:
 	// --- Members ---
 
 	TSharedPtr<FInputFlowSpy> InputSpy;
+	FInputSnapshotStrings DataSnapshot;
 
 	// Log History
 	TArray<TSharedPtr<FInputEventLog>> LogHistory;
@@ -112,7 +116,6 @@ private:
 	// Overlay State
 	TSharedPtr<SInputFlowOverlay> OverlayWidget;
 	TSharedPtr<class SWidget> OverlayHost; 
-	FInputOverlayState OverlayState;
 	TArray<FFocusHistoryEntry> FocusHistory;
 	bool bOverlayActive = false;
 		// Simulation Results

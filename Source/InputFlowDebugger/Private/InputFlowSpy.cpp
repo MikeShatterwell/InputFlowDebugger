@@ -64,7 +64,7 @@ void FInputFlowSpy::ResetBuffer()
 	bWrapped = false;
 }
 
-void FInputFlowSpy::AddLog(const FString& Type, const FString& InputDetails, FColor Color, const FString& WidgetType, const FString& WidgetName, const FString& WidgetState, bool bIsButton, UObject* InSourceObject, const TArray<FInputLogRichTextPart>& InParts)
+void FInputFlowSpy::AddLog(const FString& Type, const FString& InputDetails, FColor Color, const FString& WidgetType, const FString& WidgetName, const FString& WidgetState, bool bIsButton, UObject* InSourceObject, const TArray<FInputLogRichTextPart>& InParts, const FKeyEvent& InKeyEvent, const FPointerEvent& InPointerEvent)
 {
 	FInputEventLog& NewLog = EventLog[WriteIndex];
 	
@@ -74,6 +74,9 @@ void FInputFlowSpy::AddLog(const FString& Type, const FString& InputDetails, FCo
 	NewLog.InputDetails = InputDetails;
 	NewLog.Color = Color;
 	NewLog.Count = 1;
+	NewLog.KeyEvent = InKeyEvent;
+	NewLog.PointerEvent = InPointerEvent;
+	
 	
 	NewLog.WidgetType = WidgetType;
 	NewLog.WidgetName = WidgetName;
@@ -480,8 +483,8 @@ void FInputFlowSpy::OnCommonUIButtonEvent(FString EventName, TWeakObjectPtr<UCom
 		FString Name;
 		GenerateWidgetContextParts(CachedWidget, Parts, Name);
 
-		FString State = GetWidgetStateDescription(CachedWidget);
-		FString WidgetType = Btn->GetClass()->GetName();
+		const FString State = GetWidgetStateDescription(CachedWidget);
+		const FString WidgetType = Btn->GetClass()->GetName();
 
 		AddLog(FString::Printf(TEXT("CommonUI | Button %s"), *EventName), "", FColor::Cyan, WidgetType, Name, State, true, Btn, Parts);
 	}
@@ -595,6 +598,8 @@ void FInputFlowSpy::OnSlateInputEvent(const FSlateDebuggingInputEventArgs& Event
 
 		// Combine detail with side effects
 		const FString& FinalDetail = InputDetail + SideEffects;
+		const bool bIsKeyEvent = (EventType == ESlateDebuggingInputEvent::KeyDown || EventType == ESlateDebuggingInputEvent::KeyUp || EventType == ESlateDebuggingInputEvent::PreviewKeyDown || EventType == ESlateDebuggingInputEvent::AnalogInput);
+		const FKeyEvent& KeyEvent = bIsKeyEvent ? *static_cast<const FKeyEvent*>(EventArgs.InputEvent) : FKeyEvent();
 		AddLog(
 			TEXT("Slate | Handled Event"), 
 			FinalDetail, 
@@ -604,7 +609,8 @@ void FInputFlowSpy::OnSlateInputEvent(const FSlateDebuggingInputEventArgs& Event
 			TEXT("CONSUMED"), 
 			InputFlowHelpers::IsButtonWidget(Handler), 
 			InputFlowHelpers::GetOwnerUWidget(Handler), 
-			Parts
+			Parts,
+			KeyEvent
 		);
 	}
 #endif
@@ -627,7 +633,7 @@ bool FInputFlowSpy::HandleMouseButtonDownEvent(FSlateApplication& SlateApp, cons
 	
 	if (Target.IsValid()) BindButtonObservation(Target);
 
-	FString InputDetail = MouseEvent.GetEffectingButton().ToString();
+	const FString InputDetail = MouseEvent.GetEffectingButton().ToString();
 	FString WName, WType, WState;
 	bool bIsButton = false;
 	UObject* SourceObj = nullptr;
@@ -647,7 +653,7 @@ bool FInputFlowSpy::HandleMouseButtonDownEvent(FSlateApplication& SlateApp, cons
 		WName = TEXT("(None)");
 	}
 
-	AddLog("Slate | Mouse Down", InputDetail, FColor::Orange, WType, WName, WState, bIsButton, SourceObj, Parts);
+	AddLog("Slate | Mouse Down", InputDetail, FColor::Orange, WType, WName, WState, bIsButton, SourceObj, Parts, FKeyEvent(), MouseEvent);
 	return false;
 }
 
@@ -661,7 +667,7 @@ bool FInputFlowSpy::HandleMouseButtonUpEvent(FSlateApplication& SlateApp, const 
 		if (!InputFlowHelpers::IsGameWorldWidget(WidgetsUnderCursor.Widgets.Last().Widget)) return false;
 	}
 	
-	AddLog("Slate | Mouse Up", MouseEvent.GetEffectingButton().ToString(), FColor::Yellow);
+	AddLog("Slate | Mouse Up", MouseEvent.GetEffectingButton().ToString(), FColor::Yellow, TEXT(""), TEXT(""), TEXT(""), false, nullptr, TArray<FInputLogRichTextPart>(), FKeyEvent(), MouseEvent);
 	return false;
 }
 
@@ -675,7 +681,7 @@ bool FInputFlowSpy::HandleMouseButtonDoubleClickEvent(FSlateApplication& SlateAp
 		if (!InputFlowHelpers::IsGameWorldWidget(WidgetsUnderCursor.Widgets.Last().Widget)) return false;
 	}
 
-	AddLog("Slate | DblClick", MouseEvent.GetEffectingButton().ToString(), FColor::Orange);
+	AddLog("Slate | DblClick", MouseEvent.GetEffectingButton().ToString(), FColor::Orange, TEXT(""), TEXT(""), TEXT(""), false, nullptr, TArray<FInputLogRichTextPart>(), FKeyEvent(), MouseEvent);
 	return false;
 }
 
@@ -697,7 +703,7 @@ bool FInputFlowSpy::HandleMouseMoveEvent(FSlateApplication& SlateApp, const FPoi
 		static double LastMouseLogTime = 0.0;
 		if (FPlatformTime::Seconds() - LastMouseLogTime > 0.1)
 		{
-			AddLog("Slate | MouseMove", MouseEvent.GetCursorDelta().ToString(), FColor::White);
+			AddLog("Slate | MouseMove", MouseEvent.GetCursorDelta().ToString(), FColor::White, TEXT(""), TEXT(""), TEXT(""), false, nullptr, TArray<FInputLogRichTextPart>(), FKeyEvent(), MouseEvent);
 			LastMouseLogTime = FPlatformTime::Seconds();
 		}
 	}
@@ -721,7 +727,7 @@ bool FInputFlowSpy::HandleMouseMoveEvent(FSlateApplication& SlateApp, const FPoi
 				FString TypePrefix = UObj ? UObj->GetClass()->GetName() : PreviousHovered->GetTypeAsString();
 				bool bIsButton = InputFlowHelpers::IsButtonWidget(PreviousHovered);
 				
-				AddLog("Slate | Hover Leave", "", FColor(180, 180, 180), TypePrefix, Name, "", bIsButton, UObj, Parts);
+				AddLog("Slate | Hover Leave", "", FColor(180, 180, 180), TypePrefix, Name, "", bIsButton, UObj, Parts, FKeyEvent(), MouseEvent);
 			}
 
 			if (CurrentHovered.IsValid())
@@ -735,7 +741,7 @@ bool FInputFlowSpy::HandleMouseMoveEvent(FSlateApplication& SlateApp, const FPoi
 				FString TypePrefix = UObj ? UObj->GetClass()->GetName() : CurrentHovered->GetTypeAsString();
 				bool bIsButton = InputFlowHelpers::IsButtonWidget(CurrentHovered);
 
-				AddLog("Slate | Hover Enter", "", FColor(200, 160, 255), TypePrefix, Name, StateDesc, bIsButton, UObj, Parts);
+				AddLog("Slate | Hover Enter", "", FColor(200, 160, 255), TypePrefix, Name, StateDesc, bIsButton, UObj, Parts, FKeyEvent(), MouseEvent);
 			}
 			
 			LastHoveredWidget = CurrentHovered;
@@ -774,11 +780,11 @@ bool FInputFlowSpy::HandleKeyDownEvent(FSlateApplication& SlateApp, const FKeyEv
 		bool bIsBtn = InputFlowHelpers::IsButtonWidget(FocusedWidget);
 		SourceState = GetWidgetStateDescription(FocusedWidget);
 
-		AddLog("Slate | KeyDown", InKeyEvent.GetKey().ToString(), FColor::Green, SourceType, SourceName, SourceState, bIsBtn, SourceObj, Parts);
+		AddLog("Slate | KeyDown", InKeyEvent.GetKey().ToString(), FColor::Green, SourceType, SourceName, SourceState, bIsBtn, SourceObj, Parts, InKeyEvent);
 	}
 	else
 	{
-		AddLog("Slate | KeyDown", InKeyEvent.GetKey().ToString(), FColor::Green);
+		AddLog("Slate | KeyDown", InKeyEvent.GetKey().ToString(), FColor::Green, TEXT(""), TEXT(""), TEXT(""), false, nullptr, TArray<FInputLogRichTextPart>(), InKeyEvent);
 	}
 	
 	if (bCaptureFocusEvents)
@@ -804,7 +810,7 @@ bool FInputFlowSpy::HandleKeyDownEvent(FSlateApplication& SlateApp, const FKeyEv
 				SourceState = GetWidgetStateDescription(FocusedWidget);
 			}
 
-			AddLog("Slate | Nav Attempt", GetNavigationDirectionString(NavDir), FColor::Magenta, SourceType, SourceName, SourceState, bIsBtn, SourceObj, Parts);
+			AddLog("Slate | Nav Attempt", GetNavigationDirectionString(NavDir), FColor::Magenta, SourceType, SourceName, SourceState, bIsBtn, SourceObj, Parts, InKeyEvent);
 		}
 	}
 	return false; 
@@ -835,11 +841,11 @@ bool FInputFlowSpy::HandleKeyUpEvent(FSlateApplication& SlateApp, const FKeyEven
 		SourceType = UObj ? UObj->GetClass()->GetName() : FocusedWidget->GetTypeAsString();
 		bIsBtn = InputFlowHelpers::IsButtonWidget(FocusedWidget);
 		SourceState = GetWidgetStateDescription(FocusedWidget);
-		AddLog("Slate | KeyUp", InKeyEvent.GetKey().ToString(), FColor::Red, SourceType, SourceName, SourceState, bIsBtn, SourceObj, Parts);
+		AddLog("Slate | KeyUp", InKeyEvent.GetKey().ToString(), FColor::Red, SourceType, SourceName, SourceState, bIsBtn, SourceObj, Parts, InKeyEvent);
 	}
 	else
 	{
-		AddLog("Slate | KeyUp", InKeyEvent.GetKey().ToString(), FColor::Red);
+		AddLog("Slate | KeyUp", InKeyEvent.GetKey().ToString(), FColor::Red, TEXT(""), TEXT(""), TEXT(""), false, nullptr, TArray<FInputLogRichTextPart>(), InKeyEvent);
 	}
 
 	return false; 
@@ -860,7 +866,7 @@ bool FInputFlowSpy::HandleAnalogInputEvent(FSlateApplication& SlateApp, const FA
 		static double LastLogTime = 0.0;
 		if (FPlatformTime::Seconds() - LastLogTime > 0.1)
 		{
-			AddLog("Slate | Analog", FString::Printf(TEXT("%s : %.2f"), *InAnalogInputEvent.GetKey().ToString(), InAnalogInputEvent.GetAnalogValue()), FColor::Cyan);
+			AddLog("Slate | Analog", FString::Printf(TEXT("%s : %.2f"), *InAnalogInputEvent.GetKey().ToString(), InAnalogInputEvent.GetAnalogValue()), FColor::Cyan, TEXT(""), TEXT(""), TEXT(""), false, nullptr, TArray<FInputLogRichTextPart>(), InAnalogInputEvent);
 			LastLogTime = FPlatformTime::Seconds();
 		}
 	}

@@ -105,11 +105,11 @@ void SInputFlowStatusDashboard::Tick(const FGeometry& AllottedGeometry, const do
 	if (SlateFocusLabel.IsValid()) SlateFocusLabel->SetText(GetFocusWidgetName());
 
 	UInputDebugSubsystem* DebugSub = WeakSubsystem.Get();
-	if (DebugSub)
+	if (IsValid(DebugSub))
 	{
 		if (CommonInputTypeLabel.IsValid()) CommonInputTypeLabel->SetText(GetCommonInputType(DebugSub));
 
-		const FInputOverlayState& State = DebugSub->GetOverlayState();
+		const FInputSnapshotStrings& State = DebugSub->GetInputSnapshotStrings();
 		if (ActionRouterLeafLabel.IsValid()) ActionRouterLeafLabel->SetText(FText::FromString(State.ActiveCommonUILeaf));
 		if (InputConfigLabel.IsValid()) InputConfigLabel->SetText(FText::FromString(State.InputConfig));
 		if (MouseCaptureLabel.IsValid()) MouseCaptureLabel->SetText(FText::FromString(State.MouseCaptureMode));
@@ -147,7 +147,7 @@ FText SInputFlowStatusDashboard::GetCommonInputType(UInputDebugSubsystem* Subsys
 FText SInputFlowStatusDashboard::GetActiveBoundActions(const UInputDebugSubsystem* Subsystem) const
 {
 	if (!Subsystem) return FText::GetEmpty();
-	const FInputOverlayState& State = Subsystem->GetOverlayState();
+	const FInputSnapshotStrings& State = Subsystem->GetInputSnapshotStrings();
 	if (State.BoundActions.Num() == 0) return FText::FromString("No active bindings detected.");
 	
 	FString Combined;
