@@ -8,6 +8,7 @@
 
 // Core
 #include <Containers/Ticker.h>
+#include <UObject/UObjectIterator.h>
 
 // Engine
 #include <Engine/GameInstance.h>

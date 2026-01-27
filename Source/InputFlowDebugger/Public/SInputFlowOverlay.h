@@ -16,6 +16,8 @@ class SEnhancedInputInspector;
 class SOverlay;
 class SDPIScaler;
 class SCanvas;
+class STextBlock;
+class SBorder;
 
 /*
  * A simple label widget with a colored background for use in the overlay.
