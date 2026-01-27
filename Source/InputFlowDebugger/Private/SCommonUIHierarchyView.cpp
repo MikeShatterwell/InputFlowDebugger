@@ -319,10 +319,6 @@ FString SCommonUIHierarchyView::GetInputConfigString(const UCommonActivatableWid
 
 void SCommonUIHierarchyView::UpdateTree()
 {
-	if (true)
-	{
-		
-	}
 	if (!DebugSubsystem.IsValid()) return;
 	UGameInstance* GI = DebugSubsystem->GetGameInstance();
 	ULocalPlayer* LP = GI ? GI->GetFirstGamePlayer() : nullptr;

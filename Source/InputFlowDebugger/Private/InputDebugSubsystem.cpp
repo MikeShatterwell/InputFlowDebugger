@@ -46,13 +46,6 @@
 #include <CommonUITypes.h>
 #include <Input/CommonUIActionRouterBase.h>
 #include <Input/UIActionBinding.h>
-
-static TAutoConsoleVariable<float> CVarInputFlowCommonUITreeCrawl(
-	TEXT("InputFlow.EnableCommonUITreeCrawl"),
-	0.0f,
-	TEXT("Must be active to enable CommonUI Hierarchy crawling in the Input Flow Debugger.\nCan be disabled to improve performance."),
-	ECVF_Default
-);
 #endif // WITH_PLUGIN_COMMONUI
 
 static TAutoConsoleVariable<bool> CVarInputFlowOverlay(
