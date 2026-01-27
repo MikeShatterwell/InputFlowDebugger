@@ -23,5 +23,17 @@
 	"TargetAllowList": [
 		"Editor"
 	],
+	"Plugins": [
+		{
+			"Name": "EnhancedInput",
+			"Enabled": true,
+			"Optional": true
+		},
+		{
+			"Name": "CommonUI",
+			"Enabled": true,
+			"Optional": true
+		}
+	]
 	"SupportURL": ""
 }
