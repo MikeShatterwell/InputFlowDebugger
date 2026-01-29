@@ -304,8 +304,6 @@ bool UInputDebugSubsystem::TickSyncLogs(float DeltaTime)
 
 void UInputDebugSubsystem::UpdateDataSnapshot()
 {
-	if (!WITH_PLUGIN_COMMONUI) return;
-
 	DataSnapshot = FInputSnapshotStrings();
 
 	UGameInstance* GI = GetGameInstance();
