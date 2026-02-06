@@ -12,6 +12,9 @@
 #include <Widgets/Views/STableRow.h>
 #include <Widgets/Views/STreeView.h>
 
+// FieldNotification
+#include <FieldNotificationId.h>
+
 #if WITH_PLUGIN_MODELVIEWVIEWMODEL
 
 class SMVVMInspectorPanel;
