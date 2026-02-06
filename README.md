@@ -1,17 +1,19 @@
 ﻿# Input Flow Debugger
 
-Unreal UI has many layers of input routing and focus management that can be difficult to visualize and debug. This plugin provides an in-game overlay and editor tools to help developers understand and troubleshoot input flow, navigation, and focus behavior in Unreal Engine 5 projects.
+Unreal UI has many layers of input routing and focus management that can be difficult to visualize and debug. This plugin provides an in-game overlay and editor tools to help developers understand and troubleshoot input flow, navigation, and focus behavior in Unreal Engine 5 projects. Additionally, the tool provides the ability to inspect and modify MVVM ViewModels at runtime.
 
 This is intended to be a tool in the toolbox in addition to the WidgetReflector and other built-in debugging tools.
 
 ![Input Flow Debugger](Docs/main.gif)
 ![Enhanced Input](Docs/enhanced_input.gif)
+![MVVM Inspector](Docs/mvvm_inspector.gif)
 
 ## Dependencies
 
 * Created based on vanilla **Unreal Engine 5.6**, compatibility with other versions is not guaranteed. Pull requests for other versions are welcome.
 * **Enhanced Input** (Optional, but required for Enhanced Input inspection features)
 * **CommonUI** (Optional, but required for **ActivatableWidget** hierarchy features)
+* **ModelViewViewModel** (Optional, but required for **ViewModel** inspection features)
 
 ## Features
 
@@ -22,6 +24,7 @@ This is intended to be a tool in the toolbox in addition to the WidgetReflector 
 * **CommonUI Integration:** Visualizes the Activatable Widget stack/queue and identifies the current Input Routing Leaf.
 * **Draggable Overlay:** In-game debug overlay with movable, resizable panels.
 * **Editor Dock Tab:** Analyze input state without cluttering the game viewport using the dedicated Editor Tab.
+* **NEW: ViewModel Inspector:** Read the live values of all ViewModels bound to widgets, set new values at runtime.
 
 ![Editor Tab Analyzer](Docs/CommonUIHierarchyStatusBar.png)
 ![Navigation Simulation With Labels](Docs/FocusNavLabels.png)

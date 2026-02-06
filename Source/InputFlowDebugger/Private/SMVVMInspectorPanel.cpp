@@ -2,7 +2,6 @@
 
 #include "SMVVMInspectorPanel.h"
 
-
 #if WITH_PLUGIN_MODELVIEWVIEWMODEL
 
 // Internal

@@ -46,7 +46,6 @@ public class InputFlowDebugger : ModuleRules
 				"InputCore",
 				"GameplayTags",
 				"UMG", 
-				"ModelViewViewModel",
 				"FieldNotification"
 			}
 			);
@@ -120,6 +119,10 @@ public class InputFlowDebugger : ModuleRules
 									"CommonInput", 
 								}
 							);
+						}
+						else if (PluginName == "ModelViewViewModel")
+						{
+							PrivateDependencyModuleNames.Add("ModelViewViewModel");
 						}
 					}
 
