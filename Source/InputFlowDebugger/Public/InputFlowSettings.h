@@ -67,6 +67,9 @@ public:
 
 	bool IsEnhancedInputPanelShown() const { return bShowEnhancedInputPanel; }
 	void SetShowEnhancedInputPanel(bool bEnabled) { if (bShowEnhancedInputPanel != bEnabled) { bShowEnhancedInputPanel = bEnabled; SaveConfig(); OnSettingsChanged.Broadcast(); } }
+	
+	bool IsMVVMInspectorPanelShown() const { return bShowMVVMInspectorPanel; }
+	void SetShowMVVMInspectorPanel(bool bEnabled) { if (bShowMVVMInspectorPanel != bEnabled) { bShowMVVMInspectorPanel = bEnabled; SaveConfig(); OnSettingsChanged.Broadcast(); } }
 
 	float GetOverlayScale() const { return OverlayScale; }
 	void SetOverlayScale(float NewScale) { NewScale = FMath::Clamp(NewScale, 0.5f, 3.0f); if (!FMath::IsNearlyEqual(OverlayScale, NewScale)) { OverlayScale = NewScale; SaveConfig(); OnSettingsChanged.Broadcast(); } }
@@ -130,6 +133,9 @@ private:
 
 	UPROPERTY(EditAnywhere, Config, Category = "Panels")
 	bool bShowEnhancedInputPanel = false;
+
+	UPROPERTY(EditAnywhere, Config, Category = "Panels")
+	bool bShowMVVMInspectorPanel = false;
 
 	UPROPERTY(EditAnywhere, Config, Category = "Visualization", meta=(ClampMin=0.5, ClampMax=3.0))
 	float OverlayScale = 1.0f;

@@ -45,7 +45,9 @@ public class InputFlowDebugger : ModuleRules
 				"SlateCore",
 				"InputCore",
 				"GameplayTags",
-				"UMG",
+				"UMG", 
+				"ModelViewViewModel",
+				"FieldNotification"
 			}
 			);
 		

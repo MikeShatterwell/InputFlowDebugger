@@ -23,6 +23,7 @@
 #include "SInputFlowLogView.h"
 #include "SInputFlowSettingsPanel.h"
 #include "SInputFlowStatusDashboard.h"
+#include "SMVVMInspectorPanel.h"
 
 // --- CONSTANTS FOR STYLING ---
 namespace InputFlowStyle
@@ -615,6 +616,7 @@ private:
 // --------------------------------------------------------------------
 void SInputFlowLabel::Construct(const FArguments& InArgs)
 {
+	SetVisibility(EVisibility::HitTestInvisible);
 	ChildSlot
 	[
 		SAssignNew(BackgroundBorder, SBorder)
@@ -810,6 +812,26 @@ void SInputFlowOverlay::Construct(const FArguments& InArgs)
 			[
 				SAssignNew(EnhancedInputInspectorView, SEnhancedInputInspector, Sub).IsOverlay(true)
 			]
+		]
+	);
+#endif
+
+#if WITH_PLUGIN_MODELVIEWVIEWMODEL
+	AddPanel(
+		SNew(SInputFlowDraggablePanel)
+		.Title(TEXT("MVVM Inspector"))
+		.InitialPosition(FVector2D(100, 300))
+		.InitialSize(FVector2D(1000, 500))
+		.OnGetSnapTargets_Lambda(GetSnapTargets)
+		.OnClose_Lambda([]() { GetMutableDefault<UInputFlowSettings>()->SetShowMVVMInspectorPanel(false); })
+		.Visibility_Lambda([this]() -> EVisibility
+		{
+			return UInputFlowSettings::Get()->IsMVVMInspectorPanelShown()
+					   ? EVisibility::SelfHitTestInvisible
+					   : EVisibility::Collapsed;
+		})
+		[
+			SAssignNew(MVVMInspectorView, SMVVMInspectorPanel)
 		]
 	);
 #endif

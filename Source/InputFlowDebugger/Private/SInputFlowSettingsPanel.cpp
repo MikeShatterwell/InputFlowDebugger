@@ -282,6 +282,9 @@ TSharedRef<SWidget> SInputFlowSettingsPanel::MakePanelMenu()
 #if WITH_PLUGIN_ENHANCEDINPUT
 	AddPanelEntry(INVTEXT("Enhanced Input"), "bShowEnhancedInputPanel");
 #endif
+#if WITH_PLUGIN_MODELVIEWVIEWMODEL
+	AddPanelEntry(INVTEXT("MVVM Inspector"), "bShowMVVMInspectorPanel");
+#endif
 
 	return MenuBuilder.MakeWidget();
 }

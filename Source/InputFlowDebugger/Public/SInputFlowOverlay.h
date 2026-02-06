@@ -9,6 +9,7 @@
 #include <Widgets/SCompoundWidget.h>
 #include <Types/SlateEnums.h>
 
+class SMVVMInspectorPanel;
 class UInputDebugSubsystem;
 class SInputFlowLogView;
 class SCommonUIHierarchyView;
@@ -121,4 +122,5 @@ private:
 	TSharedPtr<SInputFlowLogView> LogView;
 	TSharedPtr<SCommonUIHierarchyView> CommonUIHierarchyView;
 	TSharedPtr<SEnhancedInputInspector> EnhancedInputInspectorView;
+	TSharedPtr<SMVVMInspectorPanel> MVVMInspectorView;
 };
