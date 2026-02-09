@@ -1,16 +1,19 @@
-﻿// Copyright Mike Desrosiers, All Rights Reserved.
+﻿// Copyright Mike Desrosiers, All Rights Reserved. 
 
 #pragma once
 
-// Core
+// Core 
 #include <CoreMinimal.h>
 #include <UObject/FieldPath.h>
 #include <UObject/WeakObjectPtr.h>
 
-// Slate
+// Slate 
 #include <Widgets/SCompoundWidget.h>
 #include <Widgets/Views/STableRow.h>
 #include <Widgets/Views/STreeView.h>
+
+// FieldNotification 
+#include <FieldNotificationId.h>
 
 #if WITH_PLUGIN_MODELVIEWVIEWMODEL
 
@@ -22,10 +25,10 @@ class UMVVMView;
 class UUserWidget;
 class SSearchBox;
 
-/**
- * Hierarchy node for the left-hand widget tree.
- * We only materialize nodes for widgets that have an MVVMView extension.
- */
+/** 
+* Hierarchy node for the left-hand widget tree. 
+* We only materialize nodes for widgets that have an MVVMView extension. 
+*/
 struct FMVVMHierarchyNode : public TSharedFromThis<FMVVMHierarchyNode>
 {
 	/** Slate widget instance for this node. */
@@ -49,10 +52,10 @@ struct FMVVMHierarchyNode : public TSharedFromThis<FMVVMHierarchyNode>
 	bool HasViewModels() const { return MVVMView.IsSet(); }
 };
 
-/**
- * Property node for the right-hand property tree.
- * The node can represent a top-level "ViewModel: X" category root, a property, or an array element.
- */
+/** 
+* Property node for the right-hand property tree. 
+* The node can represent a top-level "ViewModel: X" category root, a property, or an array element. 
+*/
 struct FMVVMPropertyNode : public TSharedFromThis<FMVVMPropertyNode>
 {
 	/** Display label in the tree. */
@@ -87,48 +90,56 @@ struct FMVVMPropertyNode : public TSharedFromThis<FMVVMPropertyNode>
 	uint8* GetContainerPtr() const;
 };
 
-/**
- * Row widget for the hierarchy tree.
- */
+/** 
+* Row widget for the hierarchy tree. 
+*/
 class SMVVMHierarchyRow : public STableRow<TSharedPtr<FMVVMHierarchyNode>>
 {
 public:
-	SLATE_BEGIN_ARGS(SMVVMHierarchyRow) : _InspectorPanel(nullptr){}
-		SLATE_ARGUMENT(SMVVMInspectorPanel* , InspectorPanel)
+	SLATE_BEGIN_ARGS(SMVVMHierarchyRow) : _InspectorPanel(nullptr)
+		{
+		}
+
+		SLATE_ARGUMENT(SMVVMInspectorPanel*, InspectorPanel)
 	SLATE_END_ARGS()
 
 	void Construct(const FArguments& InArgs,
-		const TSharedRef<STableViewBase>& InOwnerTableView,
-		TSharedPtr<FMVVMHierarchyNode> InItem);
+	               const TSharedRef<STableViewBase>& InOwnerTableView,
+	               TSharedPtr<FMVVMHierarchyNode> InItem);
 };
 
-/**
- * Row widget for the property tree.
- */
+/** 
+* Row widget for the property tree. 
+*/
 class SMVVMPropertyRow : public STableRow<TSharedPtr<FMVVMPropertyNode>>
 {
 public:
 	SLATE_BEGIN_ARGS(SMVVMPropertyRow)
-		: _InspectorPanel(nullptr)
-	{}
+			: _InspectorPanel(nullptr)
+		{
+		}
+
 		SLATE_ARGUMENT(class SMVVMInspectorPanel*, InspectorPanel)
 	SLATE_END_ARGS()
 
 	void Construct(const FArguments& InArgs,
-		const TSharedRef<STableViewBase>& InOwnerTableView,
-		TSharedPtr<FMVVMPropertyNode> InItem);
+	               const TSharedRef<STableViewBase>& InOwnerTableView,
+	               TSharedPtr<FMVVMPropertyNode> InItem);
 };
 
-/**
- * Inspector panel displaying MVVM sources (ViewModels) and their reflected properties.
- *
- * Left: widget hierarchy nodes that have an MVVMView extension.
- * Right: properties for the selected node's MVVM sources, including nested objects and arrays.
- */
+/** 
+* Inspector panel displaying MVVM sources (ViewModels) and their reflected properties. 
+* 
+* Left: widget hierarchy nodes that have an MVVMView extension. 
+* Right: properties for the selected node's MVVM sources, including nested objects and arrays. 
+*/
 class SMVVMInspectorPanel : public SCompoundWidget
 {
 public:
-	SLATE_BEGIN_ARGS(SMVVMInspectorPanel){}
+	SLATE_BEGIN_ARGS(SMVVMInspectorPanel)
+		{
+		}
+
 	SLATE_END_ARGS()
 
 	void Construct(const FArguments& InArgs);
@@ -138,24 +149,32 @@ public:
 	void RefreshHierarchy();
 
 	/** Factory for property value widgets (right-hand column). */
+	static void NotifyPropertyValueChanged(TSharedPtr<FMVVMPropertyNode> Node);
 	TSharedRef<SWidget> CreateValueWidget(TSharedPtr<FMVVMPropertyNode> Node);
+	TSharedRef<SWidget> CreateBoolWidget(TSharedPtr<FMVVMPropertyNode> Node, const FBoolProperty* BoolProp, bool bCanEdit);
+	TSharedRef<SWidget> CreateEnumWidget(TSharedPtr<FMVVMPropertyNode> Node, const FProperty* Prop, bool bCanEdit);
+	TSharedRef<SWidget> CreateNumericWidget(TSharedPtr<FMVVMPropertyNode> Node, const FNumericProperty* IntProp, bool bCanEdit);
+	TSharedRef<SWidget> CreateStringWidget(TSharedPtr<FMVVMPropertyNode> Node, bool bCanEdit);
+	TSharedRef<SWidget> CreateSpecialStructWidget(TSharedPtr<FMVVMPropertyNode> Node, const FStructProperty* StructProp, bool bCanEdit);
+	TSharedRef<SWidget> CreateContainerWidget(TSharedPtr<FMVVMPropertyNode> Node);
+	TSharedRef<SWidget> CreateObjectLikeWidget(TSharedPtr<FMVVMPropertyNode> Node, const FProperty* Prop);
+	TSharedRef<SWidget> CreateFallbackWidget(TSharedPtr<FMVVMPropertyNode> Node);
+	
 
-	// Public getters for the rows to access search text for highlighting.
+	// Public getters for the rows to access search text for highlighting. 
 	FText GetHierarchySearchText() const { return FText::FromString(HierarchyFilterString); }
 	FText GetPropertySearchText() const { return FText::FromString(PropertyFilterString); }
 
 private:
-	// --- Hierarchy ---
-
-	// --- Hierarchy ---
-	void RecursivelyBuildHierarchy(TSharedPtr<SWidget> InWidget, TSharedPtr<FMVVMHierarchyNode> ParentNode);
+	// --- Hierarchy --- 
+	void RecursivelyBuildHierarchy(TSharedPtr<SWidget> RootWidget, TSharedPtr<FMVVMHierarchyNode> ParentNode, TSet<UUserWidget*>& VisitedWidgets);
 	TSharedRef<ITableRow> GenerateHierarchyRow(TSharedPtr<FMVVMHierarchyNode> Item, const TSharedRef<STableViewBase>& OwnerTable);
 	void OnGetHierarchyChildren(TSharedPtr<FMVVMHierarchyNode> Item, TArray<TSharedPtr<FMVVMHierarchyNode>>& OutChildren);
 	void OnHierarchySelectionChanged(TSharedPtr<FMVVMHierarchyNode> Item, ESelectInfo::Type SelectInfo);
 	void OnHierarchySearchChanged(const FText& InFilterText);
 	void SetHierarchyExpansion(TSharedPtr<FMVVMHierarchyNode> Node, bool bExpand);
 
-	// --- Properties ---
+	// --- Properties --- 
 	void RebuildPropertyTree(TSharedPtr<FMVVMHierarchyNode> SelectedNode);
 	TArray<TSharedPtr<FMVVMPropertyNode>> GeneratePropertyNodes(uint8* BaseAddress, const UStruct* StructLayout, UObject* OwnerObject, TSharedPtr<FMVVMPropertyNode> Parent, int32 CurrentDepth = 0, int32 MaxDepth = 16);
 	TSharedRef<ITableRow> GeneratePropertyRow(TSharedPtr<FMVVMPropertyNode> Item, const TSharedRef<STableViewBase>& OwnerTable);
@@ -163,33 +182,33 @@ private:
 	void OnPropertySearchChanged(const FText& InFilterText);
 	void SetPropertyExpansion(TSharedPtr<FMVVMPropertyNode> Node, bool bExpand);
 
-	// --- Helpers ---
-	void SetupChangeListener(UObject* Object);
+	// --- Helpers --- 
+	void SetupChangeListener(UObject* Object, const FProperty* Property);
 	void OnFieldChanged(UObject* Obj, UE::FieldNotification::FFieldId Id);
 
-	// "Special Struct" refers to data types we can't easily display via checkbox/spinner/combo box,
-	// so we just show their text representation. Custom property display could be added later.
+	// "Special Struct" refers to data types we can't easily display via checkbox/spinner/combo box, 
+	// so we just show their text representation. Custom property display could be added later. 
 	bool IsSpecialStruct(const UScriptStruct* Struct) const;
 	FString GetSpecialStructValue(const UScriptStruct* Struct, const void* ValuePtr) const;
 	void SetSpecialStructValue(TSharedPtr<FMVVMPropertyNode> Node, const FString& NewStringValue);
-	
+
 private:
-	// Left-hand hierarchy tree
+	// Left-hand hierarchy tree 
 	TSharedPtr<STreeView<TSharedPtr<FMVVMHierarchyNode>>> HierarchyTreeView;
 	TArray<TSharedPtr<FMVVMHierarchyNode>> HierarchyRootNodes;
 	TSharedPtr<SSearchBox> HierarchySearchBox;
 	FString HierarchyFilterString;
 
-	// Right-hand property tree
+	// Right-hand property tree 
 	TSharedPtr<STreeView<TSharedPtr<FMVVMPropertyNode>>> PropertyTreeView;
 	TArray<TSharedPtr<FMVVMPropertyNode>> PropertyRootNodes;
 	TSharedPtr<SSearchBox> PropertySearchBox;
 	FString PropertyFilterString;
 
 	// Objects we are currently listening to for FieldNotify changes.
-	TSet<TWeakObjectPtr<UObject>> ListenedObjects;
+	TMap<TWeakObjectPtr<UObject>, TSet<UE::FieldNotification::FFieldId>> ListenedFields;
 
-	// Current hierarchy selection.
+	// Current hierarchy selection. 
 	TWeakPtr<FMVVMHierarchyNode> CurrentSelection;
 };
 

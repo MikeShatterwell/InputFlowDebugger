@@ -33,6 +33,11 @@
 			"Name": "CommonUI",
 			"Enabled": true,
 			"Optional": true
+		},
+		{
+			"Name": "ModelViewViewModel",
+			"Enabled": true,
+			"Optional": true
 		}
 	],
 	"SupportURL": ""
