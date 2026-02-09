@@ -8,6 +8,10 @@
 // Internal 
 #include "InputFlowHelpers.h"
 
+// Engine
+#include <Engine/Engine.h>
+#include <Engine/GameViewportClient.h>
+
 // UMG 
 #include <Blueprint/UserWidget.h>
 #include <Components/Widget.h>
