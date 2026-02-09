@@ -166,6 +166,9 @@ public:
 	FText GetPropertySearchText() const { return FText::FromString(PropertyFilterString); }
 
 private:
+	// Removes FieldNotify listeners for all currently listened to objects.
+	void ResetListenedObjects();
+	
 	// --- Hierarchy --- 
 	void RecursivelyBuildHierarchy(TSharedPtr<SWidget> RootWidget, TSharedPtr<FMVVMHierarchyNode> ParentNode, TSet<UUserWidget*>& VisitedWidgets);
 	TSharedRef<ITableRow> GenerateHierarchyRow(TSharedPtr<FMVVMHierarchyNode> Item, const TSharedRef<STableViewBase>& OwnerTable);
@@ -183,7 +186,7 @@ private:
 	void SetPropertyExpansion(TSharedPtr<FMVVMPropertyNode> Node, bool bExpand);
 
 	// --- Helpers --- 
-	void SetupChangeListener(UObject* Object, const FProperty* Property);
+	void SetupChangeListener(UObject* Object);
 	void OnFieldChanged(UObject* Obj, UE::FieldNotification::FFieldId Id);
 
 	// "Special Struct" refers to data types we can't easily display via checkbox/spinner/combo box, 
@@ -206,7 +209,7 @@ private:
 	FString PropertyFilterString;
 
 	// Objects we are currently listening to for FieldNotify changes.
-	TMap<TWeakObjectPtr<UObject>, TSet<UE::FieldNotification::FFieldId>> ListenedFields;
+	TSet<TWeakObjectPtr<UObject>> ListenedObjects;
 
 	// Current hierarchy selection. 
 	TWeakPtr<FMVVMHierarchyNode> CurrentSelection;

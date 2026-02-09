@@ -63,6 +63,16 @@ namespace MVVMInspectorPanel
 	{
 		return Obj && Obj->IsA(UWidget::StaticClass());
 	}
+
+	// Helper to determine if we should inspect an object's internal properties
+	// Currently only supports UMVVMViewModelBase-derived objects, but we might want to expand this in the future
+	// when node expansion and property walking is optimized enough to handle more complex objects (Actors, Components, etc).
+	static bool ShouldReflectObject(const UObject* Obj)
+	{
+		if (!IsValid(Obj)) return false;
+		
+		return Obj->IsA(UMVVMViewModelBase::StaticClass());
+	}
 } // namespace MVVMInspectorPanel 
 
 // ---------------------------------------------------------------------------------- 
@@ -92,8 +102,8 @@ void SMVVMHierarchyRow::Construct(
 	);
 
 	const FText HighlightText = InArgs._InspectorPanel
-		                            ? InArgs._InspectorPanel->GetHierarchySearchText()
-		                            : FText::GetEmpty();
+									? InArgs._InspectorPanel->GetHierarchySearchText()
+									: FText::GetEmpty();
 
 	ChildSlot
 	[
@@ -165,8 +175,8 @@ void SMVVMPropertyRow::Construct(
 	);
 
 	const FText HighlightText = InArgs._InspectorPanel
-		                            ? InArgs._InspectorPanel->GetPropertySearchText()
-		                            : FText::GetEmpty();
+									? InArgs._InspectorPanel->GetPropertySearchText()
+									: FText::GetEmpty();
 
 	SetBorderBackgroundColor(FLinearColor::Transparent);
 
@@ -216,8 +226,8 @@ void SMVVMPropertyRow::Construct(
 					.ColorAndOpacity(HeaderColor)
 					.HighlightText(HighlightText)
 					.Font(InItem->bIsCategoryRoot
-						      ? FCoreStyle::GetDefaultFontStyle("Bold", 9)
-						      : FCoreStyle::GetDefaultFontStyle("Regular", 9))
+							  ? FCoreStyle::GetDefaultFontStyle("Bold", 9)
+							  : FCoreStyle::GetDefaultFontStyle("Regular", 9))
 				]
 
 				+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(10, 0, 0, 0)
@@ -343,13 +353,11 @@ void SMVVMInspectorPanel::Construct(const FArguments& InArgs)
 	RefreshHierarchy();
 }
 
-SMVVMInspectorPanel::~SMVVMInspectorPanel()
+void SMVVMInspectorPanel::ResetListenedObjects()
 {
-	TRACE_CPUPROFILER_EVENT_SCOPE_STR(__FUNCTION__)
-	// Ensure we unregister all field-notify delegates we added. 
-	for (auto& Elem : ListenedFields)
+	for (TWeakObjectPtr<UObject>& Elem : ListenedObjects)
 	{
-		if (UObject* Obj = Elem.Key.Get(); IsValid(Obj))
+		if (UObject* Obj = Elem.Get(); IsValid(Obj))
 		{
 			if (INotifyFieldValueChanged* Notify = Cast<INotifyFieldValueChanged>(Obj))
 			{
@@ -357,7 +365,17 @@ SMVVMInspectorPanel::~SMVVMInspectorPanel()
 			}
 		}
 	}
-	ListenedFields.Empty();
+	ListenedObjects.Empty();
+}
+
+SMVVMInspectorPanel::~SMVVMInspectorPanel()
+{
+	TRACE_CPUPROFILER_EVENT_SCOPE_STR(__FUNCTION__)
+	// Ensure we unregister all field-notify delegates we added. 
+	ResetListenedObjects();
+	
+	PropertyRootNodes.Reset();
+	HierarchyRootNodes.Reset();
 }
 
 // ---------------------------------------------------------------------------------- 
@@ -450,12 +468,15 @@ void SMVVMInspectorPanel::RecursivelyBuildHierarchy(
 		TArray<FString> SourceNames;
 		for (const FMVVMView_Source& Source : FoundView->GetSources())
 		{
-			SourceNames.Add(GetNameSafe(Source.Source));
+			if (MVVMInspectorPanel::ShouldReflectObject(Source.Source))
+			{
+				SourceNames.Add(GetNameSafe(Source.Source));
+			}
 		}
 
 		CurrentNode->ViewModelSummary = !SourceNames.IsEmpty()
-			                                ? FString::Join(SourceNames, TEXT(", "))
-			                                : TEXT("No Sources");
+											? FString::Join(SourceNames, TEXT(", "))
+											: TEXT("No Sources");
 
 		if (ParentNode.IsValid())
 		{
@@ -565,56 +586,22 @@ void SMVVMInspectorPanel::SetHierarchyExpansion(TSharedPtr<FMVVMHierarchyNode> N
 // Property Tree (Right) 
 // ---------------------------------------------------------------------------------- 
 
-void SMVVMInspectorPanel::SetupChangeListener(UObject* Object, const FProperty* Property)
+void SMVVMInspectorPanel::SetupChangeListener(UObject* Object)
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE_STR(__FUNCTION__)
-	if (!IsValid(Object) || !Property) return;
-
-	const bool bIsStructural =
-		Property->IsA<FObjectProperty>() ||
-		Property->IsA<FArrayProperty>() ||
-		Property->IsA<FSetProperty>() ||
-		Property->IsA<FMapProperty>() ||
-		Property->IsA<FClassProperty>() ||
-		Property->IsA<FSoftObjectProperty>();
-
-	// InstancedStructs can change topology
-	bool bIsInstancedStruct = false;
-	if (const FStructProperty* StructProp = CastField<FStructProperty>(Property))
-	{
-		if (StructProp->Struct->GetFName() == MVVMInspectorPanel::NAME_InstancedStruct)
+		if (!IsValid(Object) || ListenedObjects.Contains(Object))
 		{
-			bIsInstancedStruct = true;
+			return;
 		}
-	}
 
-	// If it's not a property that changes the tree structure, don't listen.
-	if (!bIsStructural && !bIsInstancedStruct)
+	if (INotifyFieldValueChanged* NotifyInterface = Cast<INotifyFieldValueChanged>(Object))
 	{
-		return;
+		NotifyInterface->AddFieldValueChangedDelegate(
+			UE::FieldNotification::FFieldId(),
+			INotifyFieldValueChanged::FFieldValueChangedDelegate::CreateSP(this, &SMVVMInspectorPanel::OnFieldChanged)
+		);
+		ListenedObjects.Add(Object);
 	}
-
-	INotifyFieldValueChanged* NotifyInterface = Cast<INotifyFieldValueChanged>(Object);
-	if (!NotifyInterface) return;
-
-	// Use the definition class to find the FieldId (Fix from previous step)
-	const UClass* DefinitionClass = Property->GetOwnerClass();
-	if (!IsValid(DefinitionClass)) return;
-
-	const UE::FieldNotification::IClassDescriptor& Descriptor = NotifyInterface->GetFieldNotificationDescriptor();
-	const UE::FieldNotification::FFieldId FieldId = Descriptor.GetField(DefinitionClass, Property->GetFName());
-
-	if (!FieldId.IsValid()) return;
-
-	TSet<UE::FieldNotification::FFieldId>& FieldsForObject = ListenedFields.FindOrAdd(Object);
-	if (FieldsForObject.Contains(FieldId)) return;
-
-	// Bind Delegate
-	auto Delegate = INotifyFieldValueChanged::FFieldValueChangedDelegate::CreateSP(
-		this, &SMVVMInspectorPanel::OnFieldChanged);
-	NotifyInterface->AddFieldValueChangedDelegate(FieldId, Delegate);
-
-	FieldsForObject.Add(FieldId);
 }
 
 void SMVVMInspectorPanel::OnFieldChanged(UObject* Obj, UE::FieldNotification::FFieldId Id)
@@ -629,60 +616,8 @@ void SMVVMInspectorPanel::OnFieldChanged(UObject* Obj, UE::FieldNotification::FF
 void SMVVMInspectorPanel::RebuildPropertyTree(TSharedPtr<FMVVMHierarchyNode> SelectedNode)
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE_STR(__FUNCTION__)
-	// Capture Expansion State
-	TSet<FString> ExpandedPaths;
-
-	// Helper lambda to construct a unique path string for a node
-	// Example: "ViewModel.DynamicData.X"
-	auto GetNodePath = [](TSharedPtr<FMVVMPropertyNode> Node) -> FString
-	{
-		if (!Node.IsValid()) return FString();
-
-		FString Path = Node->DisplayName;
-		TSharedPtr<FMVVMPropertyNode> CurrentParent = Node->ParentNode.Pin();
-		while (CurrentParent.IsValid())
-		{
-			Path = CurrentParent->DisplayName + TEXT(".") + Path;
-			CurrentParent = CurrentParent->ParentNode.Pin();
-		}
-		return Path;
-	};
-
-	if (PropertyTreeView.IsValid())
-	{
-		// Recursively save paths of currently expanded nodes
-		TFunction<void(TSharedPtr<FMVVMPropertyNode>)> SaveExpansion;
-		SaveExpansion = [&](TSharedPtr<FMVVMPropertyNode> Node)
-		{
-			if (Node.IsValid() && PropertyTreeView->IsItemExpanded(Node))
-			{
-				ExpandedPaths.Add(GetNodePath(Node));
-				for (const auto& Child : Node->Children)
-				{
-					SaveExpansion(Child);
-				}
-			}
-		};
-
-		for (const auto& Root : PropertyRootNodes)
-		{
-			SaveExpansion(Root);
-		}
-	}
-
-	// Clear old listeners
-	for (auto& Elem : ListenedFields)
-	{
-		if (UObject* Obj = Elem.Key.Get(); IsValid(Obj))
-		{
-			if (INotifyFieldValueChanged* Notify = Cast<INotifyFieldValueChanged>(Obj))
-			{
-				Notify->RemoveAllFieldValueChangedDelegates(this);
-			}
-		}
-	}
-	ListenedFields.Empty();
-
+	
+	ResetListenedObjects();
 	PropertyRootNodes.Reset();
 
 	if (!SelectedNode.IsValid())
@@ -723,6 +658,7 @@ void SMVVMInspectorPanel::RebuildPropertyTree(TSharedPtr<FMVVMHierarchyNode> Sel
 				if (bMatches || !VMRoot->Children.IsEmpty())
 				{
 					PropertyRootNodes.Add(VMRoot);
+					SetupChangeListener(VM);
 				}
 			}
 		}
@@ -734,33 +670,9 @@ void SMVVMInspectorPanel::RebuildPropertyTree(TSharedPtr<FMVVMHierarchyNode> Sel
 		PropertyTreeView->RequestTreeRefresh();
 
 		const bool bIsFiltering = !PropertyFilterString.IsEmpty();
-
-		// Recursive lambda to restore state
-		TFunction<void(TSharedPtr<FMVVMPropertyNode>)> RestoreExpansion;
-		RestoreExpansion = [&](TSharedPtr<FMVVMPropertyNode> Node)
-		{
-			if (!Node.IsValid()) return;
-
-			// Expand if user is searching (always expand matches) OR if it was previously expanded
-			bool bShouldExpand = bIsFiltering;
-			if (!bShouldExpand)
-			{
-				bShouldExpand = ExpandedPaths.Contains(GetNodePath(Node));
-			}
-
-			if (bShouldExpand)
-			{
-				PropertyTreeView->SetItemExpansion(Node, true);
-				for (const auto& Child : Node->Children)
-				{
-					RestoreExpansion(Child);
-				}
-			}
-		};
-
 		for (const TSharedPtr<FMVVMPropertyNode>& Node : PropertyRootNodes)
 		{
-			RestoreExpansion(Node);
+			SetPropertyExpansion(Node, bIsFiltering);
 		}
 	}
 }
@@ -894,7 +806,7 @@ TArray<TSharedPtr<FMVVMPropertyNode>> SMVVMInspectorPanel::GeneratePropertyNodes
 	}
 
 	// Detect cycles when following UObject references. 
-	auto IsObjectInAncestry = [&](UObject* Obj) -> bool
+	auto IsObjectInAncestry = [&](const UObject* Obj) -> bool
 	{
 		if (!IsValid(Obj))
 		{
@@ -993,20 +905,20 @@ TArray<TSharedPtr<FMVVMPropertyNode>> SMVVMInspectorPanel::GeneratePropertyNodes
 					if (!IsSpecialStruct(InnerStructProp->Struct))
 					{
 						ElementNode->Children = GeneratePropertyNodes(ElementAddr, InnerStructProp->Struct, OwnerObject,
-						                                              ElementNode, CurrentDepth + 1);
+																	  ElementNode, CurrentDepth + 1);
 					}
 				}
 				else if (FObjectProperty* InnerObjProp = CastField<FObjectProperty>(ArrayProp->Inner))
 				{
 					UObject* SubObj = InnerObjProp->GetObjectPropertyValue(ElementAddr);
-					if (SubObj && !MVVMInspectorPanel::IsWidgetObject(SubObj))
+					if (MVVMInspectorPanel::ShouldReflectObject(SubObj))
 					{
 						if (!IsObjectInAncestry(SubObj))
 						{
 							ElementNode->Children = GeneratePropertyNodes(reinterpret_cast<uint8*>(SubObj),
-							                                              SubObj->GetClass(), SubObj, ElementNode,
-							                                              CurrentDepth + 1);
-							SetupChangeListener(SubObj, InnerObjProp);
+																		  SubObj->GetClass(), SubObj, ElementNode,
+																		  CurrentDepth + 1);
+							SetupChangeListener(SubObj);
 						}
 					}
 				}
@@ -1030,9 +942,14 @@ TArray<TSharedPtr<FMVVMPropertyNode>> SMVVMInspectorPanel::GeneratePropertyNodes
 			{
 				if (Helper.IsValidIndex(i) && MapProp->ValueProp)
 				{
+					FProperty* KeyProp = Helper.GetKeyProperty();
+					if (!KeyProp)
+					{
+						continue;
+					}
 					const TSharedPtr<FMVVMPropertyNode> EntryNode = MakeShared<FMVVMPropertyNode>();
 					FString KeyStr;
-					Helper.GetKeyProperty()->ExportText_Direct(KeyStr, Helper.GetKeyPtr(i), nullptr, nullptr, PPF_None);
+					KeyProp->ExportText_Direct(KeyStr, Helper.GetKeyPtr(i), nullptr, nullptr, PPF_None);
 
 					EntryNode->DisplayName = FString::Printf(TEXT("[%s]"), *KeyStr);
 					EntryNode->TypeName = MapProp->ValueProp->GetCPPType();
@@ -1047,19 +964,19 @@ TArray<TSharedPtr<FMVVMPropertyNode>> SMVVMInspectorPanel::GeneratePropertyNodes
 						if (!IsSpecialStruct(ValueStructProp->Struct))
 						{
 							EntryNode->Children = GeneratePropertyNodes(ValueAddr, ValueStructProp->Struct, OwnerObject,
-							                                            EntryNode, CurrentDepth + 1);
+																		EntryNode, CurrentDepth + 1);
 						}
 					}
 					else if (FObjectProperty* ValueObjProp = CastField<FObjectProperty>(MapProp->ValueProp))
 					{
 						UObject* SubObj = ValueObjProp->GetObjectPropertyValue(ValueAddr);
-						if (IsValid(SubObj) && !MVVMInspectorPanel::IsWidgetObject(SubObj) && !IsObjectInAncestry(
-							SubObj))
+						if (MVVMInspectorPanel::ShouldReflectObject(SubObj) && !IsObjectInAncestry(SubObj))
 						{
+							
 							EntryNode->Children = GeneratePropertyNodes(reinterpret_cast<uint8*>(SubObj),
-							                                            SubObj->GetClass(), SubObj, EntryNode,
-							                                            CurrentDepth + 1);
-							SetupChangeListener(SubObj, ValueObjProp);
+																		SubObj->GetClass(), SubObj, EntryNode,
+																		CurrentDepth + 1);
+							SetupChangeListener(SubObj);
 						}
 					}
 
@@ -1074,7 +991,7 @@ TArray<TSharedPtr<FMVVMPropertyNode>> SMVVMInspectorPanel::GeneratePropertyNodes
 		// Structs 
 		else if (FStructProperty* StructProp = CastField<FStructProperty>(Prop))
 		{
-			if (!IsSpecialStruct(StructProp->Struct))
+			if (IsValid(StructProp->Struct) && !IsSpecialStruct(StructProp->Struct))
 			{
 				// Instanced Structs
 				if (StructProp->Struct->GetFName() == MVVMInspectorPanel::NAME_InstancedStruct)
@@ -1086,7 +1003,7 @@ TArray<TSharedPtr<FMVVMPropertyNode>> SMVVMInspectorPanel::GeneratePropertyNodes
 						uint8* Memory = InstancedStruct->GetMutableMemory();
 						Node->TypeName = FString::Printf(TEXT("InstancedStruct (%s)"), *ScriptStruct->GetName());
 						Node->Children = GeneratePropertyNodes(Memory, ScriptStruct, OwnerObject, Node,
-						                                       CurrentDepth + 1);
+															   CurrentDepth + 1);
 					}
 					else
 					{
@@ -1096,7 +1013,7 @@ TArray<TSharedPtr<FMVVMPropertyNode>> SMVVMInspectorPanel::GeneratePropertyNodes
 				else
 				{
 					Node->Children = GeneratePropertyNodes(PropValuePtr, StructProp->Struct, OwnerObject, Node,
-					                                       CurrentDepth + 1);
+														   CurrentDepth + 1);
 				}
 			}
 		}
@@ -1107,15 +1024,15 @@ TArray<TSharedPtr<FMVVMPropertyNode>> SMVVMInspectorPanel::GeneratePropertyNodes
 			UObject* SubObj = ObjProp->GetObjectPropertyValue(PropValuePtr);
 			if (IsValid(SubObj))
 			{
-				if (!MVVMInspectorPanel::IsWidgetObject(SubObj))
+				if (MVVMInspectorPanel::ShouldReflectObject(SubObj))
 				{
 					Node->TypeName = FString::Printf(TEXT("Object (%s)"), *SubObj->GetName());
 
 					if (!IsObjectInAncestry(SubObj))
 					{
 						Node->Children = GeneratePropertyNodes(reinterpret_cast<uint8*>(SubObj), SubObj->GetClass(),
-						                                       SubObj, Node, CurrentDepth + 1);
-						SetupChangeListener(SubObj, ObjProp);
+															   SubObj, Node, CurrentDepth + 1);
+						SetupChangeListener(SubObj);
 					}
 					else
 					{
@@ -1318,7 +1235,7 @@ void SMVVMInspectorPanel::NotifyPropertyValueChanged(TSharedPtr<FMVVMPropertyNod
 	// top-level UObject property (e.g. the Vector itself) to broadcast the change.
 	// We walk up the tree until we find a property owned by a UClass (not a UStruct).
 	for (TSharedPtr<FMVVMPropertyNode> Walker = Node; Walker.IsValid() && Walker->Property.Get(); Walker = Walker->
-	     ParentNode.Pin())
+		 ParentNode.Pin())
 	{
 		// FProperty::GetOwnerClass() returns the UClass owner, or nullptr if owned by a UStruct.
 		if (const UClass* PropOwner = Walker->Property->GetOwnerClass())
@@ -1409,7 +1326,7 @@ TSharedRef<SWidget> SMVVMInspectorPanel::CreateValueWidget(TSharedPtr<FMVVMPrope
 }
 
 TSharedRef<SWidget> SMVVMInspectorPanel::CreateBoolWidget(TSharedPtr<FMVVMPropertyNode> Node,
-                                                          const FBoolProperty* BoolProp, bool bCanEdit)
+														  const FBoolProperty* BoolProp, bool bCanEdit)
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE_STR(__FUNCTION__)
 	return SNew(SCheckBox)
@@ -1440,7 +1357,7 @@ TSharedRef<SWidget> SMVVMInspectorPanel::CreateBoolWidget(TSharedPtr<FMVVMProper
 }
 
 TSharedRef<SWidget> SMVVMInspectorPanel::CreateEnumWidget(TSharedPtr<FMVVMPropertyNode> Node, const FProperty* Prop,
-                                                          bool bCanEdit)
+														  bool bCanEdit)
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE_STR(__FUNCTION__)
 	UEnum* EnumDef = nullptr;
@@ -1552,7 +1469,7 @@ TSharedRef<SWidget> SMVVMInspectorPanel::CreateEnumWidget(TSharedPtr<FMVVMProper
 }
 
 TSharedRef<SWidget> SMVVMInspectorPanel::CreateNumericWidget(TSharedPtr<FMVVMPropertyNode> Node,
-                                                             const FNumericProperty* NumProp, bool bCanEdit)
+															 const FNumericProperty* NumProp, bool bCanEdit)
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE_STR(__FUNCTION__)
 	if (NumProp->IsFloatingPoint())
@@ -1649,7 +1566,7 @@ TSharedRef<SWidget> SMVVMInspectorPanel::CreateStringWidget(TSharedPtr<FMVVMProp
 }
 
 TSharedRef<SWidget> SMVVMInspectorPanel::CreateSpecialStructWidget(TSharedPtr<FMVVMPropertyNode> Node,
-                                                                   const FStructProperty* StructProp, bool bCanEdit)
+																   const FStructProperty* StructProp, bool bCanEdit)
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE_STR(__FUNCTION__)
 	return SNew(SEditableTextBox)
@@ -1724,7 +1641,7 @@ TSharedRef<SWidget> SMVVMInspectorPanel::CreateContainerWidget(TSharedPtr<FMVVMP
 }
 
 TSharedRef<SWidget> SMVVMInspectorPanel::CreateObjectLikeWidget(TSharedPtr<FMVVMPropertyNode> Node,
-                                                                const FProperty* Prop)
+																const FProperty* Prop)
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE_STR(__FUNCTION__)
 	// Soft Object References
@@ -1796,26 +1713,26 @@ TSharedRef<SWidget> SMVVMInspectorPanel::CreateObjectLikeWidget(TSharedPtr<FMVVM
 	if (const FClassProperty* ClassProp = CastField<FClassProperty>(Prop))
 	{
 		return SNew(STextBlock)
-		                       .AutoWrapText(true)
-		                       .ColorAndOpacity(FLinearColor(1.0f, 0.5f, 0.8f)) // Pinkish for Classes
-		                       .Text_Lambda([Node]() -> FText
-		                       {
-			                       if (!Node.IsValid()) return FText::GetEmpty();
-			                       if (const uint8* Ptr = Node->GetRawValuePtr())
-			                       {
-				                       if (const FClassProperty* CProp = CastField<
-					                       FClassProperty>(Node->Property.Get()))
-				                       {
-					                       UObject* ClassObj = CProp->GetObjectPropertyValue(Ptr);
-					                       if (ClassObj)
-					                       {
-						                       return FText::FromString(
-							                       FString::Printf(TEXT("Class: %s"), *ClassObj->GetName()));
-					                       }
-				                       }
-			                       }
-			                       return FText::FromString(TEXT("None"));
-		                       });
+							   .AutoWrapText(true)
+							   .ColorAndOpacity(FLinearColor(1.0f, 0.5f, 0.8f)) // Pinkish for Classes
+							   .Text_Lambda([Node]() -> FText
+							   {
+								   if (!Node.IsValid()) return FText::GetEmpty();
+								   if (const uint8* Ptr = Node->GetRawValuePtr())
+								   {
+									   if (const FClassProperty* CProp = CastField<
+										   FClassProperty>(Node->Property.Get()))
+									   {
+										   UObject* ClassObj = CProp->GetObjectPropertyValue(Ptr);
+										   if (ClassObj)
+										   {
+											   return FText::FromString(
+												   FString::Printf(TEXT("Class: %s"), *ClassObj->GetName()));
+										   }
+									   }
+								   }
+								   return FText::FromString(TEXT("None"));
+							   });
 	}
 
 	return SNullWidget::NullWidget;
