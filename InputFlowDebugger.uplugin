@@ -20,8 +20,11 @@
 			"LoadingPhase": "Default"
 		}
 	],
-	"TargetAllowList": [
-		"Editor"
+	"TargetConfigurationDenyList": [
+		"Shipping"
+	],
+	"TargetDenyList": [
+		"Server"
 	],
 	"Plugins": [
 		{

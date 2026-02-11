@@ -142,6 +142,15 @@ void UInputDebugSubsystem::Deinitialize()
 	Super::Deinitialize();
 }
 
+bool UInputDebugSubsystem::ShouldCreateSubsystem(UObject* Outer) const
+{
+#if UE_SERVER
+	return false;
+#else
+	return Super::ShouldCreateSubsystem(Outer);
+#endif // UE_SERVER
+}
+
 void UInputDebugSubsystem::ClearLogHistory()
 {
 	// Reset indices and clear buffer content while maintaining size

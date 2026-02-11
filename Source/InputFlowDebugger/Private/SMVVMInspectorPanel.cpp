@@ -1381,10 +1381,12 @@ TSharedRef<SWidget> SMVVMInspectorPanel::CreateEnumWidget(TSharedPtr<FMVVMProper
 		// Skip the implicit _MAX entry (typically last). 
 		for (int32 i = 0; i < EnumDef->NumEnums() - 1; ++i)
 		{
+#if WITH_METADATA
 			if (EnumDef->HasMetaData(TEXT("Hidden"), i))
 			{
 				continue;
 			}
+#endif
 			Node->EnumOptionValues.Add(MakeShared<int64>(EnumDef->GetValueByIndex(i)));
 		}
 	}

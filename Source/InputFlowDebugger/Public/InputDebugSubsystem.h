@@ -65,6 +65,7 @@ public:
 	// Begin USubsystem overrides
 	virtual void Initialize(FSubsystemCollectionBase& Collection) override;
 	virtual void Deinitialize() override;
+	virtual bool ShouldCreateSubsystem(UObject* Outer) const override;
 	// End USubsystem overrides
 
 	const TArray<TSharedPtr<FInputEventLog>>& GetLogHistory() const { return LogHistory; }
