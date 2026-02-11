@@ -1386,7 +1386,7 @@ TSharedRef<SWidget> SMVVMInspectorPanel::CreateEnumWidget(TSharedPtr<FMVVMProper
 			{
 				continue;
 			}
-#endif
+#endif // WITH_METADATA
 			Node->EnumOptionValues.Add(MakeShared<int64>(EnumDef->GetValueByIndex(i)));
 		}
 	}
