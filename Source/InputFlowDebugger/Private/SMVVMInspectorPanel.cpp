@@ -627,9 +627,9 @@ void SMVVMInspectorPanel::RebuildPropertyTree(TSharedPtr<FMVVMHierarchyNode> Sel
 	}
 
 	// Regenerate Tree
-	if (SelectedNode->MVVMView.IsSet())
+	if (SelectedNode->MVVMView.IsValid())
 	{
-		const UMVVMView* View = SelectedNode->MVVMView.GetValue().Get();
+		const UMVVMView* View = SelectedNode->MVVMView.Get();
 		if (IsValid(View))
 		{
 			for (const FMVVMView_Source& Source : View->GetSources())

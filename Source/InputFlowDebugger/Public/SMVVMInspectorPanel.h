@@ -44,12 +44,12 @@ struct FMVVMHierarchyNode : public TSharedFromThis<FMVVMHierarchyNode>
 	TArray<TSharedPtr<FMVVMHierarchyNode>> Children;
 
 	/** Optional MVVM view extension if present. */
-	TOptional<TWeakObjectPtr<UMVVMView>> MVVMView;
+	TWeakObjectPtr<UMVVMView> MVVMView;
 
 	/** Owning UUserWidget (if the Slate widget belongs to one). */
 	TWeakObjectPtr<UUserWidget> UserWidgetOwner;
 
-	bool HasViewModels() const { return MVVMView.IsSet(); }
+	bool HasViewModels() const { return MVVMView.IsValid(); }
 };
 
 /** 
