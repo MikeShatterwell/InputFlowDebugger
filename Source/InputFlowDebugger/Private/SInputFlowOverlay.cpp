@@ -1406,8 +1406,8 @@ void SInputFlowOverlay::GatherLabelsFromSubsystem(const FGeometry& AllottedGeome
 					const FGeometry& RejGeo = RejWidget->GetPaintSpaceGeometry();
 					const FVector2D RejCenter = AllottedGeometry.AbsoluteToLocal(
 						RejGeo.GetAbsolutePositionAtCoordinates(FVector2D(0.5f, 0.5f)));
-
-					//QueueLabel(RejCenter, *Rej.Reason, InputFlowStyle::Color_NavBlocked.CopyWithNewOpacity(0.001f), FVector2D(0.5f, 0.5f));
+					// TODO: Add a label toggle, these can get noisy fast.
+					QueueLabel(RejCenter, *Rej.Reason, InputFlowStyle::Color_NavBlocked.CopyWithNewOpacity(0.001f), FVector2D(0.5f, 0.5f));
 				}
 			}
 		}
