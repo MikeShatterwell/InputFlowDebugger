@@ -80,9 +80,41 @@ public:
 
 	int32 GetNavigationSearchDepth() const { return NavigationSearchDepth; }
 	void SetNavigationSearchDepth(int32 NewDepth) { NewDepth = FMath::Clamp(NewDepth, 1, 5); if (NavigationSearchDepth != NewDepth) { NavigationSearchDepth = NewDepth; SaveConfig(); OnSettingsChanged.Broadcast(); } }
+	
+	float GetNavigationSimPollInterval() const { return NavigationSimPollInterval; }
+
+	void SetNavigationSimPollInterval(float NewInterval) 
+	{ 
+		NewInterval = FMath::Clamp(NewInterval, 0.05f, 5.0f); 
+		if (!FMath::IsNearlyEqual(NavigationSimPollInterval, NewInterval)) 
+		{ 
+			NavigationSimPollInterval = NewInterval; 
+			SaveConfig(); 
+			OnSettingsChanged.Broadcast(); 
+		} 
+	}
 
 	bool IsNavLabelsEnabled() const { return bShowNavLabels; }
 	void SetShowNavLabels(bool bEnabled) { if (bShowNavLabels != bEnabled) { bShowNavLabels = bEnabled; SaveConfig(); OnSettingsChanged.Broadcast(); } }
+
+	// Rejection Filter Getters/Setters
+	bool IsNavFilterUserIndexEnabled() const { return bShowRejection_UserIndex; }
+	void SetNavFilterUserIndex(bool bShow) { bShowRejection_UserIndex = bShow; SaveConfig(); OnSettingsChanged.Broadcast(); }
+
+	bool IsNavFilterIntersectionEnabled() const { return bShowRejection_Intersection; }
+	void SetNavFilterIntersection(bool bShow) { bShowRejection_Intersection = bShow; SaveConfig(); OnSettingsChanged.Broadcast(); }
+
+	bool IsNavFilterDistanceEnabled() const { return bShowRejection_Distance; }
+	void SetNavFilterDistance(bool bShow) { bShowRejection_Distance = bShow; SaveConfig(); OnSettingsChanged.Broadcast(); }
+
+	bool IsNavFilterDescendantEnabled() const { return bShowRejection_Descendant; }
+	void SetNavFilterDescendant(bool bShow) { bShowRejection_Descendant = bShow; SaveConfig(); OnSettingsChanged.Broadcast(); }
+
+	bool IsNavFilterDisabledEnabled() const { return bShowRejection_Disabled; }
+	void SetNavFilterDisabled(bool bShow) { bShowRejection_Disabled = bShow; SaveConfig(); OnSettingsChanged.Broadcast(); }
+
+	bool IsNavFilterFocusEnabled() const { return bShowRejection_Focus; }
+	void SetNavFilterFocus(bool bShow) { bShowRejection_Focus = bShow; SaveConfig(); OnSettingsChanged.Broadcast(); }
 
 	// Accessor for the settings changed delegate
 	FOnInputFlowSettingsChanged& GetOnSettingsChanged() { return OnSettingsChanged; }
@@ -148,8 +180,29 @@ private:
 	UPROPERTY(EditAnywhere, Config, Category = "Navigation Simulation", meta=(ClampMin=1, ClampMax=5))
 	int32 NavigationSearchDepth = 1;
 
+	UPROPERTY(EditAnywhere, Config, Category = "Navigation Simulation", meta=(ClampMin=0.05, ClampMax=5.0))
+	float NavigationSimPollInterval = 0.5f;
+
 	UPROPERTY(EditAnywhere, Config, Category = "Navigation Simulation")
 	bool bShowNavLabels = true;
+
+	UPROPERTY(EditAnywhere, Config, Category = "Navigation Simulation|Filters")
+	bool bShowRejection_UserIndex = false;
+
+	UPROPERTY(EditAnywhere, Config, Category = "Navigation Simulation|Filters")
+	bool bShowRejection_Intersection = false;
+
+	UPROPERTY(EditAnywhere, Config, Category = "Navigation Simulation|Filters")
+	bool bShowRejection_Distance = false;
+
+	UPROPERTY(EditAnywhere, Config, Category = "Navigation Simulation|Filters")
+	bool bShowRejection_Descendant = false;
+
+	UPROPERTY(EditAnywhere, Config, Category = "Navigation Simulation|Filters")
+	bool bShowRejection_Disabled = false;
+
+	UPROPERTY(EditAnywhere, Config, Category = "Navigation Simulation|Filters")
+	bool bShowRejection_Focus = false;
 	
 	FOnInputFlowSettingsChanged OnSettingsChanged;
 

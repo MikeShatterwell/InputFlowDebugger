@@ -80,8 +80,12 @@ private:
 
 	UInputDebugSubsystem* GetSubsystem() const;
 	TWeakObjectPtr<UInputDebugSubsystem> WeakSubsystem;
-	
+
+	// Nav spider
 	TSharedPtr<SInputFlowSpinBox<int32>> DepthSpinBox;
+	TSharedPtr<SInputFlowSpinBox<float>> PollSpinBox;
+
+	// Overlay
 	TSharedPtr<SInputFlowSpinBox<float>> ScaleSpinBox;
 	bool bIsOverlay = false;
 };

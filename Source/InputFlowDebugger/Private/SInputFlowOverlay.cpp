@@ -102,7 +102,7 @@ public:
 
 		SetTag(InputFlowHelpers::InputFlowAnalyzerTag);
 		bCanSupportFocus = false;
-		
+
 		const FWindowStyle& WindowStyle = FCoreStyle::Get().GetWidgetStyle<FWindowStyle>("Window");
 
 		// Build Title Bar Conditionally
@@ -110,62 +110,62 @@ public:
 
 		// Title Text
 		TitleBarBox->AddSlot()
-			.FillWidth(1.0f)
-			.VAlign(VAlign_Center)
-			[
-				SNew(STextBlock)
-				.Text(FText::FromString(InArgs._Title))
-				.Font(FCoreStyle::GetDefaultFontStyle("Bold", 9))
-				.ColorAndOpacity(FLinearColor(0.8f, 0.8f, 0.8f))
-				.Visibility(EVisibility::HitTestInvisible) // Pass clicks to drag header
-			];
+				   .FillWidth(1.0f)
+				   .VAlign(VAlign_Center)
+		[
+			SNew(STextBlock)
+			.Text(FText::FromString(InArgs._Title))
+			.Font(FCoreStyle::GetDefaultFontStyle("Bold", 9))
+			.ColorAndOpacity(FLinearColor(0.8f, 0.8f, 0.8f))
+			.Visibility(EVisibility::HitTestInvisible) // Pass clicks to drag header
+		];
 
 		// Minimize Button
 		if (InArgs._CanMinimize)
 		{
 			TitleBarBox->AddSlot()
-				.AutoWidth()
-				.Padding(4, 0, 0, 0)
-				.HAlign(HAlign_Fill)
-				.VAlign(VAlign_Center)
+					   .AutoWidth()
+					   .Padding(4, 0, 0, 0)
+					   .HAlign(HAlign_Fill)
+					   .VAlign(VAlign_Center)
+			[
+				SNew(SButton)
+				.Cursor(EMouseCursor::Hand)
+				.IsFocusable(false)
+				.ButtonStyle(&WindowStyle.MinimizeButtonStyle)
+				.ContentPadding(0.f)
+				.OnClicked(this, &SInputFlowDraggablePanel::OnToggleMinimize)
+				.ToolTipText(FText::FromString("Minimize"))
 				[
-					SNew(SButton)
-					.Cursor(EMouseCursor::Hand)
-					.IsFocusable(false)
-					.ButtonStyle(&WindowStyle.MinimizeButtonStyle)
-					.ContentPadding(0.f)
-					.OnClicked(this, &SInputFlowDraggablePanel::OnToggleMinimize)
-					.ToolTipText(FText::FromString("Minimize"))
-					[
-						SNew(SBox).WidthOverride(20.f).HeightOverride(20.f)
-					]
-				];
+					SNew(SBox).WidthOverride(20.f).HeightOverride(20.f)
+				]
+			];
 		}
 
 		// Close Button
 		if (InArgs._CanClose)
 		{
 			TitleBarBox->AddSlot()
-				.AutoWidth()
-				.Padding(2, 0, 0, 0)
-				.HAlign(HAlign_Fill)
-				.VAlign(VAlign_Center)
+					   .AutoWidth()
+					   .Padding(2, 0, 0, 0)
+					   .HAlign(HAlign_Fill)
+					   .VAlign(VAlign_Center)
+			[
+				SNew(SButton)
+				.Cursor(EMouseCursor::Hand)
+				.IsFocusable(false)
+				.ButtonStyle(&WindowStyle.CloseButtonStyle)
+				.ContentPadding(0.f)
+				.OnClicked_Lambda([Close = InArgs._OnClose]()
+				{
+					if (Close.ExecuteIfBound()) return FReply::Handled();
+					return FReply::Unhandled();
+				})
+				.ToolTipText(FText::FromString("Close"))
 				[
-					SNew(SButton)
-					.Cursor(EMouseCursor::Hand)
-					.IsFocusable(false)
-					.ButtonStyle(&WindowStyle.CloseButtonStyle)
-					.ContentPadding(0.f)
-					.OnClicked_Lambda([Close = InArgs._OnClose]()
-					{
-						if (Close.ExecuteIfBound()) return FReply::Handled();
-						return FReply::Unhandled();
-					})
-					.ToolTipText(FText::FromString("Close"))
-					[
-						SNew(SBox).WidthOverride(20.f).HeightOverride(20.f)
-					]
-				];
+					SNew(SBox).WidthOverride(20.f).HeightOverride(20.f)
+				]
+			];
 		}
 
 		ChildSlot
@@ -181,18 +181,18 @@ public:
 				.HAlign(HAlign_Fill)
 				[
 					SNew(SVerticalBox)
-					
+
 					// Header
 					+ SVerticalBox::Slot().AutoHeight()
 					[
 						SNew(SBox)
 						.HeightOverride(InputFlowPanelConstants::HeaderHeight)
-						[	
+						[
 							SAssignNew(HeaderRow, SBorder)
-							.BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush"))
-							.BorderBackgroundColor(FLinearColor(0.1f, 0.1f, 0.1f, 0.8f))
+														  .BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush"))
+														  .BorderBackgroundColor(FLinearColor(0.1f, 0.1f, 0.1f, 0.8f))
 							// Right padding (8.0f) ensures buttons aren't covered by Resize Handles
-							.Padding(FMargin(4, 2, 8, 2))
+														  .Padding(FMargin(4, 2, 8, 2))
 							[
 								TitleBarBox
 							]
@@ -205,14 +205,16 @@ public:
 						SAssignNew(ContentBox, SBox)
 						.Padding(InputFlowPanelConstants::ResizeBorderThickness)
 						[
-							InArgs._Content.Widget
+							InArgs
+							._Content
+							.Widget
 						]
 					]
 				]
 			]
 		];
 	}
-	
+
 	void SetOverlaySlot(SOverlay::FOverlaySlot* InSlot)
 	{
 		OverlaySlot = InSlot;
@@ -340,14 +342,15 @@ public:
 		if (MouseEvent.GetEffectingButton() == EKeys::LeftMouseButton)
 		{
 			const FVector2D LocalMouse = MyGeometry.AbsoluteToLocal(MouseEvent.GetScreenSpacePosition());
-			bool bOverHeader = HeaderRow.IsValid() && HeaderRow->GetCachedGeometry().IsUnderLocation(MouseEvent.GetScreenSpacePosition());
+			bool bOverHeader = HeaderRow.IsValid() && HeaderRow->GetCachedGeometry().IsUnderLocation(
+				MouseEvent.GetScreenSpacePosition());
 			const FVector2D Size = MyGeometry.GetLocalSize();
-			
+
 			// Check resize only if we aren't minimized
 			if (!bIsMinimized)
 			{
 				const uint8 ResizeDir = CheckResizeDirection(LocalMouse, Size);
-				
+
 				// Only allow resize if we are NOT over the header (unless it's top/side edge, but header takes priority for usability)
 				if (ResizeDir != None && !bOverHeader)
 				{
@@ -387,7 +390,8 @@ public:
 					const FGeometry ParentGeo = Parent->GetPaintSpaceGeometry();
 					const FVector2D ParentSize = ParentGeo.GetLocalSize();
 
-					const FVector2D LayoutPos = GetLayoutPosition(ParentSize, OverlaySlot->GetHorizontalAlignment(), OverlaySlot->GetVerticalAlignment());
+					const FVector2D LayoutPos = GetLayoutPosition(ParentSize, OverlaySlot->GetHorizontalAlignment(),
+																  OverlaySlot->GetVerticalAlignment());
 					if (GetRenderTransform().IsSet())
 					{
 						DragStartVisualPos = LayoutPos + GetRenderTransform()->GetTranslation();
@@ -471,7 +475,8 @@ public:
 
 				// Ensures panel never leaves the viewport entirely
 				NewVisualPos.X = FMath::Clamp(NewVisualPos.X, 0.0f, FMath::Max(0.0f, ParentSize.X - CurrentSize.X));
-				NewVisualPos.Y = FMath::Clamp(NewVisualPos.Y, 0.0f, FMath::Max(0.0f, ParentSize.Y - InputFlowPanelConstants::HeaderHeight));
+				NewVisualPos.Y = FMath::Clamp(NewVisualPos.Y, 0.0f,
+											  FMath::Max(0.0f, ParentSize.Y - InputFlowPanelConstants::HeaderHeight));
 				UpdateAnchorAndOffset(NewVisualPos, ParentSize);
 			}
 			return FReply::Handled();
@@ -557,7 +562,7 @@ private:
 	{
 		FVector2D Pos(0, 0);
 		const float EffectiveHeight = bIsMinimized ? InputFlowPanelConstants::HeaderHeight : CurrentSize.Y;
-		
+
 		if (HAlign == HAlign_Right) Pos.X = ParentSize.X - CurrentSize.X;
 		else if (HAlign == HAlign_Center) Pos.X = (ParentSize.X - CurrentSize.X) / 2.0f;
 
@@ -575,7 +580,9 @@ private:
 		const FVector2D Center = VisualTopLeft + (FVector2D(CurrentSize.X, ActualHeight) * 0.5f);
 
 		// Determine new anchor based on viewport
-		const EHorizontalAlignment NewHorizontalAlignment = (Center.X > ParentSize.X * 0.5f) ? HAlign_Right : HAlign_Left;
+		const EHorizontalAlignment NewHorizontalAlignment = (Center.X > ParentSize.X * 0.5f)
+																? HAlign_Right
+																: HAlign_Left;
 		const EVerticalAlignment NewVerticalAlignment = (Center.Y > ParentSize.Y * 0.5f) ? VAlign_Bottom : VAlign_Top;
 
 		OverlaySlot->SetHorizontalAlignment(NewHorizontalAlignment);
@@ -625,7 +632,7 @@ void SInputFlowLabel::Construct(const FArguments& InArgs)
 		[
 			SAssignNew(TextBlock, STextBlock)
 			.Font(FCoreStyle::GetDefaultFontStyle("Bold", 9))
-			.ShadowOffset(FVector2D(1,1))
+			.ShadowOffset(FVector2D(1, 1))
 			.ColorAndOpacity(FLinearColor::White)
 			.LineHeightPercentage(1.25f)
 		]
@@ -731,15 +738,15 @@ void SInputFlowOverlay::Construct(const FArguments& InArgs)
 		.InitialPosition(FVector2D(1400, 20))
 		.InitialSize(FVector2D(600, 220))
 		.OnGetSnapTargets_Lambda(GetSnapTargets)
-		.OnClose_Lambda([]() 
-		{ 
+		.OnClose_Lambda([]()
+		{
 			GetMutableDefault<UInputFlowSettings>()->SetShowDashboardPanel(false);
 		})
 		.Visibility_Lambda([]() -> EVisibility
 		{
 			return UInputFlowSettings::Get()->IsDashboardPanelShown()
-				? EVisibility::SelfHitTestInvisible
-				: EVisibility::Collapsed;
+					   ? EVisibility::SelfHitTestInvisible
+					   : EVisibility::Collapsed;
 		})
 		[
 			SNew(SInputFlowStatusDashboard, Sub)
@@ -753,8 +760,8 @@ void SInputFlowOverlay::Construct(const FArguments& InArgs)
 		.InitialPosition(FVector2D(20, 700))
 		.InitialSize(FVector2D(1200, 300))
 		.OnGetSnapTargets_Lambda(GetSnapTargets)
-		.OnClose_Lambda([]() 
-		{ 
+		.OnClose_Lambda([]()
+		{
 			GetMutableDefault<UInputFlowSettings>()->SetShowLogPanel(false);
 		})
 		.Visibility_Lambda([]() -> EVisibility
@@ -851,7 +858,7 @@ void SInputFlowOverlay::Tick(const FGeometry& AllottedGeometry, const double InC
 	// Gather new labels
 	QueuedLabels.Reset();
 	GatherLabelsFromSubsystem(AllottedGeometry); // Populates QueuedLabels
-	
+
 	// Update Canvas
 	UpdateLabelCanvas(AllottedGeometry);
 }
@@ -888,11 +895,11 @@ int32 SInputFlowOverlay::OnPaint(const FPaintArgs& Args, const FGeometry& Allott
 }
 
 void SInputFlowOverlay::PaintFocusedWidget(const FGeometry& AllottedGeometry, FSlateWindowElementList& OutDrawElements,
-	int32& LayerId) const
+										   int32& LayerId) const
 {
 	const UInputDebugSubsystem* Sub = GetSubsystem();
 	if (!IsValid(Sub) || !UInputFlowSettings::Get()->IsFocusHighlightEnabled()) return;
-	
+
 	// Draw Focus
 	if (const TSharedPtr<SWidget> Focus = Sub->GetFocusedWidget())
 	{
@@ -940,13 +947,15 @@ void SInputFlowOverlay::PaintNavigationSimulation(const FGeometry& AllottedGeome
 	{
 		TSharedPtr<SWidget> Start = Link.StartWidget.Pin();
 		TSharedPtr<SWidget> End = Link.EndWidget.Pin();
-		
+
 		if (!Start)
 		{
 			continue;
 		}
 
-		const float Alpha = FMath::Lerp(1.0f, 0.65f, static_cast<float>(Link.DepthStep - 1) / static_cast<float>(FMath::Max(MaxDepth - 1, 1)));
+		const float Alpha = FMath::Lerp(1.0f, 0.65f,
+										static_cast<float>(Link.DepthStep - 1) / static_cast<float>(FMath::Max(
+											MaxDepth - 1, 1)));
 		const FString DirectionStr = UEnum::GetValueAsString(Link.Direction);
 		const FString DepthStr = FString::Printf(TEXT("NAV DEPTH [%d/%d]"), Link.DepthStep, MaxDepth);
 		const FString TargetName = End.IsValid() ? InputFlowHelpers::GetWidgetDisplayName(End) : TEXT("Unknown");
@@ -956,7 +965,8 @@ void SInputFlowOverlay::PaintNavigationSimulation(const FGeometry& AllottedGeome
 		auto DrawIndicatorWithLabel = [&](const FLinearColor& BaseColor, const FString& StatusLabel)
 		{
 			const FLinearColor Color = BaseColor.CopyWithNewOpacity(Alpha);
-			DrawDirectionalIndicator(AllottedGeometry, Start->GetPaintSpaceGeometry(), Link.Direction, StatusLabel, Color, OutDrawElements, LayerId);
+			DrawDirectionalIndicator(AllottedGeometry, Start->GetPaintSpaceGeometry(), Link.Direction, StatusLabel,
+									 Color, OutDrawElements, LayerId);
 		};
 
 		switch (Link.ResultType)
@@ -969,9 +979,10 @@ void SInputFlowOverlay::PaintNavigationSimulation(const FGeometry& AllottedGeome
 				{
 					NavLabel = FString::Printf(TEXT("%s\n%s\nTarget: %s"), *DirectionStr, *DepthStr, *TargetName);
 				}
-				
+
 				DrawWidgetHighlight(End, LinkColor, NavLabel, AllottedGeometry, OutDrawElements, LayerId);
-				DrawConnectionSpline(AllottedGeometry, Start, End, FString(), Link.Direction, LinkColor, OutDrawElements, LayerId);
+				DrawConnectionSpline(AllottedGeometry, Start, End, FString(), Link.Direction, LinkColor,
+									 OutDrawElements, LayerId);
 			}
 			break;
 
@@ -995,8 +1006,8 @@ void SInputFlowOverlay::PaintNavigationSimulation(const FGeometry& AllottedGeome
 					NavLabel = FString::Printf(TEXT("%s\n%s\nSTOPPED by %s"), *DirectionStr, *DepthStr, *TargetName);
 				}
 				DrawIndicatorWithLabel(
-						InputFlowStyle::Color_NavBlocked,
-						NavLabel);
+					InputFlowStyle::Color_NavBlocked,
+					NavLabel);
 				break;
 			}
 
@@ -1008,12 +1019,41 @@ void SInputFlowOverlay::PaintNavigationSimulation(const FGeometry& AllottedGeome
 				{
 					NavLabel = FString::Printf(TEXT("%s\n%s\nEXPLICIT to %s"), *DirectionStr, *DepthStr, *TargetName);
 				}
-				
-				DrawDirectionalIndicator(AllottedGeometry, Start->GetPaintSpaceGeometry(), Link.Direction, NavLabel, Color, OutDrawElements, LayerId);
-				DrawConnectionSpline(AllottedGeometry, Start, End, FString(), Link.Direction, Color.CopyWithNewOpacity(0.5f), OutDrawElements, LayerId);
+
+				DrawDirectionalIndicator(AllottedGeometry, Start->GetPaintSpaceGeometry(), Link.Direction, NavLabel,
+										 Color, OutDrawElements, LayerId);
+				DrawConnectionSpline(AllottedGeometry, Start, End, FString(), Link.Direction,
+									 Color.CopyWithNewOpacity(0.5f), OutDrawElements, LayerId);
 				DrawWidgetHighlight(End, Color, FString(), AllottedGeometry, OutDrawElements, LayerId);
 			}
 			break;
+		}
+
+		// Draw Rejected Navigations
+		for (const FRejectedNavigation& Rej : Link.RejectedWidgets)
+		{
+			TSharedPtr<SWidget> RejWidget = Rej.Widget.Pin();
+			if (RejWidget.IsValid())
+			{
+				const FGeometry& RejGeo = RejWidget->GetPaintSpaceGeometry();
+				if (RejGeo.GetAbsoluteSize().IsZero()) continue;
+
+				// Use a faint blocked/red color
+				const FLinearColor RejColor = InputFlowStyle::Color_NavBlocked.CopyWithNewOpacity(Alpha * 0.4f);
+
+				const FVector2D StartCenter = AllottedGeometry.AbsoluteToLocal(
+					Start->GetPaintSpaceGeometry().GetAbsolutePositionAtCoordinates(FVector2D(0.5f, 0.5f)));
+				const FVector2D EndCenter = AllottedGeometry.AbsoluteToLocal(
+					RejGeo.GetAbsolutePositionAtCoordinates(FVector2D(0.5f, 0.5f)));
+
+				// Draw faint straight line to indicate the attempt
+				TArray<FVector2D> LinePts = {StartCenter, EndCenter};
+				FSlateDrawElement::MakeLines(OutDrawElements, LayerId, AllottedGeometry.ToPaintGeometry(), LinePts,
+											 ESlateDrawEffect::None, RejColor, true, 1.5f);
+
+				// Highlight the rejected widget
+				DrawWidgetHighlight(RejWidget, RejColor, Rej.Reason, AllottedGeometry, OutDrawElements, LayerId, 4.0f);
+			}
 		}
 	}
 }
@@ -1062,7 +1102,8 @@ void SInputFlowOverlay::PaintFocusHistory(const FGeometry& AllottedGeometry, FSl
 	}
 }
 
-void SInputFlowOverlay::PaintHitTestGrid(const FGeometry& AllottedGeometry, FSlateWindowElementList& OutDrawElements, int32& LayerId) const
+void SInputFlowOverlay::PaintHitTestGrid(const FGeometry& AllottedGeometry, FSlateWindowElementList& OutDrawElements,
+										 int32& LayerId) const
 {
 	if (!UInputFlowSettings::Get()->IsHitTestGridShown()) return;
 
@@ -1078,8 +1119,8 @@ void SInputFlowOverlay::PaintHitTestGrid(const FGeometry& AllottedGeometry, FSla
 	const float OverlayArea = FMath::Max(OverlaySize.X * OverlaySize.Y, 1.0f);
 
 	// Alpha tuning knobs.
-	constexpr float FillAlphaMin   = 0.004f;  // very faint for huge widgets
-	constexpr float FillAlphaMax   = 0.050f;  // more visible for small widgets
+	constexpr float FillAlphaMin = 0.004f; // very faint for huge widgets
+	constexpr float FillAlphaMax = 0.050f; // more visible for small widgets
 	constexpr float BorderAlphaMin = 0.8f;
 	constexpr float BorderAlphaMax = 1.f;
 
@@ -1118,10 +1159,10 @@ void SInputFlowOverlay::PaintHitTestGrid(const FGeometry& AllottedGeometry, FSla
 
 		// We want: bigger widgets => lower alpha.
 		// Invert ratio, then apply a curve to emphasize differences among small widgets.
-		const float Smallness = 1.0f - AreaRatio;                 // 1 for tiny, 0 for huge
-		const float Curve = FMath::Pow(Smallness, 1.35f);         // tweak exponent to taste
+		const float Smallness = 1.0f - AreaRatio; // 1 for tiny, 0 for huge
+		const float Curve = FMath::Pow(Smallness, 1.35f); // tweak exponent to taste
 
-		const float FillAlpha   = FMath::Lerp(FillAlphaMin,   FillAlphaMax,   Curve);
+		const float FillAlpha = FMath::Lerp(FillAlphaMin, FillAlphaMax, Curve);
 		const float BorderAlpha = FMath::Lerp(BorderAlphaMin, BorderAlphaMax, Curve);
 
 		// ----- Paint-layer tint -----
@@ -1133,11 +1174,11 @@ void SInputFlowOverlay::PaintHitTestGrid(const FGeometry& AllottedGeometry, FSla
 		// Keep saturation/value constant, only hue changes by layer.
 		const FLinearColor LayerTint = FLinearColor::MakeFromHSV8(
 			(uint8)(Hue / 360.0f * 255.0f),
-			200,   // saturation
-			255    // value
+			200, // saturation
+			255 // value
 		);
 
-		const FLinearColor FillColor   = LayerTint.CopyWithNewOpacity(FillAlpha);
+		const FLinearColor FillColor = LayerTint.CopyWithNewOpacity(FillAlpha);
 		const FLinearColor BorderColor = LayerTint.CopyWithNewOpacity(BorderAlpha);
 
 		const FPaintGeometry PaintGeo =
@@ -1215,8 +1256,8 @@ void SInputFlowOverlay::DrawWidgetHighlight(const TSharedPtr<SWidget>& Widget, c
 	const FVector2D Size = BottomRight - TopLeft;
 
 	const FPaintGeometry PaintGeo = OverlayGeometry.ToPaintGeometry(UE::Slate::CastToVector2f(Size),
-															  FSlateLayoutTransform(
-																  UE::Slate::CastToVector2f(TopLeft)));
+																	FSlateLayoutTransform(
+																		UE::Slate::CastToVector2f(TopLeft)));
 	FSlateDrawElement::MakeBox(OutDrawElements, LayerId, PaintGeo, InputFlowStyle::GetBrush("WhiteBrush"),
 							   ESlateDrawEffect::None, Color.CopyWithNewOpacity(Color.A * 0.15f));
 
@@ -1234,7 +1275,8 @@ void SInputFlowOverlay::DrawWidgetHighlight(const TSharedPtr<SWidget>& Widget, c
 	}
 }
 
-void SInputFlowOverlay::QueueLabel(const FVector2D& Position, const FString& Text, const FLinearColor& Color, const FVector2D& Pivot) const
+void SInputFlowOverlay::QueueLabel(const FVector2D& Position, const FString& Text, const FLinearColor& Color,
+								   const FVector2D& Pivot) const
 {
 	FQueuedLabel& Item = QueuedLabels.AddDefaulted_GetRef();
 	Item.OriginalPos = Position;
@@ -1257,7 +1299,8 @@ void SInputFlowOverlay::GatherLabelsFromSubsystem(const FGeometry& AllottedGeome
 			if (WidgetGeo.GetAbsoluteSize().GetMin() > 0.0f)
 			{
 				const FVector2D TopLeft = AllottedGeometry.AbsoluteToLocal(WidgetGeo.GetAbsolutePosition());
-				const FString Label = FString::Printf(TEXT("FOCUS: %s"), *InputFlowHelpers::GetWidgetDisplayName(Focus));
+				const FString Label =
+					FString::Printf(TEXT("FOCUS: %s"), *InputFlowHelpers::GetWidgetDisplayName(Focus));
 				QueueLabel(TopLeft, Label, InputFlowStyle::Color_Focus);
 			}
 		}
@@ -1266,93 +1309,108 @@ void SInputFlowOverlay::GatherLabelsFromSubsystem(const FGeometry& AllottedGeome
 	// --- NAVIGATION ---
 	if (UInputFlowSettings::Get()->IsNavSimulationEnabled())
 	{
-	   const TArray<FNavigationLink>& Links = Sub->GetNavigationLinks();
-	   const int32 MaxDepth = UInputFlowSettings::Get()->GetNavigationSearchDepth();
-	   const bool bDrawNavLabels = UInputFlowSettings::Get()->IsNavLabelsEnabled();
+		const TArray<FNavigationLink>& Links = Sub->GetNavigationLinks();
+		const int32 MaxDepth = UInputFlowSettings::Get()->GetNavigationSearchDepth();
+		const bool bDrawNavLabels = UInputFlowSettings::Get()->IsNavLabelsEnabled();
 
-	   for (const FNavigationLink& Link : Links)
-	   {
-		  if (!bDrawNavLabels) continue;
+		for (const FNavigationLink& Link : Links)
+		{
+			if (!bDrawNavLabels) continue;
 
-		  TSharedPtr<SWidget> Start = Link.StartWidget.Pin();
-		  TSharedPtr<SWidget> End = Link.EndWidget.Pin();
-		  if (!Start) continue;
+			TSharedPtr<SWidget> Start = Link.StartWidget.Pin();
+			TSharedPtr<SWidget> End = Link.EndWidget.Pin();
+			if (!Start) continue;
 
-		  const FString DirectionStr = UEnum::GetValueAsString(Link.Direction);
-		  const FString DepthStr = FString::Printf(TEXT("[%d/%d]"), Link.DepthStep, MaxDepth);
-		  const FString TargetName = End.IsValid() ? InputFlowHelpers::GetWidgetDisplayName(End) : TEXT("Unknown");
-		  
-		  // Calculate Source Geometry
-		  const FGeometry& StartGeo = Start->GetPaintSpaceGeometry();
-		  const FVector2D StartTL = AllottedGeometry.AbsoluteToLocal(StartGeo.GetAbsolutePosition());
-		  const FVector2D StartBR = AllottedGeometry.AbsoluteToLocal(StartGeo.GetAbsolutePositionAtCoordinates(FVector2D(1, 1)));
-		  const FVector2D StartCenter = (StartTL + StartBR) * 0.5f;
+			const FString DirectionStr = UEnum::GetValueAsString(Link.Direction);
+			const FString DepthStr = FString::Printf(TEXT("[%d/%d]"), Link.DepthStep, MaxDepth);
+			const FString TargetName = End.IsValid() ? InputFlowHelpers::GetWidgetDisplayName(End) : TEXT("Unknown");
 
-		  // Determine Label Position & Alignment based on Source Geometry
-		  FVector2D LabelPos = StartCenter; 
-		  FVector2D LabelPivot = FVector2D(0.5f, 0.5f); // Default Center
-		  constexpr float OffsetDist = 15.0f; // "A bit away"
+			// Calculate Source Geometry
+			const FGeometry& StartGeo = Start->GetPaintSpaceGeometry();
+			const FVector2D StartTL = AllottedGeometry.AbsoluteToLocal(StartGeo.GetAbsolutePosition());
+			const FVector2D StartBR = AllottedGeometry.AbsoluteToLocal(
+				StartGeo.GetAbsolutePositionAtCoordinates(FVector2D(1, 1)));
+			const FVector2D StartCenter = (StartTL + StartBR) * 0.5f;
 
-		  switch(Link.Direction) 
-		  {
+			// Determine Label Position & Alignment based on Source Geometry
+			FVector2D LabelPos = StartCenter;
+			FVector2D LabelPivot = FVector2D(0.5f, 0.5f); // Default Center
+			constexpr float OffsetDist = 15.0f; // "A bit away"
+
+			switch (Link.Direction)
+			{
 			case EUINavigation::Up:
 				// Pos: Top Middle of Source - Offset
 				LabelPos = FVector2D(StartCenter.X, StartTL.Y - OffsetDist);
-				// Pivot: Bottom Middle of Label (0.5, 1.0)
+			// Pivot: Bottom Middle of Label (0.5, 1.0)
 				LabelPivot = FVector2D(0.5f, 1.0f);
 				break;
 			case EUINavigation::Down:
 				// Pos: Bottom Middle of Source + Offset
 				LabelPos = FVector2D(StartCenter.X, StartBR.Y + OffsetDist);
-				// Pivot: Top Middle of Label (0.5, 0.0)
+			// Pivot: Top Middle of Label (0.5, 0.0)
 				LabelPivot = FVector2D(0.5f, 0.0f);
 				break;
 			case EUINavigation::Left:
 				// Pos: Left Middle of Source - Offset
 				LabelPos = FVector2D(StartTL.X - OffsetDist, StartCenter.Y);
-				// Pivot: Right Middle of Label (1.0, 0.5)
+			// Pivot: Right Middle of Label (1.0, 0.5)
 				LabelPivot = FVector2D(1.0f, 0.5f);
 				break;
 			case EUINavigation::Right:
 				// Pos: Right Middle of Source + Offset
 				LabelPos = FVector2D(StartBR.X + OffsetDist, StartCenter.Y);
-				// Pivot: Left Middle of Label (0.0, 0.5)
+			// Pivot: Left Middle of Label (0.0, 0.5)
 				LabelPivot = FVector2D(0.0f, 0.5f);
 				break;
 			default: break;
-		  }
+			}
 
-		  FString NavLabelText;
-		  FLinearColor LabelColor = InputFlowStyle::Color_NavNormal;
+			FString NavLabelText;
+			FLinearColor LabelColor = InputFlowStyle::Color_NavNormal;
 
-		  switch (Link.ResultType)
-		  {
-		  case ENavSimResult::Normal:
-			 if (End.IsValid())
-			 {
-				NavLabelText = FString::Printf(TEXT("%s %s\nTarget: %s"), *DirectionStr, *DepthStr, *TargetName);
-				LabelColor = InputFlowStyle::Color_NavNormal;
-			 }
-			 break;
-		  case ENavSimResult::Handled:
-			 NavLabelText = FString::Printf(TEXT("%s %s\nHANDLED by %s"), *DirectionStr, *DepthStr, *TargetName);
-			 LabelColor = InputFlowStyle::Color_NavHandled;
-			 break;
-		  case ENavSimResult::Stopped:
-			 NavLabelText = FString::Printf(TEXT("%s %s\nSTOPPED by %s"), *DirectionStr, *DepthStr, *TargetName);
-			 LabelColor = InputFlowStyle::Color_NavBlocked;
-			 break;
-		  case ENavSimResult::Explicit:
-			 NavLabelText = FString::Printf(TEXT("%s %s\nEXPLICIT to %s"), *DirectionStr, *DepthStr, *TargetName);
-			 LabelColor = InputFlowStyle::Color_NavExplicit;
-			 break;
-		  }
+			switch (Link.ResultType)
+			{
+			case ENavSimResult::Normal:
+				if (End.IsValid())
+				{
+					NavLabelText = FString::Printf(TEXT("%s %s\nTarget: %s"), *DirectionStr, *DepthStr, *TargetName);
+					LabelColor = InputFlowStyle::Color_NavNormal;
+				}
+				break;
+			case ENavSimResult::Handled:
+				NavLabelText = FString::Printf(TEXT("%s %s\nHANDLED by %s"), *DirectionStr, *DepthStr, *TargetName);
+				LabelColor = InputFlowStyle::Color_NavHandled;
+				break;
+			case ENavSimResult::Stopped:
+				NavLabelText = FString::Printf(TEXT("%s %s\nSTOPPED by %s"), *DirectionStr, *DepthStr, *TargetName);
+				LabelColor = InputFlowStyle::Color_NavBlocked;
+				break;
+			case ENavSimResult::Explicit:
+				NavLabelText = FString::Printf(TEXT("%s %s\nEXPLICIT to %s"), *DirectionStr, *DepthStr, *TargetName);
+				LabelColor = InputFlowStyle::Color_NavExplicit;
+				break;
+			}
 
-		  if (!NavLabelText.IsEmpty())
-		  {
-			 QueueLabel(LabelPos, NavLabelText, LabelColor, LabelPivot);
-		  }
-	   }
+			if (!NavLabelText.IsEmpty())
+			{
+				QueueLabel(LabelPos, NavLabelText, LabelColor, LabelPivot);
+			}
+
+			// Rejection Labels
+			for (const FRejectedNavigation& Rej : Link.RejectedWidgets)
+			{
+				TSharedPtr<SWidget> RejWidget = Rej.Widget.Pin();
+				if (RejWidget.IsValid())
+				{
+					const FGeometry& RejGeo = RejWidget->GetPaintSpaceGeometry();
+					const FVector2D RejCenter = AllottedGeometry.AbsoluteToLocal(
+						RejGeo.GetAbsolutePositionAtCoordinates(FVector2D(0.5f, 0.5f)));
+
+					//QueueLabel(RejCenter, *Rej.Reason, InputFlowStyle::Color_NavBlocked.CopyWithNewOpacity(0.001f), FVector2D(0.5f, 0.5f));
+				}
+			}
+		}
 	}
 }
 
@@ -1400,12 +1458,12 @@ void SInputFlowOverlay::UpdateLabelCanvas(const FGeometry& AllottedGeometry)
 	{
 		// Update Content
 		ActiveLabels[i]->SetData(QueuedLabels[i].Text, QueuedLabels[i].Color);
-		
+
 		// Get Size (SInputFlowLabel has fixed padding/font, so Prepass gives correct size)
 		ActiveLabels[i]->SlatePrepass(AllottedGeometry.GetAccumulatedLayoutTransform().GetScale());
-		
+
 		const FVector2D WidgetSize = ActiveLabels[i]->GetDesiredSize();
-		
+
 		FInputFlowPhysicsItem Item;
 		Item.Position = (QueuedLabels[i].OriginalPos / Scale) - (WidgetSize * QueuedLabels[i].Pivot);
 		Item.TargetPosition = Item.Position;
@@ -1424,15 +1482,17 @@ void SInputFlowOverlay::UpdateLabelCanvas(const FGeometry& AllottedGeometry)
 		const FVector2D FinalPos = PhysicsItems[i].Position;
 
 		LabelCanvas->AddSlot()
-			.Position(FinalPos)
-			.Size(PhysicsItems[i].Size)
-			[
-				ActiveLabels[i].ToSharedRef()
-			];
+				   .Position(FinalPos)
+				   .Size(PhysicsItems[i].Size)
+		[
+			ActiveLabels[i].ToSharedRef()
+		];
 	}
 }
 
-void SInputFlowOverlay::DrawConnectionSpline(const FGeometry& AllottedGeometry, TSharedPtr<SWidget> Start, TSharedPtr<SWidget> End, const FString& Label, const EUINavigation Direction, const FLinearColor Color,
+void SInputFlowOverlay::DrawConnectionSpline(const FGeometry& AllottedGeometry, TSharedPtr<SWidget> Start,
+											 TSharedPtr<SWidget> End, const FString& Label,
+											 const EUINavigation Direction, const FLinearColor Color,
 											 FSlateWindowElementList& OutDrawElements, int32& LayerId) const
 {
 	const FGeometry& StartGeo = Start->GetPaintSpaceGeometry();
@@ -1441,11 +1501,13 @@ void SInputFlowOverlay::DrawConnectionSpline(const FGeometry& AllottedGeometry, 
 
 	// --- CALCULATE LOCAL BOUNDS ---
 	const FVector2D StartTL = AllottedGeometry.AbsoluteToLocal(StartGeo.GetAbsolutePosition());
-	const FVector2D StartBR = AllottedGeometry.AbsoluteToLocal(StartGeo.GetAbsolutePositionAtCoordinates(FVector2D(1.0f, 1.0f)));
+	const FVector2D StartBR = AllottedGeometry.AbsoluteToLocal(
+		StartGeo.GetAbsolutePositionAtCoordinates(FVector2D(1.0f, 1.0f)));
 	const FVector2D StartCenter = (StartTL + StartBR) * 0.5f;
 
 	const FVector2D EndTL = AllottedGeometry.AbsoluteToLocal(EndGeo.GetAbsolutePosition());
-	const FVector2D EndBR = AllottedGeometry.AbsoluteToLocal(EndGeo.GetAbsolutePositionAtCoordinates(FVector2D(1.0f, 1.0f)));
+	const FVector2D EndBR = AllottedGeometry.AbsoluteToLocal(
+		EndGeo.GetAbsolutePositionAtCoordinates(FVector2D(1.0f, 1.0f)));
 	const FVector2D EndCenter = (EndTL + EndBR) * 0.5f;
 
 	// --- DETERMINE ANCHOR POINTS ---
@@ -1458,35 +1520,35 @@ void SInputFlowOverlay::DrawConnectionSpline(const FGeometry& AllottedGeometry, 
 	{
 	case EUINavigation::Left:
 		StartP = FVector2D(StartTL.X, StartCenter.Y); // Leave Left Edge
-		EndP   = FVector2D(EndBR.X, EndCenter.Y);     // Enter Right Edge
+		EndP = FVector2D(EndBR.X, EndCenter.Y); // Enter Right Edge
 		StartTangent = FVector2D(-1, 0);
 		break;
 	case EUINavigation::Right:
 		StartP = FVector2D(StartBR.X, StartCenter.Y); // Leave Right Edge
-		EndP   = FVector2D(EndTL.X, EndCenter.Y);     // Enter Left Edge
+		EndP = FVector2D(EndTL.X, EndCenter.Y); // Enter Left Edge
 		StartTangent = FVector2D(1, 0);
 		break;
 	case EUINavigation::Up:
 		StartP = FVector2D(StartCenter.X, StartTL.Y); // Leave Top Edge
-		EndP   = FVector2D(EndCenter.X, EndBR.Y);     // Enter Bottom Edge
+		EndP = FVector2D(EndCenter.X, EndBR.Y); // Enter Bottom Edge
 		StartTangent = FVector2D(0, -1);
 		break;
 	case EUINavigation::Down:
 		StartP = FVector2D(StartCenter.X, StartBR.Y); // Leave Bottom Edge
-		EndP   = FVector2D(EndCenter.X, EndTL.Y);     // Enter Top Edge
+		EndP = FVector2D(EndCenter.X, EndTL.Y); // Enter Top Edge
 		StartTangent = FVector2D(0, 1);
 		break;
 	default:
 		// Fallback for Next/Previous/Num or custom types to use Center-to-Center
 		// We can just set a default tangent (e.g. Right) for the curve math
-		StartTangent = FVector2D(1, 0); 
+		StartTangent = FVector2D(1, 0);
 		break;
 	}
 
 	// --- COMPUTE SPLINE ---
 	// Calculate distance between edges
 	const float Dist = (EndP - StartP).Size();
-	
+
 	// Dynamic control distance: 
 	// If widgets are very close, reduce the curve intensity to prevent looping.
 	// If far, clamp to a reasonable max so lines don't swing wildly off-screen.
@@ -1502,9 +1564,9 @@ void SInputFlowOverlay::DrawConnectionSpline(const FGeometry& AllottedGeometry, 
 		const float T = (float)i / 24.0f;
 		const float OneMinusT = 1.0f - T;
 		Points.Add(
-			(OneMinusT * OneMinusT * OneMinusT) * StartP + 
-			(3.0f * OneMinusT * OneMinusT * T) * CP1 + 
-			(3.0f * OneMinusT * T * T) * CP2 + 
+			(OneMinusT * OneMinusT * OneMinusT) * StartP +
+			(3.0f * OneMinusT * OneMinusT * T) * CP1 +
+			(3.0f * OneMinusT * T * T) * CP2 +
 			(T * T * T) * EndP);
 	}
 
@@ -1515,29 +1577,30 @@ void SInputFlowOverlay::DrawConnectionSpline(const FGeometry& AllottedGeometry, 
 	const FVector2D Dir = (Points.Last() - Points[Points.Num() - 2]).GetSafeNormal();
 	const FVector2D Tangent = FVector2D(-Dir.Y, Dir.X);
 	const TArray<FVector2D> HeadPoints = {
-		EndP + Dir * 2.0f, 
-		EndP - Dir * 12.0f + Tangent * 7.2f, 
-		EndP - Dir * 12.0f - Tangent * 7.2f, 
+		EndP + Dir * 2.0f,
+		EndP - Dir * 12.0f + Tangent * 7.2f,
+		EndP - Dir * 12.0f - Tangent * 7.2f,
 		EndP + Dir * 2.0f
 	};
-	
+
 	FSlateDrawElement::MakeLines(OutDrawElements, LayerId + 3, AllottedGeometry.ToPaintGeometry(), HeadPoints,
 								 ESlateDrawEffect::None, Color, true, 6.0f);
-	
+
 	// Small dot at target contact point
 	FSlateDrawElement::MakeBox(OutDrawElements, LayerId + 2,
 							   AllottedGeometry.ToPaintGeometry(UE::Slate::CastToVector2f(FVector2D(4, 4)),
-																FSlateLayoutTransform(UE::Slate::CastToVector2f(EndP - FVector2D(2,2)))),
+																FSlateLayoutTransform(
+																	UE::Slate::CastToVector2f(EndP - FVector2D(2, 2)))),
 							   InputFlowStyle::GetBrush("WhiteBrush"), ESlateDrawEffect::None, Color);
 
 	if (!Label.IsEmpty())
 	{
 		constexpr float T = 0.5f;
 		constexpr float OneMinusT = 0.5f;
-		const FVector2D CenterPos = 
-			(OneMinusT * OneMinusT * OneMinusT) * StartP + 
-			(3.0f * OneMinusT * OneMinusT * T) * CP1 + 
-			(3.0f * OneMinusT * T * T) * CP2 + 
+		const FVector2D CenterPos =
+			(OneMinusT * OneMinusT * OneMinusT) * StartP +
+			(3.0f * OneMinusT * OneMinusT * T) * CP1 +
+			(3.0f * OneMinusT * T * T) * CP2 +
 			(T * T * T) * EndP;
 
 		QueueLabel(CenterPos + FVector2D(0, -10), Label, Color);
@@ -1552,7 +1615,8 @@ void SInputFlowOverlay::DrawDirectionalIndicator(const FGeometry& AllottedGeomet
 	if (StartGeo.GetAbsoluteSize().IsZero()) return;
 
 	const FVector2D StartTL = AllottedGeometry.AbsoluteToLocal(StartGeo.GetAbsolutePosition());
-	const FVector2D StartBR = AllottedGeometry.AbsoluteToLocal(StartGeo.GetAbsolutePositionAtCoordinates(FVector2D(1, 1)));
+	const FVector2D StartBR = AllottedGeometry.AbsoluteToLocal(
+		StartGeo.GetAbsolutePositionAtCoordinates(FVector2D(1, 1)));
 	const FVector2D Center = (StartTL + StartBR) * 0.5f;
 
 	FVector2D Anchor, DirVec;

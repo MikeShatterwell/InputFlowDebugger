@@ -225,12 +225,28 @@ TSharedRef<SWidget> SInputFlowSettingsPanel::MakeNavMenu()
 			SAssignNew(DepthSpinBox, SInputFlowSpinBox<int32>)
 			.MinValue(1)
 			.MaxValue(5)
+			.ToolTipText(INVTEXT("How many 'hops' away from the focused widget the navigation simulation should search. Higher values will impact performance."))
 			.Value_Lambda([this]() { return UInputFlowSettings::Get()->GetNavigationSearchDepth(); })
 			.OnValueChanged_Lambda([this](int32 NewVal) { 
 				GetMutableDefault<UInputFlowSettings>()->SetNavigationSearchDepth(NewVal);
 			})
 		];
-
+	
+	const TSharedRef<SWidget> PollIntervalWidget = SNew(SHorizontalBox)
+		+ SHorizontalBox::Slot().AutoWidth().Padding(4, 0).VAlign(VAlign_Center)
+		[ SNew(STextBlock).Text(INVTEXT("Poll Interval (s)")) ]
+		+ SHorizontalBox::Slot().AutoWidth().Padding(4, 0)
+		[
+			SAssignNew(PollSpinBox, SInputFlowSpinBox<float>)
+			.MinValue(0.05f)
+			.MaxValue(5.0f)
+			.ToolTipText(INVTEXT("How often the InputFlowSubsystem should refresh the navigation simulation results. Lower values will impact performance, especially with deeper search depths."))
+			.Value_Lambda([]() { return UInputFlowSettings::Get()->GetNavigationSimPollInterval(); })
+			.OnValueChanged_Lambda([](float NewVal) { 
+				GetMutableDefault<UInputFlowSettings>()->SetNavigationSimPollInterval(NewVal);
+			})
+		];
+	
 	MenuBuilder.AddMenuEntry(
 		INVTEXT("Show Labels"),
 		INVTEXT("Show text labels on navigation simulation"),
@@ -248,9 +264,48 @@ TSharedRef<SWidget> SInputFlowSettingsPanel::MakeNavMenu()
 		NAME_None,
 		EUserInterfaceActionType::ToggleButton
 	);
+	
+#if WITH_SLATE_DEBUGGING
+	MenuBuilder.AddMenuSeparator();
+	MenuBuilder.AddSubMenu(
+		INVTEXT("Rejection Filters"),
+		INVTEXT("Toggle which failed navigation candidates are visualized"),
+		FNewMenuDelegate::CreateLambda([this](FMenuBuilder& SubMenuBuilder)
+		{
+			auto AddFilterEntry = [&](const FText& Label, const FText& Tooltip, bool (UInputFlowSettings::*Getter)() const, void (UInputFlowSettings::*Setter)(bool))
+			{
+				SubMenuBuilder.AddMenuEntry(
+					Label,
+					Tooltip,
+					FSlateIcon(),
+					FUIAction(
+						FExecuteAction::CreateLambda([Setter, Getter]() { (GetMutableDefault<UInputFlowSettings>()->*Setter)(!(UInputFlowSettings::Get()->*Getter)()); }),
+						FCanExecuteAction(),
+						FIsActionChecked::CreateLambda([Getter]() { return (UInputFlowSettings::Get()->*Getter)(); })
+					),
+					NAME_None,
+					EUserInterfaceActionType::ToggleButton
+				);
+			};
+
+			AddFilterEntry(INVTEXT("User Index Mismatch"), INVTEXT(""), &UInputFlowSettings::IsNavFilterUserIndexEnabled, &UInputFlowSettings::SetNavFilterUserIndex);
+			AddFilterEntry(INVTEXT("Spatial/Intersection"), INVTEXT("WARNING: Very noisy!"),&UInputFlowSettings::IsNavFilterIntersectionEnabled, &UInputFlowSettings::SetNavFilterIntersection);
+			AddFilterEntry(INVTEXT("Distance"),INVTEXT(""), &UInputFlowSettings::IsNavFilterDistanceEnabled, &UInputFlowSettings::SetNavFilterDistance);
+			AddFilterEntry(INVTEXT("Not a Descendant"),INVTEXT(""), &UInputFlowSettings::IsNavFilterDescendantEnabled, &UInputFlowSettings::SetNavFilterDescendant);
+			AddFilterEntry(INVTEXT("Disabled Widget"), INVTEXT(""),&UInputFlowSettings::IsNavFilterDisabledEnabled, &UInputFlowSettings::SetNavFilterDisabled);
+			AddFilterEntry(INVTEXT("Focus Unsupported"), INVTEXT(""),&UInputFlowSettings::IsNavFilterFocusEnabled, &UInputFlowSettings::SetNavFilterFocus);
+		}), 
+		/*bInOpenSubMenuOnClick*/ false,
+		/*InIcon*/ FSlateIcon(),
+		/*bInShouldCloseWindowAfterMenuSelection*/ false
+	);
+#endif // WITH_SLATE_DEBUGGING
 
 	if (bIsOverlay && DepthSpinBox.IsValid()) DepthSpinBox->SetCanSupportFocus(false);
+	if (bIsOverlay && PollSpinBox.IsValid()) PollSpinBox->SetCanSupportFocus(false);
+
 	MenuBuilder.AddWidget(DepthWidget, FText::GetEmpty());
+	MenuBuilder.AddWidget(PollIntervalWidget, FText::GetEmpty());
 	return MenuBuilder.MakeWidget();
 }
 

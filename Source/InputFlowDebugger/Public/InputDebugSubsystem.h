@@ -23,6 +23,13 @@ enum class ENavSimResult : uint8
 	Stopped     // Widget blocked navigation via Stop Rule
 };
 
+// Represents a widget that was evaluated for navigation but rejected
+struct FRejectedNavigation
+{
+	TWeakPtr<SWidget> Widget;
+	FString Reason;
+};
+
 // Represents a single link in the spider nav graph
 struct FNavigationLink
 {
@@ -31,6 +38,16 @@ struct FNavigationLink
 	EUINavigation Direction;
 	uint32 DepthStep; // 1 = Immediate, 2 = Next, etc.
 	ENavSimResult ResultType = ENavSimResult::Normal;
+	uint32 SimVersion = 0; // Tracks which simulation pass found this link
+	TArray<FRejectedNavigation> RejectedWidgets;
+};
+
+// Represents the result of a single step in the simulation
+struct FSimNavStepResult
+{
+	TSharedPtr<SWidget> Widget;
+	ENavSimResult ResultType = ENavSimResult::Normal;
+	TArray<FRejectedNavigation> RejectedWidgets;
 };
 
 // Snapshot of data for the Overlay to render without accessing Editor classes
@@ -93,10 +110,10 @@ private:
 	void OnSpyFocusChanged(const TSharedPtr<SWidget>& NewFocus, const FFocusEvent& InFocusEvent);
 	
 	// Recursive navigation finder
-	void StartNewSimulation(TSharedPtr<SWidget> StartWidget);
+	void StartNewSimulation(TSharedPtr<SWidget> StartWidget, const bool bStartFromScratch);
 	
 	// Single step simulation
-	TPair<TSharedPtr<SWidget>, ENavSimResult> SimulateNavigation(const TSharedPtr<SWidget>& Source, EUINavigation Direction, int32 UserIndex) const;
+	FSimNavStepResult SimulateNavigation(const TSharedPtr<SWidget>& Source, EUINavigation Direction, int32 UserIndex) const;
 
 	void ProcessSimulationQueue();
 	void UpdateDataSnapshot();
@@ -119,9 +136,9 @@ private:
 	TSharedPtr<class SWidget> OverlayHost; 
 	TArray<FFocusHistoryEntry> FocusHistory;
 	bool bOverlayActive = false;
-		// Simulation Results
+	// Simulation Results
 	TWeakPtr<SWidget> FocusedWidget;
-	TArray<FNavigationLink> NavigationLinks;
+	TArray<FNavigationLink> NavigationLinks; // What the UI is currently drawing
 
 	// --- Time Slicing State ---
 	struct FSimQueueItem
@@ -134,5 +151,7 @@ private:
 	TSet<TWeakPtr<SWidget>> VisitedWidgets;
 	bool bSimulationInProgress = false;
 	TWeakPtr<SWidget> LastSimulationStartWidget;
-	const double MaxSimulationTimePerFrame = 0.002f; 
+	double LastSimulationStartTime = 0.0;
+	const double MaxSimulationTimePerFrame = 0.002f;
+	uint32 CurrentSimVersion = 0;
 };
