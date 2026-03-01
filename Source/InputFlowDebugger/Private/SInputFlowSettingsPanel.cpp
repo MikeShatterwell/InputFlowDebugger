@@ -301,8 +301,15 @@ TSharedRef<SWidget> SInputFlowSettingsPanel::MakeNavMenu()
 	);
 #endif // WITH_SLATE_DEBUGGING
 
-	if (bIsOverlay && DepthSpinBox.IsValid()) DepthSpinBox->SetCanSupportFocus(false);
-	if (bIsOverlay && PollSpinBox.IsValid()) PollSpinBox->SetCanSupportFocus(false);
+	if (bIsOverlay && DepthSpinBox.IsValid())
+	{
+		DepthSpinBox->SetCanSupportFocus(false);
+	}
+	
+	if (bIsOverlay && PollSpinBox.IsValid())
+	{
+		PollSpinBox->SetCanSupportFocus(false);
+	}
 
 	MenuBuilder.AddWidget(DepthWidget, FText::GetEmpty());
 	MenuBuilder.AddWidget(PollIntervalWidget, FText::GetEmpty());

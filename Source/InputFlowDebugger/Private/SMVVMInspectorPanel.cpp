@@ -902,12 +902,34 @@ TArray<TSharedPtr<FMVVMPropertyNode>> SMVVMInspectorPanel::GeneratePropertyNodes
 
 				if (FStructProperty* InnerStructProp = CastField<FStructProperty>(ArrayProp->Inner))
 				{
-					if (!IsSpecialStruct(InnerStructProp->Struct))
+					if (IsValid(InnerStructProp->Struct) && !IsSpecialStruct(InnerStructProp->Struct))
 					{
-						ElementNode->Children = GeneratePropertyNodes(ElementAddr, InnerStructProp->Struct, OwnerObject,
-																	  ElementNode, CurrentDepth + 1);
+						// Instanced Struct inside array element: reflect the payload, not the wrapper struct
+						if (InnerStructProp->Struct->GetFName() == MVVMInspectorPanel::NAME_InstancedStruct)
+						{
+							FInstancedStruct* InstancedStruct = reinterpret_cast<FInstancedStruct*>(ElementAddr);
+							if (InstancedStruct && InstancedStruct->IsValid())
+							{
+								const UScriptStruct* ScriptStruct = InstancedStruct->GetScriptStruct();
+								uint8* Memory = InstancedStruct->GetMutableMemory();
+
+								ElementNode->TypeName = FString::Printf(TEXT("InstancedStruct (%s)"), *ScriptStruct->GetName());
+								ElementNode->Children = GeneratePropertyNodes(Memory, ScriptStruct, OwnerObject,
+																			  ElementNode, CurrentDepth + 1);
+							}
+							else
+							{
+								ElementNode->TypeName = TEXT("InstancedStruct (Empty)");
+							}
+						}
+						else
+						{
+							ElementNode->Children = GeneratePropertyNodes(ElementAddr, InnerStructProp->Struct, OwnerObject,
+																		  ElementNode, CurrentDepth + 1);
+						}
 					}
 				}
+
 				else if (FObjectProperty* InnerObjProp = CastField<FObjectProperty>(ArrayProp->Inner))
 				{
 					UObject* SubObj = InnerObjProp->GetObjectPropertyValue(ElementAddr);
@@ -961,12 +983,34 @@ TArray<TSharedPtr<FMVVMPropertyNode>> SMVVMInspectorPanel::GeneratePropertyNodes
 					uint8* ValueAddr = Helper.GetValuePtr(i);
 					if (FStructProperty* ValueStructProp = CastField<FStructProperty>(MapProp->ValueProp))
 					{
-						if (!IsSpecialStruct(ValueStructProp->Struct))
+						if (IsValid(ValueStructProp->Struct) && !IsSpecialStruct(ValueStructProp->Struct))
 						{
-							EntryNode->Children = GeneratePropertyNodes(ValueAddr, ValueStructProp->Struct, OwnerObject,
-																		EntryNode, CurrentDepth + 1);
+							// Instanced Struct inside map element: reflect the payload, not the wrapper struct
+							if (ValueStructProp->Struct->GetFName() == MVVMInspectorPanel::NAME_InstancedStruct)
+							{
+								FInstancedStruct* InstancedStruct = reinterpret_cast<FInstancedStruct*>(ValueAddr);
+								if (InstancedStruct && InstancedStruct->IsValid())
+								{
+									const UScriptStruct* ScriptStruct = InstancedStruct->GetScriptStruct();
+									uint8* Memory = InstancedStruct->GetMutableMemory();
+
+									EntryNode->TypeName = FString::Printf(TEXT("InstancedStruct (%s)"), *ScriptStruct->GetName());
+									EntryNode->Children = GeneratePropertyNodes(Memory, ScriptStruct, OwnerObject,
+																				EntryNode, CurrentDepth + 1);
+								}
+								else
+								{
+									EntryNode->TypeName = TEXT("InstancedStruct (Empty)");
+								}
+							}
+							else
+							{
+								EntryNode->Children = GeneratePropertyNodes(ValueAddr, ValueStructProp->Struct, OwnerObject,
+																			EntryNode, CurrentDepth + 1);
+							}
 						}
 					}
+
 					else if (FObjectProperty* ValueObjProp = CastField<FObjectProperty>(MapProp->ValueProp))
 					{
 						UObject* SubObj = ValueObjProp->GetObjectPropertyValue(ValueAddr);
