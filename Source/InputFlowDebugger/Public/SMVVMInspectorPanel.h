@@ -59,26 +59,46 @@ struct FMVVMHierarchyNode : public TSharedFromThis<FMVVMHierarchyNode>
 struct FMVVMPropertyNode : public TSharedFromThis<FMVVMPropertyNode>
 {
 	/** Display label in the tree. */
-	FString DisplayName;
+	FString DisplayName = "";
 
 	/** Human-readable type string. */
-	FString TypeName;
+	FString TypeName = "";
+
+	/** String displayed in the property widget's tooltip. */
+	FString TooltipText = "";
 
 	/** The UObject that should receive FieldNotify broadcasts for this node. */
-	TWeakObjectPtr<UObject> EffectiveOwner;
+	TWeakObjectPtr<UObject> EffectiveOwner = nullptr;
 
 	/** Property definition for this node (or array inner when ArrayIndex is set). */
-	TFieldPath<FProperty> Property;
+	TFieldPath<FProperty> Property = nullptr;
 
 	/** If this represents an array element, the index in the parent array; otherwise INDEX_NONE. */
 	int32 ArrayIndex = INDEX_NONE;
 
 	/** Parent and children for the tree view. */
-	TWeakPtr<FMVVMPropertyNode> ParentNode;
+	TWeakPtr<FMVVMPropertyNode> ParentNode = nullptr;
 	TArray<TSharedPtr<FMVVMPropertyNode>> Children;
 
 	/** True when this node is a category root (ViewModel header). */
 	bool bIsCategoryRoot = false;
+
+	/** Is this node representing a UFunction? */
+	bool bIsFunction = false;
+
+	/** Is this node representing a Delegate property? */
+	bool bIsDelegate = false;
+
+	/** The function or delegate signature function */
+	TWeakObjectPtr<UFunction> Function = nullptr;
+
+	/**
+	 * Parameter memory buffer for the function/delegate to hold inputs/outputs locally
+	 * This lets us expose function parameters as editable properties and pass them to ProcessEvent when invoking the function from the inspector.
+	 */
+	TSharedPtr<FStructOnScope> FunctionParams;
+	
+	FMVVMPropertyNode() = default;
 
 	/** Cached enum option values for combo boxes. */
 	TArray<TSharedPtr<int64>> EnumOptionValues;
@@ -188,12 +208,16 @@ private:
 	// --- Helpers --- 
 	void SetupChangeListener(UObject* Object);
 	void OnFieldChanged(UObject* Obj, UE::FieldNotification::FFieldId Id);
+	FReply OnInvokeClicked(TSharedPtr<FMVVMPropertyNode> Node);
+
+	static bool TryCallGetterSafe(TSharedPtr<FMVVMPropertyNode> Node, uint8* OutRawValue);
+	static bool TryCallSetterSafe(TSharedPtr<FMVVMPropertyNode> Node, const uint8* InRawValue);
 
 	// "Special Struct" refers to data types we can't easily display via checkbox/spinner/combo box, 
 	// so we just show their text representation. Custom property display could be added later. 
 	bool IsSpecialStruct(const UScriptStruct* Struct) const;
 	FString GetSpecialStructValue(const UScriptStruct* Struct, const void* ValuePtr) const;
-	void SetSpecialStructValue(TSharedPtr<FMVVMPropertyNode> Node, const FString& NewStringValue);
+	void SetSpecialStructValue(TSharedPtr<FMVVMPropertyNode> Node, uint8* TargetPtr, const FString& NewStringValue);
 
 private:
 	// Left-hand hierarchy tree 

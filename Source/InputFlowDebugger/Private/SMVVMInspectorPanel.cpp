@@ -21,11 +21,13 @@
 #include <View/MVVMView.h>
 
 // CoreUObject 
+#include <UObject/Class.h>
 #include <UObject/EnumProperty.h>
 #include <UObject/TextProperty.h>
 #include <UObject/UnrealType.h>
 #include <StructUtils/InstancedStruct.h>
 #include <UObject/UObjectIterator.h>
+#include <UObject/ScriptDelegates.h>
 
 // GameplayTags 
 #include <GameplayTagContainer.h>
@@ -44,6 +46,7 @@
 #include <Widgets/Text/STextBlock.h>
 #include <Widgets/Views/SExpanderArrow.h>
 #include <Widgets/Input/SSearchBox.h>
+#include <Widgets/Colors/SColorBlock.h>
 #include <Widgets/SViewport.h>
 
 namespace MVVMInspectorPanel
@@ -222,7 +225,7 @@ void SMVVMPropertyRow::Construct(
 					SNew(STextBlock)
 					.AutoWrapText(true)
 					.Text(FText::FromString(InItem->DisplayName))
-					.ToolTipText(FText::FromString(InItem->TypeName))
+					.ToolTipText(FText::FromString(InItem->TooltipText))
 					.ColorAndOpacity(HeaderColor)
 					.HighlightText(HighlightText)
 					.Font(InItem->bIsCategoryRoot
@@ -582,9 +585,9 @@ void SMVVMInspectorPanel::SetHierarchyExpansion(TSharedPtr<FMVVMHierarchyNode> N
 	}
 }
 
-// ---------------------------------------------------------------------------------- 
-// Property Tree (Right) 
-// ---------------------------------------------------------------------------------- 
+// ----------------------------------------------------------------------------------
+// Property Tree (Right)
+// ----------------------------------------------------------------------------------
 
 void SMVVMInspectorPanel::SetupChangeListener(UObject* Object)
 {
@@ -613,10 +616,51 @@ void SMVVMInspectorPanel::OnFieldChanged(UObject* Obj, UE::FieldNotification::FF
 	}
 }
 
+FReply SMVVMInspectorPanel::OnInvokeClicked(TSharedPtr<FMVVMPropertyNode> Node)
+{
+	if (!Node.IsValid()) return FReply::Handled();
+
+	if (Node->bIsFunction && Node->Function.IsValid() && Node->EffectiveOwner.IsValid())
+	{
+		// Fire UFunction
+		uint8* ParamsMemory = Node->FunctionParams.IsValid() ? Node->FunctionParams->GetStructMemory() : nullptr;
+		Node->EffectiveOwner->ProcessEvent(Node->Function.Get(), ParamsMemory);
+	}
+	else if (Node->bIsDelegate && Node->Property.Get() && Node->Function.IsValid())
+	{
+		// Fire Delegate
+		uint8* DelegateMemory = Node->GetRawValuePtr();
+		if (DelegateMemory)
+		{
+			if (const FMulticastDelegateProperty* MulticastProp = CastField<FMulticastDelegateProperty>(Node->Property.Get()))
+			{
+				if (const FMulticastScriptDelegate* MulticastDelegate = const_cast<FMulticastScriptDelegate*>(MulticastProp->GetMulticastDelegate(DelegateMemory)))
+				{
+					uint8* ParamsMemory = Node->FunctionParams.IsValid() ? Node->FunctionParams->GetStructMemory() : nullptr;
+					MulticastDelegate->ProcessMulticastDelegate<UObject>(ParamsMemory);
+				}
+			}
+			else if (const FDelegateProperty* DelegateProp = CastField<FDelegateProperty>(Node->Property.Get()))
+			{
+				if (const FScriptDelegate* ScriptDelegate = DelegateProp->GetPropertyValuePtr(DelegateMemory))
+				{
+					if (ScriptDelegate->IsBound())
+					{
+						uint8* ParamsMemory = Node->FunctionParams.IsValid() ? Node->FunctionParams->GetStructMemory() : nullptr;
+						ScriptDelegate->ProcessDelegate<UObject>(ParamsMemory);
+					}
+				}
+			}
+		}
+	}
+
+	return FReply::Handled();
+}
+
 void SMVVMInspectorPanel::RebuildPropertyTree(TSharedPtr<FMVVMHierarchyNode> SelectedNode)
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE_STR(__FUNCTION__)
-	
+
 	ResetListenedObjects();
 	PropertyRootNodes.Reset();
 
@@ -641,6 +685,7 @@ void SMVVMInspectorPanel::RebuildPropertyTree(TSharedPtr<FMVVMHierarchyNode> Sel
 				const TSharedPtr<FMVVMPropertyNode> VMRoot = MakeShared<FMVVMPropertyNode>();
 				VMRoot->DisplayName = FString::Printf(TEXT("ViewModel: %s"), *VM->GetName());
 				VMRoot->TypeName = VM->GetClass()->GetName();
+				VMRoot->TooltipText = FString::Printf(TEXT("%s (%s)"), *VM->GetName(), *VM->GetClass()->GetName());
 				VMRoot->EffectiveOwner = VM;
 				VMRoot->bIsCategoryRoot = true;
 
@@ -677,7 +722,7 @@ void SMVVMInspectorPanel::RebuildPropertyTree(TSharedPtr<FMVVMHierarchyNode> Sel
 	}
 }
 
-// ---- Special Struct Handling ---- 
+// ---- Special Struct Handling ----
 
 bool SMVVMInspectorPanel::IsSpecialStruct(const UScriptStruct* Struct) const
 {
@@ -722,28 +767,27 @@ FString SMVVMInspectorPanel::GetSpecialStructValue(const UScriptStruct* Struct, 
 	return OutString;
 }
 
-void SMVVMInspectorPanel::SetSpecialStructValue(TSharedPtr<FMVVMPropertyNode> Node, const FString& NewStringValue)
+void SMVVMInspectorPanel::SetSpecialStructValue(TSharedPtr<FMVVMPropertyNode> Node, uint8* TargetPtr, const FString& NewStringValue)
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE_STR(__FUNCTION__)
-	if (!Node.IsValid()) return;
+	if (!Node.IsValid() || !TargetPtr) return;
 
 	const FStructProperty* StructProp = CastField<FStructProperty>(Node->Property.Get());
-	uint8* Ptr = Node->GetRawValuePtr();
 
-	if (!StructProp || !StructProp->Struct || !Ptr) return;
+	if (!StructProp || !StructProp->Struct) return;
 
 	const FName StructName = StructProp->Struct->GetFName();
 
-	// Handle FGameplayTag 
+	// Handle FGameplayTag
 	if (StructName == MVVMInspectorPanel::NAME_GameplayTag && NewStringValue != TEXT("None"))
 	{
 		FString CleanValue = NewStringValue;
 		CleanValue.TrimStartAndEndInline();
 
 		const FGameplayTag NewTag = FGameplayTag::RequestGameplayTag(FName(*CleanValue));
-		StructProp->Struct->CopyScriptStruct(Ptr, &NewTag);
+		StructProp->Struct->CopyScriptStruct(TargetPtr, &NewTag);
 	}
-	// Handle FGameplayTagContainer 
+	// Handle FGameplayTagContainer
 	else if (StructName == MVVMInspectorPanel::NAME_GameplayTagContainer)
 	{
 		FGameplayTagContainer NewContainer;
@@ -753,7 +797,7 @@ void SMVVMInspectorPanel::SetSpecialStructValue(TSharedPtr<FMVVMPropertyNode> No
 
 		for (FString& TagStr : TagStrings)
 		{
-			// Trim each individual tag in the comma-separated list 
+			// Trim each individual tag in the comma-separated list
 			TagStr.TrimStartAndEndInline();
 			if (!TagStr.IsEmpty())
 			{
@@ -761,16 +805,16 @@ void SMVVMInspectorPanel::SetSpecialStructValue(TSharedPtr<FMVVMPropertyNode> No
 			}
 		}
 
-		StructProp->Struct->CopyScriptStruct(Ptr, &NewContainer);
+		StructProp->Struct->CopyScriptStruct(TargetPtr, &NewContainer);
 	}
-	// Fallback for others (Vector, etc) 
+	// Fallback for others (Vector, etc)
 	else
 	{
-		Node->Property->ImportText_Direct(*NewStringValue, Ptr, Node->EffectiveOwner.Get(), PPF_None);
+		Node->Property->ImportText_Direct(*NewStringValue, TargetPtr, Node->EffectiveOwner.Get(), PPF_None);
 	}
 }
 
-// ---- Reflection Walking ---- 
+// ---- Reflection Walking ----
 
 TArray<TSharedPtr<FMVVMPropertyNode>> SMVVMInspectorPanel::GeneratePropertyNodes(
 	uint8* BaseAddress,
@@ -878,12 +922,40 @@ TArray<TSharedPtr<FMVVMPropertyNode>> SMVVMInspectorPanel::GeneratePropertyNodes
 		Node->TypeName = Prop->GetCPPType();
 		Node->EffectiveOwner = OwnerObject;
 		Node->Property = Prop;
+		Node->TooltipText = Prop->GetToolTipText().ToString();
 		Node->ParentNode = Parent;
 
 		uint8* PropValuePtr = Prop->ContainerPtrToValuePtr<uint8>(BaseAddress);
 
+		// Delegates
+		if (FMulticastDelegateProperty* MulticastProp = CastField<FMulticastDelegateProperty>(Prop))
+		{
+			Node->bIsDelegate = true;
+			Node->Function = MulticastProp->SignatureFunction;
+			Node->TypeName = FString::Printf(TEXT("MulticastDelegate (%s)"), Node->Function.IsValid() ? *Node->Function->GetName() : TEXT("Unknown"));
+
+			if (Node->Function.IsValid() && Node->Function->GetStructureSize() > 0)
+			{
+				Node->FunctionParams = MakeShared<FStructOnScope>(Node->Function.Get());
+				Node->Children = GeneratePropertyNodes(Node->FunctionParams->GetStructMemory(), Node->Function.Get(), OwnerObject, Node, CurrentDepth + 1, MaxDepth);
+				Node->TooltipText = Node->Function->GetToolTipText().ToString();
+			}
+		}
+		else if (FDelegateProperty* DelegateProp = CastField<FDelegateProperty>(Prop))
+		{
+			Node->bIsDelegate = true;
+			Node->Function = DelegateProp->SignatureFunction;
+			Node->TypeName = FString::Printf(TEXT("Delegate (%s)"), Node->Function.IsValid() ? *Node->Function->GetName() : TEXT("Unknown"));
+
+			if (Node->Function.IsValid() && Node->Function->GetStructureSize() > 0)
+			{
+				Node->FunctionParams = MakeShared<FStructOnScope>(Node->Function.Get());
+				Node->Children = GeneratePropertyNodes(Node->FunctionParams->GetStructMemory(), Node->Function.Get(), OwnerObject, Node, CurrentDepth + 1, MaxDepth);
+				Node->TooltipText = Node->Function->GetToolTipText().ToString();
+			}
+		}
 		// Arrays 
-		if (const FArrayProperty* ArrayProp = CastField<FArrayProperty>(Prop))
+		else if (const FArrayProperty* ArrayProp = CastField<FArrayProperty>(Prop))
 		{
 			FScriptArrayHelper Helper(ArrayProp, PropValuePtr);
 			Node->TypeName = FString::Printf(TEXT("Array[%d] of %s"), Helper.Num(), *ArrayProp->Inner->GetCPPType());
@@ -895,6 +967,7 @@ TArray<TSharedPtr<FMVVMPropertyNode>> SMVVMInspectorPanel::GeneratePropertyNodes
 				ElementNode->TypeName = ArrayProp->Inner->GetCPPType();
 				ElementNode->EffectiveOwner = OwnerObject;
 				ElementNode->Property = ArrayProp->Inner;
+				ElementNode->TooltipText = ArrayProp->Inner->GetToolTipText().ToString();
 				ElementNode->ParentNode = Node;
 				ElementNode->ArrayIndex = i;
 
@@ -942,6 +1015,11 @@ TArray<TSharedPtr<FMVVMPropertyNode>> SMVVMInspectorPanel::GeneratePropertyNodes
 																		  CurrentDepth + 1);
 							SetupChangeListener(SubObj);
 						}
+						else
+						{
+							ElementNode->TypeName += TEXT(" (Cycle Detected)");
+							ElementNode->Children.Empty();
+						}
 					}
 				}
 
@@ -977,6 +1055,7 @@ TArray<TSharedPtr<FMVVMPropertyNode>> SMVVMInspectorPanel::GeneratePropertyNodes
 					EntryNode->TypeName = MapProp->ValueProp->GetCPPType();
 					EntryNode->EffectiveOwner = OwnerObject;
 					EntryNode->Property = MapProp->ValueProp;
+					EntryNode->TooltipText = MapProp->ValueProp->GetToolTipText().ToString();
 					EntryNode->ParentNode = Node;
 					EntryNode->ArrayIndex = i;
 
@@ -1108,6 +1187,48 @@ TArray<TSharedPtr<FMVVMPropertyNode>> SMVVMInspectorPanel::GeneratePropertyNodes
 		}
 	}
 
+	// Process Functions
+	if (const UClass* ClassLayout = Cast<UClass>(StructLayout))
+	{
+		for (TFieldIterator<UFunction> FuncIt(ClassLayout, EFieldIteratorFlags::IncludeSuper); FuncIt; ++FuncIt)
+		{
+			UFunction* Func = *FuncIt;
+			
+			// Skip actual underlying delegate functions, handled naturally by the delegate FProperty block above.
+			if (Func->HasAnyFunctionFlags(FUNC_Delegate | FUNC_MulticastDelegate)) continue;
+			
+			// Skip generic & noisy base class methods
+			UClass* FuncOwner = Func->GetOwnerClass();
+			if (FuncOwner == UObject::StaticClass() || FuncOwner == UMVVMViewModelBase::StaticClass()) continue;
+
+			const TSharedPtr<FMVVMPropertyNode> FuncNode = MakeShared<FMVVMPropertyNode>();
+			FuncNode->DisplayName = Func->GetName();
+			FuncNode->TypeName = TEXT("Function");
+			FuncNode->EffectiveOwner = OwnerObject;
+			FuncNode->ParentNode = Parent;
+			FuncNode->Property = nullptr;
+			FuncNode->bIsFunction = true;
+			FuncNode->Function = Func;
+			FuncNode->TooltipText = Func->GetToolTipText().ToString();
+
+			if (Func->GetStructureSize() > 0)
+			{
+				FuncNode->FunctionParams = MakeShared<FStructOnScope>(FuncNode->Function.Get());
+				
+				// Generate parameter properties passing the memory buffer
+				FuncNode->Children = GeneratePropertyNodes(FuncNode->FunctionParams->GetStructMemory(), Func, OwnerObject, FuncNode, CurrentDepth + 1, MaxDepth);
+			}
+
+			bool bMatches = PropertyFilterString.IsEmpty();
+			if (!bMatches) bMatches = FuncNode->DisplayName.Contains(PropertyFilterString);
+
+			if (bMatches || !FuncNode->Children.IsEmpty())
+			{
+				Nodes.Add(FuncNode);
+			}
+		}
+	}
+
 	return Nodes;
 }
 
@@ -1166,6 +1287,13 @@ uint8* FMVVMPropertyNode::GetContainerPtr() const
 	if (!Parent.IsValid() || Parent->bIsCategoryRoot)
 	{
 		return reinterpret_cast<uint8*>(EffectiveOwner.Get());
+	}
+
+	// If the parent is a function or delegate, the memory container for our property is the parameter buffer
+	if (Parent->bIsFunction || Parent->bIsDelegate)
+	{
+		uint8* ParamsMemory = Parent->FunctionParams.IsValid() ? Parent->FunctionParams->GetStructMemory() : nullptr;
+		return ParamsMemory;
 	}
 
 	uint8* ParentValueAddress = Parent->GetRawValuePtr();
@@ -1250,6 +1378,106 @@ uint8* FMVVMPropertyNode::GetRawValuePtr() const
 }
 
 // ---------------------------------------------------------------------------------- 
+// Getter / Setter Helper Invocations 
+// ---------------------------------------------------------------------------------- 
+
+bool SMVVMInspectorPanel::TryCallGetterSafe(TSharedPtr<FMVVMPropertyNode> Node, uint8* OutRawValue)
+{
+	if (!Node.IsValid() || Node->ArrayIndex != INDEX_NONE || !Node->EffectiveOwner.IsValid()) return false;
+	FProperty* Prop = Node->Property.Get();
+	UObject* Owner = Node->EffectiveOwner.Get();
+	
+#if WITH_METADATA
+	if (Prop->HasMetaData(TEXT("BlueprintGetter")))
+	{
+		if (UFunction* Func = Owner->GetClass()->FindFunctionByName(FName(*Prop->GetMetaData(TEXT("BlueprintGetter")))))
+		{
+			TArray<uint8> Buffer;
+			Buffer.SetNumZeroed(Func->GetStructureSize());
+			
+			// Initialize params
+			for (TFieldIterator<FProperty> It(Func); It; ++It)
+			{
+				It->InitializeValue_InContainer(Buffer.GetData());
+			}
+			
+			Owner->ProcessEvent(Func, Buffer.GetData());
+			
+			for (TFieldIterator<FProperty> It(Func); It; ++It)
+			{
+				if (It->HasAnyPropertyFlags(CPF_ReturnParm))
+				{
+					It->CopyCompleteValue(OutRawValue, It->ContainerPtrToValuePtr<uint8>(Buffer.GetData()));
+					break;
+				}
+			}
+			
+			// Destroy params
+			for (TFieldIterator<FProperty> It(Func); It; ++It)
+			{
+				It->DestroyValue_InContainer(Buffer.GetData());
+			}
+			return true;
+		}
+	}
+#endif
+
+	if (Prop->HasGetter())
+	{
+		Prop->CallGetter(Node->GetContainerPtr(), OutRawValue);
+		return true;
+	}
+	return false;
+}
+
+bool SMVVMInspectorPanel::TryCallSetterSafe(TSharedPtr<FMVVMPropertyNode> Node, const uint8* InRawValue)
+{
+	if (!Node.IsValid() || Node->ArrayIndex != INDEX_NONE || !Node->EffectiveOwner.IsValid()) return false;
+	FProperty* Prop = Node->Property.Get();
+	UObject* Owner = Node->EffectiveOwner.Get();
+	
+#if WITH_METADATA
+	if (Prop->HasMetaData(TEXT("BlueprintSetter")))
+	{
+		if (UFunction* Func = Owner->GetClass()->FindFunctionByName(FName(*Prop->GetMetaData(TEXT("BlueprintSetter")))))
+		{
+			TArray<uint8> Buffer;
+			Buffer.SetNumZeroed(Func->GetStructureSize());
+			
+			for (TFieldIterator<FProperty> It(Func); It; ++It)
+			{
+				It->InitializeValue_InContainer(Buffer.GetData());
+			}
+			
+			for (TFieldIterator<FProperty> It(Func); It; ++It)
+			{
+				if (It->HasAnyPropertyFlags(CPF_Parm) && !It->HasAnyPropertyFlags(CPF_ReturnParm))
+				{
+					It->CopyCompleteValue(It->ContainerPtrToValuePtr<uint8>(Buffer.GetData()), InRawValue);
+					break; 
+				}
+			}
+			
+			Owner->ProcessEvent(Func, Buffer.GetData());
+			
+			for (TFieldIterator<FProperty> It(Func); It; ++It)
+			{
+				It->DestroyValue_InContainer(Buffer.GetData());
+			}
+			return true;
+		}
+	}
+#endif
+
+	if (Prop->HasSetter())
+	{
+		Prop->CallSetter(Node->GetContainerPtr(), InRawValue);
+		return true;
+	}
+	return false;
+}
+
+// ---------------------------------------------------------------------------------- 
 // Value Widgets 
 // ----------------------------------------------------------------------------------
 
@@ -1259,6 +1487,12 @@ void SMVVMInspectorPanel::NotifyPropertyValueChanged(TSharedPtr<FMVVMPropertyNod
 	if (!Node.IsValid() || !Node->EffectiveOwner.IsValid())
 	{
 		return;
+	}
+
+	// Skip firing field notifies for UI edits made strictly inside temporary function parameters
+	for (TSharedPtr<FMVVMPropertyNode> Walker = Node; Walker.IsValid(); Walker = Walker->ParentNode.Pin())
+	{
+		if (Walker->bIsFunction || Walker->bIsDelegate) return;
 	}
 
 	INotifyFieldValueChanged* Notify = Cast<INotifyFieldValueChanged>(Node->EffectiveOwner.Get());
@@ -1306,6 +1540,17 @@ void SMVVMInspectorPanel::NotifyPropertyValueChanged(TSharedPtr<FMVVMPropertyNod
 TSharedRef<SWidget> SMVVMInspectorPanel::CreateValueWidget(TSharedPtr<FMVVMPropertyNode> Node)
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE_STR(__FUNCTION__)
+
+	// Create Invocation buttons for Functions / Delegates
+	if (Node->bIsFunction || Node->bIsDelegate)
+	{
+		return SNew(SButton)
+			.Text(INVTEXT("Invoke"))
+			.VAlign(VAlign_Center)
+			.ToolTipText(FText::FromString(Node->TooltipText))
+			.OnClicked(this, &SMVVMInspectorPanel::OnInvokeClicked, Node);
+	}
+
 	FProperty* Prop = Node ? Node->Property.Get() : nullptr;
 	if (!Prop)
 	{
@@ -1314,7 +1559,39 @@ TSharedRef<SWidget> SMVVMInspectorPanel::CreateValueWidget(TSharedPtr<FMVVMPrope
 
 	// Editing is disabled for widget instances (generally unsafe to mutate at runtime here). 
 	const bool bIsWidgetOwner = Node->EffectiveOwner.IsValid() && Node->EffectiveOwner->IsA(UWidget::StaticClass());
-	const bool bCanEdit = !bIsWidgetOwner;
+	bool bCanEdit = !bIsWidgetOwner;
+
+	// Disallow editing Return values (Function output parameters)
+	if (Prop->HasAnyPropertyFlags(CPF_ReturnParm))
+	{
+		bCanEdit = false;
+	}
+
+	// Walk the parent chain to see if we're inside a function parameter struct, in which case we disable editing (since it's a temporary buffer, not a live property).
+	for (TSharedPtr<FMVVMPropertyNode> Walker = Node->ParentNode.Pin(); Walker.IsValid(); Walker = Walker->ParentNode.Pin())
+	{
+		if (Walker->bIsFunction || Walker->bIsDelegate)
+		{
+			// Check if it's a pure node (standard getter)
+			bool bIsGetter = Walker->Function->HasAnyFunctionFlags(FUNC_BlueprintPure);
+          
+#if WITH_METADATA
+			// If it isn't pure, explicitly check for metadata specifiers
+			if (!bIsGetter)
+			{
+				bIsGetter = Walker->Function->HasMetaData(TEXT("Getter")) ||
+							Walker->Function->HasMetaData(TEXT("BlueprintGetter"));
+			}
+#endif
+          
+			// Lock the property if the owning function is a getter
+			if (bIsGetter)
+			{
+				bCanEdit = false;
+			}
+			break;
+		}
+	}
 
 	// Bool
 	if (const FBoolProperty* BoolProp = CastField<FBoolProperty>(Prop))
@@ -1380,10 +1657,14 @@ TSharedRef<SWidget> SMVVMInspectorPanel::CreateBoolWidget(TSharedPtr<FMVVMProper
 			if (!Node.IsValid()) return ECheckBoxState::Unchecked;
 
 			const FBoolProperty* Prop = CastField<FBoolProperty>(Node->Property.Get());
-			const uint8* Ptr = Node->GetRawValuePtr();
+			if (!Prop) return ECheckBoxState::Unchecked;
 
-			if (!Prop || !Ptr) return ECheckBoxState::Unchecked;
-			return (Ptr && Prop->GetPropertyValue(Ptr)) ? ECheckBoxState::Checked : ECheckBoxState::Unchecked;
+			TArray<uint8> Buffer;
+			Buffer.SetNumZeroed(Prop->GetSize());
+			const uint8* Ptr = TryCallGetterSafe(Node, Buffer.GetData()) ? Buffer.GetData() : Node->GetRawValuePtr();
+			if (!Ptr) return ECheckBoxState::Unchecked;
+
+			return Prop->GetPropertyValue(Ptr) ? ECheckBoxState::Checked : ECheckBoxState::Unchecked;
 		})
 		.OnCheckStateChanged_Lambda([this, Node](ECheckBoxState NewState)
 		{
@@ -1391,11 +1672,20 @@ TSharedRef<SWidget> SMVVMInspectorPanel::CreateBoolWidget(TSharedPtr<FMVVMProper
 
 			if (const FBoolProperty* Prop = CastField<FBoolProperty>(Node->Property.Get()))
 			{
-				if (uint8* Ptr = Node->GetRawValuePtr())
+				bool bNewValue = (NewState == ECheckBoxState::Checked);
+				
+				TArray<uint8> Buffer;
+				Buffer.SetNumZeroed(Prop->GetSize());
+				Prop->SetPropertyValue(Buffer.GetData(), bNewValue);
+
+				if (!TryCallSetterSafe(Node, Buffer.GetData()))
 				{
-					Prop->SetPropertyValue(Ptr, NewState == ECheckBoxState::Checked);
-					NotifyPropertyValueChanged(Node);
+					if (uint8* Ptr = Node->GetRawValuePtr())
+					{
+						Prop->SetPropertyValue(Ptr, bNewValue);
+					}
 				}
+				NotifyPropertyValueChanged(Node);
 			}
 		});
 }
@@ -1437,7 +1727,9 @@ TSharedRef<SWidget> SMVVMInspectorPanel::CreateEnumWidget(TSharedPtr<FMVVMProper
 
 	// Determine current selection
 	TSharedPtr<int64> CurrentItem;
-	if (const uint8* Ptr = Node->GetRawValuePtr())
+	TArray<uint8> Buffer;
+	Buffer.SetNumZeroed(Prop->GetSize());
+	if (const uint8* Ptr = TryCallGetterSafe(Node, Buffer.GetData()) ? Buffer.GetData() : Node->GetRawValuePtr())
 	{
 		int64 CurrentVal = 0;
 		if (const FEnumProperty* EP = CastField<FEnumProperty>(Prop))
@@ -1472,21 +1764,37 @@ TSharedRef<SWidget> SMVVMInspectorPanel::CreateEnumWidget(TSharedPtr<FMVVMProper
 		.OnSelectionChanged_Lambda([this, Node](TSharedPtr<int64> NewValue, ESelectInfo::Type)
 		{
 			if (!NewValue.IsValid() || !Node.IsValid()) return;
-
 			FProperty* CurrentProp = Node->Property.Get();
-			if (uint8* Ptr = Node->GetRawValuePtr())
+			if (!CurrentProp) return;
+
+			const int64 Val = *NewValue;
+			TArray<uint8> LocalBuffer;
+			LocalBuffer.SetNumZeroed(CurrentProp->GetSize());
+
+			if (FEnumProperty* EP = CastField<FEnumProperty>(CurrentProp))
 			{
-				const int64 Val = *NewValue;
-				if (FEnumProperty* EP = CastField<FEnumProperty>(CurrentProp))
-				{
-					EP->GetUnderlyingProperty()->SetIntPropertyValue(Ptr, Val);
-				}
-				else if (FByteProperty* BP = CastField<FByteProperty>(CurrentProp))
-				{
-					*Ptr = static_cast<uint8>(Val);
-				}
-				NotifyPropertyValueChanged(Node);
+				EP->GetUnderlyingProperty()->SetIntPropertyValue(LocalBuffer.GetData(), Val);
 			}
+			else if (FByteProperty* BP = CastField<FByteProperty>(CurrentProp))
+			{
+				*LocalBuffer.GetData() = static_cast<uint8>(Val);
+			}
+
+			if (!TryCallSetterSafe(Node, LocalBuffer.GetData()))
+			{
+				if (uint8* Ptr = Node->GetRawValuePtr())
+				{
+					if (FEnumProperty* EP = CastField<FEnumProperty>(CurrentProp))
+					{
+						EP->GetUnderlyingProperty()->SetIntPropertyValue(Ptr, Val);
+					}
+					else if (FByteProperty* BP = CastField<FByteProperty>(CurrentProp))
+					{
+						*Ptr = static_cast<uint8>(Val);
+					}
+				}
+			}
+			NotifyPropertyValueChanged(Node);
 		})
 		.Content()
 		[
@@ -1497,8 +1805,12 @@ TSharedRef<SWidget> SMVVMInspectorPanel::CreateEnumWidget(TSharedPtr<FMVVMProper
 				if (!Node.IsValid()) return FText::FromString("Invalid Node");
 
 				FProperty* CurrentProp = Node->Property.Get();
-				const uint8* Ptr = Node->GetRawValuePtr();
-				if (!Ptr || !CurrentProp) return FText::FromString(TEXT("None"));
+				if (!CurrentProp) return FText::FromString(TEXT("None"));
+
+				TArray<uint8> LocalBuffer;
+				LocalBuffer.SetNumZeroed(CurrentProp->GetSize());
+				const uint8* Ptr = TryCallGetterSafe(Node, LocalBuffer.GetData()) ? LocalBuffer.GetData() : Node->GetRawValuePtr();
+				if (!Ptr) return FText::FromString(TEXT("None"));
 
 				int64 Val = 0;
 				if (FEnumProperty* EP = CastField<FEnumProperty>(CurrentProp))
@@ -1524,24 +1836,34 @@ TSharedRef<SWidget> SMVVMInspectorPanel::CreateNumericWidget(TSharedPtr<FMVVMPro
 			.IsEnabled(bCanEdit)
 			.Value_Lambda([Node]()
 			{
-				if (!Node.IsValid()) return 0.0f;
-
+				if (!Node.IsValid()) return 0.0;
 				const FNumericProperty* Prop = CastField<FNumericProperty>(Node->Property.Get());
-				const uint8* Ptr = Node->GetRawValuePtr();
+				if (!Prop) return 0.0;
 
-				if (!Prop || !Ptr) return 0.0f;
-				return static_cast<float>(Prop->GetFloatingPointPropertyValue(Ptr));
+				TArray<uint8> Buffer;
+				Buffer.SetNumZeroed(Prop->GetSize());
+				const uint8* Ptr = TryCallGetterSafe(Node, Buffer.GetData()) ? Buffer.GetData() : Node->GetRawValuePtr();
+				if (!Ptr) return 0.0;
+				
+				return static_cast<double>(Prop->GetFloatingPointPropertyValue(Ptr));
 			})
 			.OnValueChanged_Lambda([this, Node](const double NewVal)
 			{
 				if (!Node.IsValid()) return;
-
 				const FNumericProperty* Prop = CastField<FNumericProperty>(Node->Property.Get());
-				uint8* Ptr = Node->GetRawValuePtr();
+				if (!Prop) return;
 
-				if (!Prop || !Ptr) return;
+				TArray<uint8> Buffer;
+				Buffer.SetNumZeroed(Prop->GetSize());
+				Prop->SetFloatingPointPropertyValue(Buffer.GetData(), NewVal);
 
-				Prop->SetFloatingPointPropertyValue(Ptr, NewVal);
+				if (!TryCallSetterSafe(Node, Buffer.GetData()))
+				{
+					if (uint8* Ptr = Node->GetRawValuePtr())
+					{
+						Prop->SetFloatingPointPropertyValue(Ptr, NewVal);
+					}
+				}
 				NotifyPropertyValueChanged(Node);
 			});
 	}
@@ -1553,23 +1875,33 @@ TSharedRef<SWidget> SMVVMInspectorPanel::CreateNumericWidget(TSharedPtr<FMVVMPro
 			.Value_Lambda([Node]() -> int64
 			{
 				if (!Node.IsValid()) return 0;
-
-				const uint8* Ptr = Node->GetRawValuePtr();
 				const FNumericProperty* Prop = CastField<FNumericProperty>(Node->Property.Get());
+				if (!Prop) return 0;
 
-				if (!Ptr || !Prop) return 0;
+				TArray<uint8> Buffer;
+				Buffer.SetNumZeroed(Prop->GetSize());
+				const uint8* Ptr = TryCallGetterSafe(Node, Buffer.GetData()) ? Buffer.GetData() : Node->GetRawValuePtr();
+				if (!Ptr) return 0;
+				
 				return Prop->GetSignedIntPropertyValue(Ptr);
 			})
 			.OnValueChanged_Lambda([this, Node](int64 NewVal)
 			{
 				if (!Node.IsValid()) return;
-
-				uint8* Ptr = Node->GetRawValuePtr();
 				const FNumericProperty* Prop = CastField<FNumericProperty>(Node->Property.Get());
+				if (!Prop) return;
 
-				if (!Ptr || !Prop) return;
+				TArray<uint8> Buffer;
+				Buffer.SetNumZeroed(Prop->GetSize());
+				Prop->SetIntPropertyValue(Buffer.GetData(), NewVal);
 
-				Prop->SetIntPropertyValue(Ptr, NewVal);
+				if (!TryCallSetterSafe(Node, Buffer.GetData()))
+				{
+					if (uint8* Ptr = Node->GetRawValuePtr())
+					{
+						Prop->SetIntPropertyValue(Ptr, NewVal);
+					}
+				}
 				NotifyPropertyValueChanged(Node);
 			});
 	}
@@ -1584,30 +1916,43 @@ TSharedRef<SWidget> SMVVMInspectorPanel::CreateStringWidget(TSharedPtr<FMVVMProp
 		.IsEnabled(bCanEdit)
 		.Text_Lambda([Node]()
 		{
-			const uint8* Ptr = Node->GetRawValuePtr();
-			if (!Ptr || !Node.IsValid() || !Node->Property.Get())
-			{
-				return FText::GetEmpty();
-			}
+			if (!Node.IsValid() || !Node->Property.Get()) return FText::GetEmpty();
+			FProperty* Prop = Node->Property.Get();
 
-			if (const FTextProperty* TextProp = CastField<FTextProperty>(Node->Property.Get()))
+			TArray<uint8> Buffer;
+			Buffer.SetNumZeroed(Prop->GetSize());
+			const uint8* Ptr = TryCallGetterSafe(Node, Buffer.GetData()) ? Buffer.GetData() : Node->GetRawValuePtr();
+			if (!Ptr) return FText::GetEmpty();
+
+			if (const FTextProperty* TextProp = CastField<FTextProperty>(Prop))
 			{
 				return TextProp->GetPropertyValue(Ptr);
 			}
 
 			FString ValStr;
-			Node->Property->ExportText_Direct(ValStr, Ptr, nullptr, nullptr, PPF_None);
+			Prop->ExportText_Direct(ValStr, Ptr, nullptr, nullptr, PPF_None);
 			return FText::FromString(ValStr);
 		})
 		.OnTextCommitted_Lambda([this, Node](const FText& NewText, ETextCommit::Type)
 		{
 			if (!Node.IsValid()) return;
+			FProperty* Prop = Node->Property.Get();
+			if (!Prop) return;
 
-			if (uint8* Ptr = Node->GetRawValuePtr())
+			TArray<uint8> Buffer;
+			Buffer.SetNumZeroed(Prop->GetSize());
+			Prop->InitializeValue(Buffer.GetData());
+			Prop->ImportText_Direct(*NewText.ToString(), Buffer.GetData(), Node->EffectiveOwner.Get(), PPF_None);
+
+			if (!TryCallSetterSafe(Node, Buffer.GetData()))
 			{
-				Node->Property->ImportText_Direct(*NewText.ToString(), Ptr, Node->EffectiveOwner.Get(), PPF_None);
-				NotifyPropertyValueChanged(Node);
+				if (uint8* Ptr = Node->GetRawValuePtr())
+				{
+					Prop->ImportText_Direct(*NewText.ToString(), Ptr, Node->EffectiveOwner.Get(), PPF_None);
+				}
 			}
+			Prop->DestroyValue(Buffer.GetData());
+			NotifyPropertyValueChanged(Node);
 		});
 }
 
@@ -1615,26 +1960,91 @@ TSharedRef<SWidget> SMVVMInspectorPanel::CreateSpecialStructWidget(TSharedPtr<FM
 																   const FStructProperty* StructProp, bool bCanEdit)
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE_STR(__FUNCTION__)
-	return SNew(SEditableTextBox)
+
+	TSharedRef<SHorizontalBox> StructBox = SNew(SHorizontalBox);
+
+	const FName StructName = StructProp->Struct ? StructProp->Struct->GetFName() : NAME_None;
+	if (StructName == MVVMInspectorPanel::NAME_Color || StructName == MVVMInspectorPanel::NAME_LinearColor)
+	{
+		StructBox->AddSlot()
+		.AutoWidth()
+		.Padding(0, 0, 6, 0)
+		.VAlign(VAlign_Center)
+		[
+			SNew(SColorBlock)
+			.Color_Lambda([Node, StructProp]() -> FLinearColor
+			{
+				if (!Node.IsValid()) return FLinearColor::Transparent;
+				
+				TArray<uint8> Buffer;
+				Buffer.SetNumZeroed(StructProp->GetSize());
+				const uint8* Ptr = TryCallGetterSafe(Node, Buffer.GetData()) ? Buffer.GetData() : Node->GetRawValuePtr();
+				if (!Ptr) return FLinearColor::Transparent;
+
+				if (StructProp->Struct->GetFName() == MVVMInspectorPanel::NAME_Color)
+				{
+					return FLinearColor(*reinterpret_cast<const FColor*>(Ptr));
+				}
+				else if (StructProp->Struct->GetFName() == MVVMInspectorPanel::NAME_LinearColor)
+				{
+					return *reinterpret_cast<const FLinearColor*>(Ptr);
+				}
+				return FLinearColor::Transparent;
+			})
+			.Size(FVector2D(16.0f, 16.0f))
+			.ShowBackgroundForAlpha(true)
+		];
+	}
+
+	StructBox->AddSlot()
+	.FillWidth(1.0f)
+	[
+		SNew(SEditableTextBox)
 		.IsEnabled(bCanEdit)
 		.Text_Lambda([this, Node]()
 		{
 			if (!Node.IsValid()) return FText::GetEmpty();
-
-			const uint8* Ptr = Node->GetRawValuePtr();
 			const FStructProperty* Prop = CastField<FStructProperty>(Node->Property.Get());
+			if (!Prop) return FText::FromString(TEXT("Error"));
 
-			if (!Prop || !Ptr) return FText::FromString(TEXT("Error"));
+			TArray<uint8> Buffer;
+			Buffer.SetNumZeroed(Prop->GetSize());
+			const uint8* Ptr = TryCallGetterSafe(Node, Buffer.GetData()) ? Buffer.GetData() : Node->GetRawValuePtr();
+			if (!Ptr) return FText::FromString(TEXT("Error"));
+
 			return FText::FromString(GetSpecialStructValue(Prop->Struct, Ptr));
 		})
 		.OnTextCommitted_Lambda([this, Node](const FText& NewText, ETextCommit::Type)
 		{
 			if (!Node.IsValid()) return;
+			const FStructProperty* Prop = CastField<FStructProperty>(Node->Property.Get());
+			if (!Prop) return;
 
-			SetSpecialStructValue(Node, NewText.ToString());
+			TArray<uint8> Buffer;
+			Buffer.SetNumZeroed(Prop->GetSize());
+			
+			// Grab current value to only override specified string representation part
+			const uint8* GetterPtr = TryCallGetterSafe(Node, Buffer.GetData()) ? Buffer.GetData() : Node->GetRawValuePtr();
+			if (GetterPtr && GetterPtr != Buffer.GetData())
+			{
+				Prop->CopyCompleteValue(Buffer.GetData(), GetterPtr);
+			}
+
+			SetSpecialStructValue(Node, Buffer.GetData(), NewText.ToString());
+
+			if (!TryCallSetterSafe(Node, Buffer.GetData()))
+			{
+				if (uint8* RealPtr = Node->GetRawValuePtr())
+				{
+					SetSpecialStructValue(Node, RealPtr, NewText.ToString());
+				}
+			}
 			NotifyPropertyValueChanged(Node);
 		})
-		.ForegroundColor(FLinearColor(0.4f, 0.8f, 1.0f));
+		.ForegroundColor(FLinearColor(0.4f, 0.8f, 1.0f))
+	];
+
+	return StructBox;
 }
 
 TSharedRef<SWidget> SMVVMInspectorPanel::CreateContainerWidget(TSharedPtr<FMVVMPropertyNode> Node)
@@ -1645,6 +2055,14 @@ TSharedRef<SWidget> SMVVMInspectorPanel::CreateContainerWidget(TSharedPtr<FMVVMP
 	// Arrays
 	if (const FArrayProperty* ArrayProp = CastField<FArrayProperty>(Prop))
 	{
+		if (ArrayProp->Inner->IsA<FByteProperty>() || ArrayProp->Inner->IsA<FInt8Property>())
+		{
+			return SNew(STextBlock)
+				.AutoWrapText(true)
+				.Text(FText::FromString(TEXT("Binary Data")))
+				.ColorAndOpacity(FLinearColor::Gray);
+		}
+
 		const uint8* Ptr = Node->GetRawValuePtr();
 		if (!Ptr)
 		{
@@ -1759,26 +2177,26 @@ TSharedRef<SWidget> SMVVMInspectorPanel::CreateObjectLikeWidget(TSharedPtr<FMVVM
 	if (const FClassProperty* ClassProp = CastField<FClassProperty>(Prop))
 	{
 		return SNew(STextBlock)
-							   .AutoWrapText(true)
-							   .ColorAndOpacity(FLinearColor(1.0f, 0.5f, 0.8f)) // Pinkish for Classes
-							   .Text_Lambda([Node]() -> FText
-							   {
-								   if (!Node.IsValid()) return FText::GetEmpty();
-								   if (const uint8* Ptr = Node->GetRawValuePtr())
-								   {
-									   if (const FClassProperty* CProp = CastField<
-										   FClassProperty>(Node->Property.Get()))
-									   {
-										   UObject* ClassObj = CProp->GetObjectPropertyValue(Ptr);
-										   if (ClassObj)
-										   {
-											   return FText::FromString(
-												   FString::Printf(TEXT("Class: %s"), *ClassObj->GetName()));
-										   }
-									   }
-								   }
-								   return FText::FromString(TEXT("None"));
-							   });
+			.AutoWrapText(true)
+			.ColorAndOpacity(FLinearColor(1.0f, 0.5f, 0.8f)) // Pinkish for Classes
+			.Text_Lambda([Node]() -> FText
+			{
+				if (!Node.IsValid()) return FText::GetEmpty();
+				if (const uint8* Ptr = Node->GetRawValuePtr())
+				{
+					if (const FClassProperty* CProp = CastField<
+						FClassProperty>(Node->Property.Get()))
+					{
+						UObject* ClassObj = CProp->GetObjectPropertyValue(Ptr);
+						if (ClassObj)
+						{
+							return FText::FromString(
+								FString::Printf(TEXT("Class: %s"), *ClassObj->GetName()));
+						}
+					}
+				}
+				return FText::FromString(TEXT("None"));
+			});
 	}
 
 	return SNullWidget::NullWidget;
