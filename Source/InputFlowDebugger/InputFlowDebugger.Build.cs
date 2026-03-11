@@ -30,6 +30,7 @@ public class InputFlowDebugger : ModuleRules
 			new string[]
 			{
 				"Core",
+				"CoreUObject",
 			}
 			);
 			
@@ -38,7 +39,6 @@ public class InputFlowDebugger : ModuleRules
 			new string[]
 			{
 				"ApplicationCore",
-				"CoreUObject",
 				"DeveloperSettings",
 				"Engine",
 				"Slate",

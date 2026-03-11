@@ -5,7 +5,7 @@
 // Core 
 #include <CoreMinimal.h>
 #include <UObject/FieldPath.h>
-#include <UObject/WeakObjectPtr.h>
+#include <UObject/StructOnScope.h>
 
 // Slate 
 #include <Widgets/SCompoundWidget.h>
