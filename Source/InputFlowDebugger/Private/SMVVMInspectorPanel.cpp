@@ -922,7 +922,9 @@ TArray<TSharedPtr<FMVVMPropertyNode>> SMVVMInspectorPanel::GeneratePropertyNodes
 		Node->TypeName = Prop->GetCPPType();
 		Node->EffectiveOwner = OwnerObject;
 		Node->Property = Prop;
+#if WITH_EDITORONLY_DATA
 		Node->TooltipText = Prop->GetToolTipText().ToString();
+#endif
 		Node->ParentNode = Parent;
 
 		uint8* PropValuePtr = Prop->ContainerPtrToValuePtr<uint8>(BaseAddress);
@@ -938,7 +940,9 @@ TArray<TSharedPtr<FMVVMPropertyNode>> SMVVMInspectorPanel::GeneratePropertyNodes
 			{
 				Node->FunctionParams = MakeShared<FStructOnScope>(Node->Function.Get());
 				Node->Children = GeneratePropertyNodes(Node->FunctionParams->GetStructMemory(), Node->Function.Get(), OwnerObject, Node, CurrentDepth + 1, MaxDepth);
+#if WITH_EDITORONLY_DATA
 				Node->TooltipText = Node->Function->GetToolTipText().ToString();
+#endif
 			}
 		}
 		else if (FDelegateProperty* DelegateProp = CastField<FDelegateProperty>(Prop))
@@ -951,7 +955,9 @@ TArray<TSharedPtr<FMVVMPropertyNode>> SMVVMInspectorPanel::GeneratePropertyNodes
 			{
 				Node->FunctionParams = MakeShared<FStructOnScope>(Node->Function.Get());
 				Node->Children = GeneratePropertyNodes(Node->FunctionParams->GetStructMemory(), Node->Function.Get(), OwnerObject, Node, CurrentDepth + 1, MaxDepth);
+#if WITH_EDITORONLY_DATA
 				Node->TooltipText = Node->Function->GetToolTipText().ToString();
+#endif
 			}
 		}
 		// Arrays 
@@ -967,7 +973,9 @@ TArray<TSharedPtr<FMVVMPropertyNode>> SMVVMInspectorPanel::GeneratePropertyNodes
 				ElementNode->TypeName = ArrayProp->Inner->GetCPPType();
 				ElementNode->EffectiveOwner = OwnerObject;
 				ElementNode->Property = ArrayProp->Inner;
+#if WITH_EDITORONLY_DATA
 				ElementNode->TooltipText = ArrayProp->Inner->GetToolTipText().ToString();
+#endif
 				ElementNode->ParentNode = Node;
 				ElementNode->ArrayIndex = i;
 
@@ -1055,7 +1063,9 @@ TArray<TSharedPtr<FMVVMPropertyNode>> SMVVMInspectorPanel::GeneratePropertyNodes
 					EntryNode->TypeName = MapProp->ValueProp->GetCPPType();
 					EntryNode->EffectiveOwner = OwnerObject;
 					EntryNode->Property = MapProp->ValueProp;
+#if WITH_EDITORONLY_DATA
 					EntryNode->TooltipText = MapProp->ValueProp->GetToolTipText().ToString();
+#endif
 					EntryNode->ParentNode = Node;
 					EntryNode->ArrayIndex = i;
 
@@ -1209,8 +1219,9 @@ TArray<TSharedPtr<FMVVMPropertyNode>> SMVVMInspectorPanel::GeneratePropertyNodes
 			FuncNode->Property = nullptr;
 			FuncNode->bIsFunction = true;
 			FuncNode->Function = Func;
+#if WITH_EDITORONLY_DATA
 			FuncNode->TooltipText = Func->GetToolTipText().ToString();
-
+#endif
 			if (Func->GetStructureSize() > 0)
 			{
 				FuncNode->FunctionParams = MakeShared<FStructOnScope>(FuncNode->Function.Get());
