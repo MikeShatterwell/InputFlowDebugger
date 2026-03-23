@@ -395,23 +395,125 @@ void SMVVMInspectorPanel::RefreshHierarchy()
 		return;
 	}
 
-	if (!GEngine || !IsValid(GEngine->GameViewport))
+	// Collect all valid UserWidgets with MVVM views
+	TMap<UUserWidget*, TSharedPtr<FMVVMHierarchyNode>> NodeMap;
+
+	for (TObjectIterator<UUserWidget> It; It; ++It)
 	{
-		return;
+		UUserWidget* Widget = *It;
+		if (!IsValid(Widget) || Widget->HasAnyFlags(RF_ClassDefaultObject | RF_ArchetypeObject))
+		{
+			continue;
+		}
+
+		const UWorld* World = Widget->GetWorld();
+		if (!IsValid(World) || !World->IsGameWorld())
+		{
+			continue;
+		}
+
+		UMVVMView* FoundView = Widget->GetExtension<UMVVMView>();
+		TSharedPtr<SWidget> CachedWidget = Widget->GetCachedWidget();
+
+		if (!IsValid(FoundView) ||  !CachedWidget.IsValid())
+		{
+			continue;
+		}
+		TSharedPtr<FMVVMHierarchyNode> Node = MakeShared<FMVVMHierarchyNode>();
+		Node->Widget = CachedWidget;
+		Node->UserWidgetOwner = Widget;
+		Node->MVVMView = FoundView;
+		Node->WidgetName = Widget->GetName();
+
+		// Build Summary Text
+		TArray<FString> SourceNames;
+		for (const FMVVMView_Source& Source : FoundView->GetSources())
+		{
+			if (!MVVMInspectorPanel::ShouldReflectObject(Source.Source))
+			{
+				continue;
+			}
+			SourceNames.Add(GetNameSafe(Source.Source));
+		}
+		Node->ViewModelSummary = !SourceNames.IsEmpty() ? FString::Join(SourceNames, TEXT(", ")) : TEXT("No Sources");
+		NodeMap.Add(Widget, Node);
 	}
 
-	const TSharedPtr<SWidget> RootWidget = GEngine->GameViewport->GetGameViewportWidget();
-	if (!RootWidget.IsValid())
+	// Build the tree by walking up the Slate hierarchy
+	for (const auto& Pair : NodeMap)
 	{
-		return;
+		TSharedPtr<FMVVMHierarchyNode> Node = Pair.Value;
+		UUserWidget* ParentWidget = nullptr;
+		if (!Node->Widget.IsValid())
+		{
+			continue;
+		}
+		TSharedPtr<SWidget> CurrentSlateWidget = Node->Widget.Pin()->GetParentWidget();
+		while (CurrentSlateWidget.IsValid())
+		{
+			UWidget* OwnerWidget = InputFlowHelpers::GetOwnerUWidget(CurrentSlateWidget);
+			if (IsValid(OwnerWidget))
+			{
+				UUserWidget* FoundParentWidget = Cast<UUserWidget>(OwnerWidget);
+				if (IsValid(FoundParentWidget))
+				{
+					// If this parent is in our map, it's our direct ancestor
+					if (NodeMap.Contains(FoundParentWidget))
+					{
+						ParentWidget = FoundParentWidget;
+						break;
+					}
+				}
+			}
+			CurrentSlateWidget = CurrentSlateWidget->GetParentWidget();
+		}
+
+		// Link to parent or treat as a new root
+		if (IsValid(ParentWidget) && NodeMap.Contains(ParentWidget))
+		{
+			NodeMap[ParentWidget]->Children.Add(Node);
+		}
+		else
+		{
+			HierarchyRootNodes.Add(Node);
+		}
 	}
 
-	// Keep track of visited widgets to prevent cycles, though Slate tree usually prevents this naturally.
-	TSet<UUserWidget*> ProcessedWidgets;
+	// Apply filtering
+	if (!HierarchyFilterString.IsEmpty())
+	{
+		// Recursive filter
+		auto ApplyFilter = [&](auto& Self, TSharedPtr<FMVVMHierarchyNode> Node) -> bool
+		{
+			if (!Node.IsValid())
+			{
+				return false;
+			}
+			const bool bMatchesSelf = Node->WidgetName.Contains(HierarchyFilterString) || Node->ViewModelSummary.Contains(HierarchyFilterString);
+			bool bKeep = bMatchesSelf;
+			for (int32 i = Node->Children.Num() - 1; i >= 0; --i)
+			{
+				if (!Self(Self, Node->Children[i]))
+				{
+					Node->Children.RemoveAt(i);
+				}
+				else
+				{
+					// Keep this node if any of its children matched
+					bKeep = true;
+				}
+			}
+			return bKeep;
+		};
 
-	// Start recursion from the Viewport's Slate Widget. 
-	// Pass nullptr as parent so the first valid MVVM widget found becomes a RootNode.
-	RecursivelyBuildHierarchy(RootWidget, nullptr, ProcessedWidgets);
+		for (int32 i = HierarchyRootNodes.Num() - 1; i >= 0; --i)
+		{
+			if (!ApplyFilter(ApplyFilter, HierarchyRootNodes[i]))
+			{
+				HierarchyRootNodes.RemoveAt(i);
+			}
+		}
+	}
 
 	if (HierarchyTreeView.IsValid())
 	{
@@ -1574,7 +1676,7 @@ TSharedRef<SWidget> SMVVMInspectorPanel::CreateValueWidget(TSharedPtr<FMVVMPrope
 		{
 			// Check if it's a pure node (standard getter)
 			bool bIsGetter = Walker->Function->HasAnyFunctionFlags(FUNC_BlueprintPure);
-          
+		  
 #if WITH_METADATA
 			// If it isn't pure, explicitly check for metadata specifiers
 			if (!bIsGetter)
@@ -1583,7 +1685,7 @@ TSharedRef<SWidget> SMVVMInspectorPanel::CreateValueWidget(TSharedPtr<FMVVMPrope
 							Walker->Function->HasMetaData(TEXT("BlueprintGetter"));
 			}
 #endif
-          
+		  
 			// Lock the property if the owning function is a getter
 			if (bIsGetter)
 			{
