@@ -70,6 +70,7 @@ private:
 	TSharedRef<SWidget> MakeScaleMenu();
 	TSharedRef<SWidget> MakeNavMenu();
 	TSharedRef<SWidget> MakePanelMenu();
+	TSharedRef<SWidget> MakeExtensionsMenu();
 
 	// Generic toggles for panels
 	void OnTogglePanel(FName PanelName);
@@ -84,7 +85,7 @@ private:
 	// Nav spider
 	TSharedPtr<SInputFlowSpinBox<int32>> DepthSpinBox;
 	TSharedPtr<SInputFlowSpinBox<float>> PollSpinBox;
-
+	
 	// Overlay
 	TSharedPtr<SInputFlowSpinBox<float>> ScaleSpinBox;
 	bool bIsOverlay = false;

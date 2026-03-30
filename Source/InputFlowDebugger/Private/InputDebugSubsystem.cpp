@@ -87,7 +87,7 @@ void UInputDebugSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 	bLogHistoryWrapped = false;
 
 	InputSpy = MakeShared<FInputFlowSpy>();
-	if (ensure(FSlateApplication::IsInitialized()))
+	if (FSlateApplication::IsInitialized())
 	{
 		FSlateApplication::Get().RegisterInputPreProcessor(InputSpy, EInputPreProcessorType::Overlay);
 		InputSpy->OnFocusChanged().AddUObject(this, &UInputDebugSubsystem::OnSpyFocusChanged);
@@ -139,7 +139,11 @@ void UInputDebugSubsystem::Deinitialize()
 	}
 	OverlayHost.Reset();
 	OverlayWidget.Reset();
-	bOverlayActive = false;
+	if (bOverlayActive)
+	{
+		bOverlayActive = false;
+		OnInputCaptureChanged.Broadcast(false);
+	}
 
 	Super::Deinitialize();
 }
@@ -189,6 +193,7 @@ void UInputDebugSubsystem::HandleSettingsChanged()
 	if (bShouldBeActive != bOverlayActive)
 	{
 		bOverlayActive = bShouldBeActive;
+		OnInputCaptureChanged.Broadcast(bOverlayActive);
 
 		if (bOverlayActive)
 		{

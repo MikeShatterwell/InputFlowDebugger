@@ -14,6 +14,50 @@
 
 #include "InputDebugSubsystem.generated.h"
 
+class SWidget;
+class UInputDebugSubsystem;
+
+/**
+ * Interface for queuing labels in the physics-based label canvas
+ */
+class INPUTFLOWDEBUGGER_API FInputFlowLabelAPI
+{
+public:
+	virtual ~FInputFlowLabelAPI() = default;
+	
+	/** Queue a text label at an absolute screen position */
+	virtual void QueueLabel(const FVector2D& AbsolutePosition, const FString& Text, const FLinearColor& Color, const FVector2D& Pivot = FVector2D(0.5f, 0.5f)) = 0;
+	
+	/** Helper to automatically position a label above a specific widget */
+	virtual void QueueWidgetLabel(TSharedPtr<SWidget> Widget, const FString& Text, const FLinearColor& Color) = 0;
+};
+
+/**
+ * Interface for drawing shapes/splines directly to the HUD
+ */
+class INPUTFLOWDEBUGGER_API FInputFlowDrawAPI
+{
+public:
+	virtual ~FInputFlowDrawAPI() = default;
+	
+	/** Draw a simple line between two absolute screen positions */
+	virtual void DrawLine(const FVector2D& AbsoluteStart, const FVector2D& AbsoluteEnd, const FLinearColor& Color, float Thickness = 1.0f) = 0;
+	
+	/** Draw an empty box (outline) */
+	virtual void DrawBox(const FVector2D& AbsoluteTopLeft, const FVector2D& Size, const FLinearColor& Color, float Thickness = 1.0f) = 0;
+	
+	/** Draw a smooth bezier curve between two points */
+	virtual void DrawSpline(const FVector2D& AbsoluteStart, const FVector2D& StartTangent, const FVector2D& AbsoluteEnd, const FVector2D& EndTangent, const FLinearColor& Color, float Thickness = 2.0f) = 0;
+	
+	/** Automatically draws a highlight box around a widget's bounds */
+	virtual void DrawWidgetHighlight(TSharedPtr<SWidget> Widget, const FLinearColor& Color, float Thickness = 2.0f) = 0;
+};
+
+// Delegates for external code to bind to
+DECLARE_MULTICAST_DELEGATE_TwoParams(FOnGatherInputFlowLabels, UInputDebugSubsystem* /*Subsystem*/, FInputFlowLabelAPI& /*LabelAPI*/);
+DECLARE_MULTICAST_DELEGATE_TwoParams(FOnDrawInputFlowOverlay, UInputDebugSubsystem* /*Subsystem*/, FInputFlowDrawAPI& /*DrawAPI*/);
+DECLARE_MULTICAST_DELEGATE_OneParam(FOnInputFlowCaptureChanged, bool /*bIsCapturing*/);
+
 UENUM(BlueprintType)
 enum class ENavSimResult : uint8
 {
@@ -101,6 +145,21 @@ public:
 	// Callback for settings changes to handle side-effects (like Overlay visibility/scale/etc)
 	void HandleSettingsChanged();
 
+	/** Hook for external plugins to add custom labels to the physics solver */
+	FOnGatherInputFlowLabels& GetOnGatherLabels() { return OnGatherLabels; }
+	
+	/** Hook for external plugins to draw custom shapes, lines, and splines */
+	FOnDrawInputFlowOverlay& GetOnDrawOverlay() { return OnDrawOverlay; }
+
+	/**
+	 * Fires when the overlay starts or stops capturing input.
+	 * Game code should bind to this to suppress its own input handling while the overlay is active
+	 */
+	FOnInputFlowCaptureChanged& GetOnInputCaptureChanged() { return OnInputCaptureChanged; }
+
+	/** Polling accessor — returns true while the overlay is actively capturing input. */
+	bool IsCapturingInput() const { return bOverlayActive; }
+
 private:
 	// Internal ticker to sync data from the Spy and run Spider
 	bool TickSyncLogs(float DeltaTime);
@@ -139,6 +198,11 @@ private:
 	// Simulation Results
 	TWeakPtr<SWidget> FocusedWidget;
 	TArray<FNavigationLink> NavigationLinks; // What the UI is currently drawing
+
+	// External Hooks
+	FOnGatherInputFlowLabels OnGatherLabels;
+	FOnDrawInputFlowOverlay OnDrawOverlay;
+	FOnInputFlowCaptureChanged OnInputCaptureChanged;
 
 	// --- Time Slicing State ---
 	struct FSimQueueItem

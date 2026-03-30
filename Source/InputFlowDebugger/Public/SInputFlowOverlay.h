@@ -63,6 +63,14 @@ public:
 	/** Helper to access the subsystem */
 	UInputDebugSubsystem* GetSubsystem() const;
 
+	// --- Visual Primitives (Exposed for external Drawing API) ---
+
+	/** Draws a box around a widget with a label. */
+	void DrawWidgetHighlight(const TSharedPtr<SWidget>& Widget, const FLinearColor& Color, const FString& Label, const FGeometry& OverlayGeometry, FSlateWindowElementList& OutDrawElements, int32& LayerId, float Thickness = 2.f) const;
+	
+	/** Queues a label into the physics solver */
+	void QueueLabel(const FVector2D& Position, const FString& Text, const FLinearColor& Color, const FVector2D& Pivot = FVector2D::ZeroVector) const;
+
 private:
 	/** Renders the highlight ring/box for the currently focused widget. */
 	void PaintFocusedWidget(const FGeometry& AllottedGeometry, FSlateWindowElementList& OutDrawElements, int32& LayerId) const;
@@ -76,21 +84,15 @@ private:
 	/** Renders the hit-testable widget grid for debugging mouse clicks. */
 	void PaintHitTestGrid(const FGeometry& AllottedGeometry, FSlateWindowElementList& OutDrawElements, int32& LayerId) const;
 
-	// --- Visual Primitives ---
-
 	static void DrawCircle(const FGeometry& AllottedGeometry, const FVector2D& Center, float Radius, const FLinearColor& Color,
 							float Thickness, FSlateWindowElementList& OutDrawElements, int32 LayerId);
 
-	/** Draws a box around a widget with a label. */
-	void DrawWidgetHighlight(const TSharedPtr<SWidget>& Widget, const FLinearColor& Color, const FString& Label, const FGeometry& OverlayGeometry, FSlateWindowElementList& OutDrawElements, int32& LayerId, float Thickness = 2.f) const;
-	
 	/** Draws a smooth Bezier curve connecting two widgets. */
 	void DrawConnectionSpline(const FGeometry& AllottedGeometry, TSharedPtr<SWidget> Start, TSharedPtr<SWidget> End, const FString& Label, EUINavigation Direction, FLinearColor Color, FSlateWindowElementList& OutDrawElements, int32& LayerId) const;
 	
 	/** Draws a short directional indicator (stub) for blocked or void navigation. */
 	void DrawDirectionalIndicator(const FGeometry& AllottedGeometry, const FGeometry& StartGeo, EUINavigation Direction, const FString& Label, const FLinearColor& Color, FSlateWindowElementList& OutDrawElements, int32& LayerId) const;
 
-	void QueueLabel(const FVector2D& Position, const FString& Text, const FLinearColor& Color, const FVector2D& Pivot = FVector2D::ZeroVector) const;
 	void GatherLabelsFromSubsystem(const FGeometry& AllottedGeometry);
 	void UpdateLabelCanvas(const FGeometry& AllottedGeometry);
 

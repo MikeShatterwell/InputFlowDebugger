@@ -11,6 +11,9 @@
 #include <Widgets/Layout/SSeparator.h>
 #include <Widgets/Images/SImage.h>
 
+// Internal
+#include "InputFlowDebugger.h"
+
 void SInputFlowSettingsPanel::Construct(const FArguments& InArgs, UInputDebugSubsystem* InSubsystem)
 {
 	WeakSubsystem = InSubsystem;
@@ -146,6 +149,45 @@ void SInputFlowSettingsPanel::Construct(const FArguments& InArgs, UInputDebugSub
 				[ SNew(SImage).Image(FAppStyle::Get().GetBrush("Icons.Visible")) ]
 				+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(4, 2)
 				[ SNew(STextBlock).Text(INVTEXT("Overlay")) ]
+			]
+		];
+	}
+	
+	if (FInputFlowDebuggerModule::IsAvailable())
+	{
+		// Extensions can be registered at runtime, so we need to check visibility dynamically
+		const auto ExtensionsVisible = TAttribute<EVisibility>::CreateLambda([]()
+		{
+			return FInputFlowDebuggerModule::IsAvailable()
+				&& (FInputFlowDebuggerModule::Get().GetBuildExternalSettingsDelegate().IsBound()
+					|| !FInputFlowDebuggerModule::Get().GetExternalPanels().IsEmpty())
+				? EVisibility::Visible
+				: EVisibility::Collapsed;
+		});
+
+		Toolbar->AddSlot().AutoWidth().Padding(8, 2)
+		[
+			SNew(SSeparator)
+			.Orientation(Orient_Vertical)
+			.Visibility(ExtensionsVisible)
+		];
+
+		Toolbar->AddSlot().AutoWidth().Padding(2, 0)
+		[
+			SNew(SComboButton)
+			.ComboButtonStyle(FAppStyle::Get(), "SimpleComboButton")
+			.Visibility(ExtensionsVisible)
+			.IsEnabled(VizEnabledAttr)
+			.IsFocusable(false)
+			.OnGetMenuContent(this, &SInputFlowSettingsPanel::MakeExtensionsMenu)
+			.Cursor(EMouseCursor::Default)
+			.ButtonContent()
+			[
+				SNew(SHorizontalBox)
+				+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0, 0, 4, 0)
+				[ SNew(SImage).Image(FAppStyle::Get().GetBrush("Icons.Settings")) ]
+				+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+				[ SNew(STextBlock).Text(INVTEXT("Extensions")) ]
 			]
 		];
 	}
@@ -347,6 +389,19 @@ TSharedRef<SWidget> SInputFlowSettingsPanel::MakePanelMenu()
 #if WITH_PLUGIN_MODELVIEWVIEWMODEL
 	AddPanelEntry(INVTEXT("MVVM Inspector"), "bShowMVVMInspectorPanel");
 #endif
+
+	return MenuBuilder.MakeWidget();
+}
+
+TSharedRef<SWidget> SInputFlowSettingsPanel::MakeExtensionsMenu()
+{
+	FMenuBuilder MenuBuilder(/*bInShouldCloseWindowAfterMenuSelection*/ true,  /*InCommandList*/ nullptr);
+
+	if (FInputFlowDebuggerModule::IsAvailable())
+	{
+		// Broadcast to all bound external plugins so they can append to this MenuBuilder
+		FInputFlowDebuggerModule::Get().GetBuildExternalSettingsDelegate().Broadcast(MenuBuilder);
+	}
 
 	return MenuBuilder.MakeWidget();
 }

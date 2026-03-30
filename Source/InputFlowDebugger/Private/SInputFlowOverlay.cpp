@@ -1,6 +1,7 @@
 ﻿// Copyright Mike Desrosiers, All Rights Reserved.
 
 #include "SInputFlowOverlay.h"
+#include "InputFlowDebugger.h"
 
 // Slate
 #include <Framework/Application/SlateApplication.h>
@@ -50,6 +51,98 @@ namespace InputFlowPanelConstants
 	constexpr float SnapThreshold = 12.0f;
 	constexpr float HeaderHeight = 28.0f;
 }
+
+// External API Implementation
+class FOverlayLabelAPI : public FInputFlowLabelAPI
+{
+public:
+	FOverlayLabelAPI(const SInputFlowOverlay* InOverlay, const FGeometry& InAllottedGeometry)
+		: Overlay(InOverlay), AllottedGeometry(InAllottedGeometry) {}
+
+	virtual void QueueLabel(const FVector2D& AbsolutePosition, const FString& Text, const FLinearColor& Color, const FVector2D& Pivot) override
+	{
+		// Convert absolute screen space to local space of the overlay
+		const FVector2D LocalPos = AllottedGeometry.AbsoluteToLocal(AbsolutePosition);
+		Overlay->QueueLabel(LocalPos, Text, Color, Pivot);
+	}
+
+	virtual void QueueWidgetLabel(TSharedPtr<SWidget> Widget, const FString& Text, const FLinearColor& Color) override
+	{
+		if (Widget.IsValid())
+		{
+			const FGeometry& WidgetGeo = Widget->GetPaintSpaceGeometry();
+			if (WidgetGeo.GetAbsoluteSize().GetMin() > 0.0f)
+			{
+				const FVector2D AbsoluteTopLeft = WidgetGeo.GetAbsolutePosition();
+				QueueLabel(AbsoluteTopLeft, Text, Color, FVector2D(0.5f, 1.0f));
+			}
+		}
+	}
+private:
+	const SInputFlowOverlay* Overlay;
+	FGeometry AllottedGeometry;
+};
+
+class FOverlayDrawAPI : public FInputFlowDrawAPI
+{
+public:
+	FOverlayDrawAPI(const SInputFlowOverlay* InOverlay, const FGeometry& InAllottedGeometry, FSlateWindowElementList& InOutDrawElements, int32& InLayerId)
+		: Overlay(InOverlay), AllottedGeometry(InAllottedGeometry), OutDrawElements(InOutDrawElements), LayerId(InLayerId) {}
+
+	virtual void DrawLine(const FVector2D& AbsoluteStart, const FVector2D& AbsoluteEnd, const FLinearColor& Color, float Thickness) override
+	{
+		const TArray<FVector2D> Points = { 
+			AllottedGeometry.AbsoluteToLocal(AbsoluteStart), 
+			AllottedGeometry.AbsoluteToLocal(AbsoluteEnd) 
+		};
+		FSlateDrawElement::MakeLines(OutDrawElements, LayerId, AllottedGeometry.ToPaintGeometry(), Points, ESlateDrawEffect::None, Color, true, Thickness);
+	}
+
+	virtual void DrawBox(const FVector2D& AbsoluteTopLeft, const FVector2D& Size, const FLinearColor& Color, float Thickness) override
+	{
+		const FVector2D LocalTL = AllottedGeometry.AbsoluteToLocal(AbsoluteTopLeft);
+		const TArray<FVector2D> LinePoints = {
+			LocalTL, 
+			LocalTL + FVector2D(Size.X, 0), 
+			LocalTL + FVector2D(Size.X, Size.Y), 
+			LocalTL + FVector2D(0, Size.Y),
+			LocalTL
+		};
+		FSlateDrawElement::MakeLines(OutDrawElements, LayerId, AllottedGeometry.ToPaintGeometry(), LinePoints, ESlateDrawEffect::None, Color, true, Thickness);
+	}
+
+	virtual void DrawSpline(const FVector2D& AbsoluteStart, const FVector2D& StartTangent, const FVector2D& AbsoluteEnd, const FVector2D& EndTangent, const FLinearColor& Color, float Thickness) override
+	{
+		const FVector2D StartP = AllottedGeometry.AbsoluteToLocal(AbsoluteStart);
+		const FVector2D EndP = AllottedGeometry.AbsoluteToLocal(AbsoluteEnd);
+		const FVector2D CP1 = StartP + StartTangent;
+		const FVector2D CP2 = EndP + EndTangent;
+
+		TArray<FVector2D> Points;
+		for (int32 i = 0; i <= 24; ++i)
+		{
+			const float T = static_cast<float>(i) / 24.0f;
+			const float OneMinusT = 1.0f - T;
+			Points.Add(
+				(OneMinusT * OneMinusT * OneMinusT) * StartP +
+				(3.0f * OneMinusT * OneMinusT * T) * CP1 +
+				(3.0f * OneMinusT * T * T) * CP2 +
+				(T * T * T) * EndP);
+		}
+		FSlateDrawElement::MakeLines(OutDrawElements, LayerId, AllottedGeometry.ToPaintGeometry(), Points, ESlateDrawEffect::None, Color, true, Thickness);
+	}
+
+	virtual void DrawWidgetHighlight(TSharedPtr<SWidget> Widget, const FLinearColor& Color, const float Thickness) override
+	{
+		Overlay->DrawWidgetHighlight(Widget, Color, FString(), AllottedGeometry, OutDrawElements, LayerId, Thickness);
+	}
+
+private:
+	const SInputFlowOverlay* Overlay;
+	FGeometry AllottedGeometry;
+	FSlateWindowElementList& OutDrawElements;
+	int32& LayerId;
+};
 
 // --------------------------------------------------------------------
 // DRAGGABLE PANEL WITH SNAPPING, ANCHORING & MINIMIZE
@@ -842,6 +935,37 @@ void SInputFlowOverlay::Construct(const FArguments& InArgs)
 		]
 	);
 #endif
+
+	// Add custom external panels
+	if (FInputFlowDebuggerModule::IsAvailable())
+	{
+		const TArray<FInputFlowExternalPanelDef>& CustomPanels = FInputFlowDebuggerModule::Get().GetExternalPanels();
+		
+		for (const FInputFlowExternalPanelDef& PanelDef : CustomPanels)
+		{
+			if (PanelDef.CreatePanelDelegate.IsBound())
+			{
+				AddPanel(
+					SNew(SInputFlowDraggablePanel)
+					.Title(PanelDef.Title)
+					.InitialPosition(PanelDef.InitialPosition)
+					.InitialSize(PanelDef.InitialSize)
+					.CanClose(PanelDef.bCanClose)
+					.CanMinimize(PanelDef.bCanMinimize)
+					.OnGetSnapTargets_Lambda(GetSnapTargets)
+					.OnClose_Lambda([CloseDel = PanelDef.OnCloseDelegate]()
+					{
+						(void)CloseDel.ExecuteIfBound();
+					})
+					.Visibility(PanelDef.VisibilityAttribute)
+					[
+						// Execute the external delegate to build the slate content, passing our Subsystem along
+						PanelDef.CreatePanelDelegate.Execute(Sub)
+					]
+				);
+			}
+		}
+	}
 }
 
 void SInputFlowOverlay::Tick(const FGeometry& AllottedGeometry, const double InCurrentTime, const float InDeltaTime)
@@ -858,6 +982,13 @@ void SInputFlowOverlay::Tick(const FGeometry& AllottedGeometry, const double InC
 	// Gather new labels
 	QueuedLabels.Reset();
 	GatherLabelsFromSubsystem(AllottedGeometry); // Populates QueuedLabels
+
+	// Trigger External Label Hooks
+	if (UInputDebugSubsystem* Sub = GetSubsystem(); IsValid(Sub))
+	{
+		FOverlayLabelAPI LabelAPI(this, AllottedGeometry);
+		Sub->GetOnGatherLabels().Broadcast(Sub, LabelAPI);
+	}
 
 	// Update Canvas
 	UpdateLabelCanvas(AllottedGeometry);
@@ -888,6 +1019,13 @@ int32 SInputFlowOverlay::OnPaint(const FPaintArgs& Args, const FGeometry& Allott
 	PaintNavigationSimulation(AllottedGeometry, OutDrawElements, LayerId);
 	PaintFocusHistory(AllottedGeometry, OutDrawElements, LayerId);
 	PaintHitTestGrid(AllottedGeometry, OutDrawElements, LayerId);
+
+	// Trigger External Draw Hooks
+	if (UInputDebugSubsystem* Sub = GetSubsystem(); IsValid(Sub))
+	{
+		FOverlayDrawAPI DrawAPI(this, AllottedGeometry, OutDrawElements, LayerId);
+		Sub->GetOnDrawOverlay().Broadcast(Sub, DrawAPI);
+	}
 
 	const int32 PanelLayerId = LayerId + 100;
 	return SCompoundWidget::OnPaint(Args, AllottedGeometry, MyCullingRect, OutDrawElements, PanelLayerId, InWidgetStyle,
