@@ -123,6 +123,10 @@ class INPUTFLOWDEBUGGER_API UInputDebugSubsystem : public UGameInstanceSubsystem
 	GENERATED_BODY()
 
 public:
+	// Special user index reserved for simulated navigation events
+	// Widdgets can check for this in their OnNavigation override to avoid side effects during simulation
+	constexpr static uint32 SimulatedNavigationUserIndex = 999;
+
 	// Begin USubsystem overrides
 	virtual void Initialize(FSubsystemCollectionBase& Collection) override;
 	virtual void Deinitialize() override;

@@ -701,7 +701,7 @@ FSimNavStepResult UInputDebugSubsystem::SimulateNavigation(
 		return {nullptr, ENavSimResult::Normal};
 	}
 
-	const FNavigationEvent VirtualNavEvent(FModifierKeysState(), 999, Direction, ENavigationGenesis::Controller);
+	const FNavigationEvent VirtualNavEvent(FModifierKeysState(), SimulatedNavigationUserIndex, Direction, ENavigationGenesis::Controller);
 
 	TSharedRef<SWindow> Window = SourcePath.GetDeepestWindow();
 
