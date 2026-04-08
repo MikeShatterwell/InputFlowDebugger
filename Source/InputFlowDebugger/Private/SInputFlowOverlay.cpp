@@ -56,37 +56,44 @@ namespace InputFlowPanelConstants
 class FOverlayLabelAPI : public FInputFlowLabelAPI
 {
 public:
-	FOverlayLabelAPI(const SInputFlowOverlay* InOverlay, const FGeometry& InAllottedGeometry)
+	FOverlayLabelAPI(const TWeakPtr<SInputFlowOverlay> InOverlay, const FGeometry& InAllottedGeometry)
 		: Overlay(InOverlay), AllottedGeometry(InAllottedGeometry) {}
 
 	virtual void QueueLabel(const FVector2D& AbsolutePosition, const FString& Text, const FLinearColor& Color, const FVector2D& Pivot) override
 	{
+		if (!Overlay.IsValid())
+		{
+			return;
+		}
 		// Convert absolute screen space to local space of the overlay
 		const FVector2D LocalPos = AllottedGeometry.AbsoluteToLocal(AbsolutePosition);
-		Overlay->QueueLabel(LocalPos, Text, Color, Pivot);
+		Overlay.Pin()->QueueLabel(LocalPos, Text, Color, Pivot);
 	}
 
 	virtual void QueueWidgetLabel(TSharedPtr<SWidget> Widget, const FString& Text, const FLinearColor& Color) override
 	{
-		if (Widget.IsValid())
+		if (!Overlay.IsValid() || !Widget.IsValid())
 		{
-			const FGeometry& WidgetGeo = Widget->GetPaintSpaceGeometry();
-			if (WidgetGeo.GetAbsoluteSize().GetMin() > 0.0f)
-			{
-				const FVector2D AbsoluteTopLeft = WidgetGeo.GetAbsolutePosition();
-				QueueLabel(AbsoluteTopLeft, Text, Color, FVector2D(0.5f, 1.0f));
-			}
+			return;
 		}
+
+		const FGeometry& WidgetGeo = Widget->GetPaintSpaceGeometry();
+		if (WidgetGeo.GetAbsoluteSize().GetMin() > 0.0f)
+		{
+			const FVector2D AbsoluteTopLeft = WidgetGeo.GetAbsolutePosition();
+			QueueLabel(AbsoluteTopLeft, Text, Color, FVector2D(0.5f, 1.0f));
+		}
+		
 	}
 private:
-	const SInputFlowOverlay* Overlay;
+	const TWeakPtr<SInputFlowOverlay> Overlay = nullptr;
 	FGeometry AllottedGeometry;
 };
 
 class FOverlayDrawAPI : public FInputFlowDrawAPI
 {
 public:
-	FOverlayDrawAPI(const SInputFlowOverlay* InOverlay, const FGeometry& InAllottedGeometry, FSlateWindowElementList& InOutDrawElements, int32& InLayerId)
+	FOverlayDrawAPI(const TWeakPtr<const SInputFlowOverlay> InOverlay, const FGeometry& InAllottedGeometry, FSlateWindowElementList& InOutDrawElements, int32& InLayerId)
 		: Overlay(InOverlay), AllottedGeometry(InAllottedGeometry), OutDrawElements(InOutDrawElements), LayerId(InLayerId) {}
 
 	virtual void DrawLine(const FVector2D& AbsoluteStart, const FVector2D& AbsoluteEnd, const FLinearColor& Color, float Thickness) override
@@ -134,11 +141,15 @@ public:
 
 	virtual void DrawWidgetHighlight(TSharedPtr<SWidget> Widget, const FLinearColor& Color, const float Thickness) override
 	{
-		Overlay->DrawWidgetHighlight(Widget, Color, FString(), AllottedGeometry, OutDrawElements, LayerId, Thickness);
+		if (!Overlay.IsValid())
+		{
+			return;
+		}
+		Overlay.Pin()->DrawWidgetHighlight(Widget, Color, FString(), AllottedGeometry, OutDrawElements, LayerId, Thickness);
 	}
 
 private:
-	const SInputFlowOverlay* Overlay;
+	const TWeakPtr<const SInputFlowOverlay> Overlay = nullptr;
 	FGeometry AllottedGeometry;
 	FSlateWindowElementList& OutDrawElements;
 	int32& LayerId;
@@ -986,7 +997,8 @@ void SInputFlowOverlay::Tick(const FGeometry& AllottedGeometry, const double InC
 	// Trigger External Label Hooks
 	if (UInputDebugSubsystem* Sub = GetSubsystem(); IsValid(Sub))
 	{
-		FOverlayLabelAPI LabelAPI(this, AllottedGeometry);
+		const TWeakPtr<SInputFlowOverlay> WeakThis = StaticCastSharedRef<SInputFlowOverlay>(AsShared());
+		FOverlayLabelAPI LabelAPI(WeakThis, AllottedGeometry);
 		Sub->GetOnGatherLabels().Broadcast(Sub, LabelAPI);
 	}
 
@@ -1023,7 +1035,8 @@ int32 SInputFlowOverlay::OnPaint(const FPaintArgs& Args, const FGeometry& Allott
 	// Trigger External Draw Hooks
 	if (UInputDebugSubsystem* Sub = GetSubsystem(); IsValid(Sub))
 	{
-		FOverlayDrawAPI DrawAPI(this, AllottedGeometry, OutDrawElements, LayerId);
+		TWeakPtr<const SInputFlowOverlay> WeakThis = StaticCastSharedRef<const SInputFlowOverlay>(AsShared());
+		FOverlayDrawAPI DrawAPI(WeakThis, AllottedGeometry, OutDrawElements, LayerId);
 		Sub->GetOnDrawOverlay().Broadcast(Sub, DrawAPI);
 	}
 
