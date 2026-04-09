@@ -997,8 +997,8 @@ void SInputFlowOverlay::Tick(const FGeometry& AllottedGeometry, const double InC
 	// Trigger External Label Hooks
 	if (UInputDebugSubsystem* Sub = GetSubsystem(); IsValid(Sub))
 	{
-		const TWeakPtr<SInputFlowOverlay> WeakThis = StaticCastSharedRef<SInputFlowOverlay>(AsShared());
-		FOverlayLabelAPI LabelAPI(WeakThis, AllottedGeometry);
+		const TWeakPtr<SInputFlowOverlay> WeakOverlay = StaticCastSharedRef<SInputFlowOverlay>(AsShared());
+		FOverlayLabelAPI LabelAPI(WeakOverlay, AllottedGeometry);
 		Sub->GetOnGatherLabels().Broadcast(Sub, LabelAPI);
 	}
 
@@ -1035,8 +1035,8 @@ int32 SInputFlowOverlay::OnPaint(const FPaintArgs& Args, const FGeometry& Allott
 	// Trigger External Draw Hooks
 	if (UInputDebugSubsystem* Sub = GetSubsystem(); IsValid(Sub))
 	{
-		TWeakPtr<const SInputFlowOverlay> WeakThis = StaticCastSharedRef<const SInputFlowOverlay>(AsShared());
-		FOverlayDrawAPI DrawAPI(WeakThis, AllottedGeometry, OutDrawElements, LayerId);
+		TWeakPtr<const SInputFlowOverlay> WeakOverlay = StaticCastSharedRef<const SInputFlowOverlay>(AsShared());
+		FOverlayDrawAPI DrawAPI(WeakOverlay, AllottedGeometry, OutDrawElements, LayerId);
 		Sub->GetOnDrawOverlay().Broadcast(Sub, DrawAPI);
 	}
 
