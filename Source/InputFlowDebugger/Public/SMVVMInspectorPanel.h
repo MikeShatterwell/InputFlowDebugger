@@ -25,6 +25,11 @@ class UMVVMView;
 class UUserWidget;
 class SSearchBox;
 
+#if WITH_EDITOR
+namespace UE::UMGWidgetPreview { class IWidgetPreviewToolkit; }
+enum class EWidgetPreviewWidgetChangeType : uint8;
+#endif
+
 /** 
 * Hierarchy node for the left-hand widget tree. 
 * We only materialize nodes for widgets that have an MVVMView extension. 
@@ -160,6 +165,9 @@ public:
 		{
 		}
 
+#if WITH_EDITOR
+		SLATE_ARGUMENT(TWeakPtr<UE::UMGWidgetPreview::IWidgetPreviewToolkit>, PreviewToolkit)
+#endif
 	SLATE_END_ARGS()
 
 	void Construct(const FArguments& InArgs);
@@ -169,7 +177,7 @@ public:
 	void RefreshHierarchy();
 
 	/** Factory for property value widgets (right-hand column). */
-	static void NotifyPropertyValueChanged(TSharedPtr<FMVVMPropertyNode> Node);
+	void NotifyPropertyValueChanged(TSharedPtr<FMVVMPropertyNode> Node);
 	TSharedRef<SWidget> CreateValueWidget(TSharedPtr<FMVVMPropertyNode> Node);
 	TSharedRef<SWidget> CreateBoolWidget(TSharedPtr<FMVVMPropertyNode> Node, const FBoolProperty* BoolProp, bool bCanEdit);
 	TSharedRef<SWidget> CreateEnumWidget(TSharedPtr<FMVVMPropertyNode> Node, const FProperty* Prop, bool bCanEdit);
@@ -237,6 +245,15 @@ private:
 
 	// Current hierarchy selection. 
 	TWeakPtr<FMVVMHierarchyNode> CurrentSelection;
+
+#if WITH_EDITOR
+	void OnPreviewWidgetChanged(EWidgetPreviewWidgetChangeType ChangeType);
+	TWeakPtr<UE::UMGWidgetPreview::IWidgetPreviewToolkit> WeakPreviewToolkit;
+	FDelegateHandle PreviewWidgetChangedHandle;
+
+	/** Views where we've already injected preview mocks. Prevents redundant uninit/reinit cycles on refresh. */
+	TSet<TWeakObjectPtr<UMVVMView>> MockedViews;
+#endif
 };
 
 #endif // WITH_PLUGIN_MODELVIEWVIEWMODEL

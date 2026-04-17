@@ -20,6 +20,15 @@
 #include <MVVMViewModelBase.h>
 #include <View/MVVMView.h>
 
+#if WITH_EDITOR
+// UMGWidgetPreview
+#include <IWidgetPreviewToolkit.h>
+#include <WidgetPreview.h>
+
+// ModelViewViewModel
+#include <View/MVVMViewClass.h>
+#endif
+
 // CoreUObject 
 #include <UObject/Class.h>
 #include <UObject/EnumProperty.h>
@@ -64,7 +73,9 @@ namespace MVVMInspectorPanel
 	// Small helper to identify UWidget objects to ignore them in the property list 
 	static bool IsWidgetObject(const UObject* Obj)
 	{
-		return Obj && Obj->IsA(UWidget::StaticClass());
+		if (!IsValid(Obj)) return false;
+
+		return Obj->IsA(UWidget::StaticClass());
 	}
 
 	// Helper to determine if we should inspect an object's internal properties
@@ -259,6 +270,18 @@ void SMVVMPropertyRow::Construct(
 void SMVVMInspectorPanel::Construct(const FArguments& InArgs)
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE_STR(__FUNCTION__)
+
+#if WITH_EDITOR
+	WeakPreviewToolkit = InArgs._PreviewToolkit;
+	if (WeakPreviewToolkit.IsValid())
+	{
+		if (UWidgetPreview* Preview = WeakPreviewToolkit.Pin()->GetPreview())
+		{
+			PreviewWidgetChangedHandle = Preview->OnWidgetChanged().AddSP(this, &SMVVMInspectorPanel::OnPreviewWidgetChanged);
+		}
+	}
+#endif
+
 	ChildSlot
 	[
 		SNew(SBorder)
@@ -374,12 +397,31 @@ void SMVVMInspectorPanel::ResetListenedObjects()
 SMVVMInspectorPanel::~SMVVMInspectorPanel()
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE_STR(__FUNCTION__)
+
+#if WITH_EDITOR
+	if (WeakPreviewToolkit.IsValid())
+	{
+		if (UWidgetPreview* Preview = WeakPreviewToolkit.Pin()->GetPreview())
+		{
+			Preview->OnWidgetChanged().Remove(PreviewWidgetChangedHandle);
+		}
+	}
+#endif
+
 	// Ensure we unregister all field-notify delegates we added. 
 	ResetListenedObjects();
 	
 	PropertyRootNodes.Reset();
 	HierarchyRootNodes.Reset();
 }
+
+#if WITH_EDITOR
+void SMVVMInspectorPanel::OnPreviewWidgetChanged(EWidgetPreviewWidgetChangeType ChangeType)
+{
+	MockedViews.Empty();
+	RefreshHierarchy();
+}
+#endif
 
 // ---------------------------------------------------------------------------------- 
 // Hierarchy (Left) 
@@ -395,6 +437,14 @@ void SMVVMInspectorPanel::RefreshHierarchy()
 		return;
 	}
 
+	UWorld* TargetWorld = nullptr;
+#if WITH_EDITOR
+	if (WeakPreviewToolkit.IsValid())
+	{
+		TargetWorld = WeakPreviewToolkit.Pin()->GetPreviewWorld();
+	}
+#endif
+
 	// Collect all valid UserWidgets with MVVM views
 	TMap<UUserWidget*, TSharedPtr<FMVVMHierarchyNode>> NodeMap;
 
@@ -407,23 +457,134 @@ void SMVVMInspectorPanel::RefreshHierarchy()
 		}
 
 		const UWorld* World = Widget->GetWorld();
-		if (!IsValid(World) || !World->IsGameWorld())
+		if (!IsValid(World))
 		{
 			continue;
+		}
+
+		// Route based on whether we're in the Editor preview or normal Game world
+		if (IsValid(TargetWorld))
+		{
+			if (World != TargetWorld) continue;
+		}
+		else
+		{
+			if (!World->IsGameWorld()) continue;
 		}
 
 		UMVVMView* FoundView = Widget->GetExtension<UMVVMView>();
 		TSharedPtr<SWidget> CachedWidget = Widget->GetCachedWidget();
 
-		if (!IsValid(FoundView) ||  !CachedWidget.IsValid())
+		if (!IsValid(FoundView) || !CachedWidget.IsValid())
 		{
 			continue;
 		}
+
 		TSharedPtr<FMVVMHierarchyNode> Node = MakeShared<FMVVMHierarchyNode>();
 		Node->Widget = CachedWidget;
 		Node->UserWidgetOwner = Widget;
 		Node->MVVMView = FoundView;
 		Node->WidgetName = Widget->GetName();
+
+#if WITH_EDITOR
+		// In the designer preview, inject mock ViewModels into any source slots that failed to populate
+		if (IsValid(TargetWorld) && !MockedViews.Contains(FoundView))
+		{
+			bool bInjectedAny = false;
+			const TArrayView<const FMVVMView_Source> ConstSources = FoundView->GetSources();
+			FMVVMView_Source* MutableSources = const_cast<FMVVMView_Source*>(ConstSources.GetData());
+
+			if (const UMVVMViewClass* ViewClass = FoundView->GetViewClass())
+			{
+				// First pass: check if any source slots need mocking
+				for (int32 i = 0; i < ConstSources.Num(); ++i)
+				{
+					if (IsValid(MutableSources[i].Source)) continue;
+
+					const FMVVMViewClass_Source& ClassSource = ViewClass->GetSource(MutableSources[i].ClassKey);
+					const UClass* VMClass = ClassSource.GetSourceClass();
+					if (!IsValid(VMClass) || !VMClass->IsChildOf<UMVVMViewModelBase>()) continue;
+
+					bInjectedAny = true;
+					break;
+				}
+
+				if (bInjectedAny)
+				{
+					// Tear down current state so we can cleanly reinitialize
+					FoundView->UninitializeSources();
+
+					// Access the private ValidSources bitfield via reflection.
+					// InitializeSource skips InitializeSourceInternal when bSetManually is true,
+					// so the bitfield never learns about our injected source pointers.
+					static FProperty* ValidSourcesProp = FindFProperty<FProperty>(UMVVMView::StaticClass(), TEXT("ValidSources"));
+					uint64* ValidSourcesPtr = (ValidSourcesProp != nullptr) ? ValidSourcesProp->ContainerPtrToValuePtr<uint64>(FoundView) : nullptr;
+
+					// Inject mocks into the now-empty resolver source slots
+					for (int32 i = 0; i < ConstSources.Num(); ++i)
+					{
+						if (MutableSources[i].Source != nullptr) continue;
+
+						const FMVVMViewClass_Source& ClassSource = ViewClass->GetSource(MutableSources[i].ClassKey);
+						UClass* VMClass = ClassSource.GetSourceClass();
+						if (!IsValid(VMClass) || !VMClass->IsChildOf<UMVVMViewModelBase>()) continue;
+
+						UMVVMViewModelBase* MockVM = NewObject<UMVVMViewModelBase>(Widget, VMClass);
+						MutableSources[i].Source = MockVM;
+						MutableSources[i].bSetManually = true;
+
+						if (ValidSourcesPtr != nullptr)
+						{
+							*ValidSourcesPtr |= MutableSources[i].ClassKey.GetBit();
+						}
+
+						// Bindings often resolve source objects through a property on the UserWidget
+						// itself (not through the MVVMView's Sources array). Replicate what
+						// InitializeSourceInternal would have done: copy the VM pointer into that
+						// property so field paths like "MyViewModel.Name" resolve correctly.
+						if (ClassSource.RequireSettingUserWidgetProperty())
+						{
+							if (FObjectPropertyBase* WidgetProp = FindFProperty<FObjectPropertyBase>(Widget->GetClass(), ClassSource.GetUserWidgetPropertyName()))
+							{
+								if (MockVM->GetClass()->IsChildOf(WidgetProp->PropertyClass))
+								{
+									WidgetProp->SetObjectPropertyValue_InContainer(Widget, MockVM);
+									MutableSources[i].bAssignedToUserWidgetProperty = true;
+								}
+							}
+						}
+					}
+
+					// Reinitialize sources, bindings, and events through the public API.
+					// InitializeSources may or may not set up bindings depending on
+					// DoesInitializeBindingsOnConstruct(), so we call both explicitly.
+					FoundView->InitializeSources();
+					if (!FoundView->AreBindingsInitialized())
+					{
+						FoundView->InitializeBindings();
+					}
+					if (!FoundView->AreEventsInitialized())
+					{
+						FoundView->InitializeEvents();
+					}
+
+					// Force-execute all bindings to push mock VM default values to the widget.
+					// InitializeSourceBindings uses bRunAllBindings=false, so only bindings
+					// with ExecuteAtInitialization run. We need ALL bindings to execute.
+					for (const FMVVMView_Source& VS : FoundView->GetSources())
+					{
+						if (VS.Source != nullptr)
+						{
+							const FMVVMViewClass_Source& CS = ViewClass->GetSource(VS.ClassKey);
+							FoundView->ExecuteViewModelBindings(CS.GetName());
+						}
+					}
+				}
+			}
+
+			MockedViews.Add(FoundView);
+		}
+#endif
 
 		// Build Summary Text
 		TArray<FString> SourceNames;
@@ -727,6 +888,7 @@ FReply SMVVMInspectorPanel::OnInvokeClicked(TSharedPtr<FMVVMPropertyNode> Node)
 		// Fire UFunction
 		uint8* ParamsMemory = Node->FunctionParams.IsValid() ? Node->FunctionParams->GetStructMemory() : nullptr;
 		Node->EffectiveOwner->ProcessEvent(Node->Function.Get(), ParamsMemory);
+		NotifyPropertyValueChanged(Node);
 	}
 	else if (Node->bIsDelegate && Node->Property.Get() && Node->Function.IsValid())
 	{
@@ -754,6 +916,7 @@ FReply SMVVMInspectorPanel::OnInvokeClicked(TSharedPtr<FMVVMPropertyNode> Node)
 				}
 			}
 		}
+		NotifyPropertyValueChanged(Node);
 	}
 
 	return FReply::Handled();
@@ -1602,8 +1765,9 @@ void SMVVMInspectorPanel::NotifyPropertyValueChanged(TSharedPtr<FMVVMPropertyNod
 		return;
 	}
 
-	// Skip firing field notifies for UI edits made strictly inside temporary function parameters
-	for (TSharedPtr<FMVVMPropertyNode> Walker = Node; Walker.IsValid(); Walker = Walker->ParentNode.Pin())
+	// Skip firing field notifies for UI edits made strictly inside temporary function parameters.
+	// We start from ParentNode because if the Node itself IS the function being invoked, we DO want to fire the notify.
+	for (TSharedPtr<FMVVMPropertyNode> Walker = Node->ParentNode.Pin(); Walker.IsValid(); Walker = Walker->ParentNode.Pin())
 	{
 		if (Walker->bIsFunction || Walker->bIsDelegate) return;
 	}
@@ -1614,54 +1778,165 @@ void SMVVMInspectorPanel::NotifyPropertyValueChanged(TSharedPtr<FMVVMPropertyNod
 		return;
 	}
 
-	const UClass* OwnerClass = Node->EffectiveOwner->GetClass();
-	const FProperty* NotifyProp = Node->Property.Get();
+	FName FieldName = NAME_None;
+	const UClass* DefinitionClass = nullptr;
 
-	if (!NotifyProp)
+	if (Node->bIsFunction && Node->Function.IsValid())
 	{
-		return;
+		DefinitionClass = Node->Function->GetOwnerClass();
+		FieldName = Node->Function->GetFName();
 	}
-
-	// If we're editing a nested struct member (e.g. Vector.X), we need to find the 
-	// top-level UObject property (e.g. the Vector itself) to broadcast the change.
-	// We walk up the tree until we find a property owned by a UClass (not a UStruct).
-	for (TSharedPtr<FMVVMPropertyNode> Walker = Node; Walker.IsValid() && Walker->Property.Get(); Walker = Walker->
-		 ParentNode.Pin())
+	else if (Node->Property != nullptr)
 	{
-		// FProperty::GetOwnerClass() returns the UClass owner, or nullptr if owned by a UStruct.
-		if (const UClass* PropOwner = Walker->Property->GetOwnerClass())
+		const FProperty* NotifyProp = Node->Property.Get();
+
+		// If we're editing a nested struct member (e.g. Vector.X), we need to find the 
+		// top-level UObject property (e.g. the Vector itself) to broadcast the change.
+		// We walk up the tree until we find a property owned by a UClass (not a UStruct).
+		for (TSharedPtr<FMVVMPropertyNode> Walker = Node; Walker.IsValid() && Walker->Property.Get(); Walker = Walker->ParentNode.Pin())
 		{
-			// We found the top-level property on the object.
-			NotifyProp = Walker->Property.Get();
-			break;
+			// FProperty::GetOwnerClass() returns the UClass owner, or nullptr if owned by a UStruct.
+			if (const UClass* PropOwner = Walker->Property->GetOwnerClass())
+			{
+				// We found the top-level property on the object.
+				NotifyProp = Walker->Property.Get();
+				break;
+			}
+		}
+		
+		if (NotifyProp)
+		{
+			DefinitionClass = NotifyProp->GetOwnerClass();
+			FieldName = NotifyProp->GetFName();
 		}
 	}
-	const UClass* DefinitionClass = NotifyProp->GetOwnerClass();
 
-	if (DefinitionClass)
+	if (DefinitionClass && !FieldName.IsNone())
 	{
 		const UE::FieldNotification::FFieldId FieldId =
-			Notify->GetFieldNotificationDescriptor().GetField(DefinitionClass, NotifyProp->GetFName());
+			Notify->GetFieldNotificationDescriptor().GetField(DefinitionClass, FieldName);
 
 		if (FieldId.IsValid())
 		{
 			Notify->BroadcastFieldValueChanged(FieldId);
 		}
 	}
+
+#if WITH_EDITOR
+	// In preview mode, directly execute the ViewModel's bindings as a reliable
+	// fallback. The FieldNotify broadcast only triggers bindings whose registered
+	// FieldId name exactly matches the edited property name. Mismatches are common
+	// with getter-based fields, conversion functions, and nested property paths.
+	if (WeakPreviewToolkit.IsValid())
+	{
+		TSharedPtr<FMVVMHierarchyNode> Selection = CurrentSelection.Pin();
+		if (Selection.IsValid() && Selection->MVVMView.IsValid())
+		{
+			UMVVMView* View = Selection->MVVMView.Get();
+			if (const UMVVMViewClass* ViewClass = View->GetViewClass(); IsValid(ViewClass))
+			{
+				for (const FMVVMView_Source& VS : View->GetSources())
+				{
+					if (VS.Source == Node->EffectiveOwner.Get())
+					{
+						const FMVVMViewClass_Source& Source = ViewClass->GetSource(VS.ClassKey);
+						View->ExecuteViewModelBindings(Source.GetName());
+						break;
+					}
+				}
+			}
+		}
+	}
+#endif
 }
 
 TSharedRef<SWidget> SMVVMInspectorPanel::CreateValueWidget(TSharedPtr<FMVVMPropertyNode> Node)
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE_STR(__FUNCTION__)
 
-	// Create Invocation buttons for Functions / Delegates
-	if (Node->bIsFunction || Node->bIsDelegate)
+	if (!Node.IsValid())
+	{
+		return SNullWidget::NullWidget;
+	}
+
+	// Create Invocation buttons for Delegates
+	if (Node->bIsDelegate)
 	{
 		return SNew(SButton)
 			.Text(INVTEXT("Invoke"))
 			.VAlign(VAlign_Center)
 			.ToolTipText(FText::FromString(Node->TooltipText))
 			.OnClicked(this, &SMVVMInspectorPanel::OnInvokeClicked, Node);
+	}
+
+	// Handle Functions
+	if (Node->bIsFunction && Node->Function.IsValid())
+	{
+		bool bIsGetter = Node->Function->HasAnyFunctionFlags(FUNC_BlueprintPure);
+#if WITH_METADATA
+		if (!bIsGetter)
+		{
+			bIsGetter = Node->Function->HasMetaData(TEXT("FieldNotify"));
+		}
+#endif
+		FProperty* ReturnProp = Node->Function->GetReturnProperty();
+
+		// Check if it's a getter with NO input parameters (only the return param)
+		bool bHasNoInputs = true;
+		for (TFieldIterator<FProperty> It(Node->Function.Get()); It; ++It)
+		{
+			if (!It->HasAnyPropertyFlags(CPF_ReturnParm))
+			{
+				bHasNoInputs = false;
+				break;
+			}
+		}
+
+		if (bIsGetter && ReturnProp && bHasNoInputs && Node->EffectiveOwner.IsValid())
+		{
+			// Render pure functions/FieldNotifies as dynamically evaluating read-only values
+			return SNew(STextBlock)
+				.AutoWrapText(true)
+				.ColorAndOpacity(FLinearColor(0.4f, 0.8f, 1.0f))
+				.Text_Lambda([Node, ReturnProp]() -> FText
+				{
+					if (!Node.IsValid() || !Node->EffectiveOwner.IsValid() || !Node->Function.IsValid()) return FText::GetEmpty();
+					
+					UObject* Owner = Node->EffectiveOwner.Get();
+					UFunction* Func = Node->Function.Get();
+
+					TArray<uint8> Buffer;
+					Buffer.SetNumZeroed(Func->GetStructureSize());
+					
+					// Initialize properties in the buffer to be safe
+					for (TFieldIterator<FProperty> It(Func); It; ++It)
+					{
+						It->InitializeValue_InContainer(Buffer.GetData());
+					}
+
+					Owner->ProcessEvent(Func, Buffer.GetData());
+					
+					FString ValStr;
+					ReturnProp->ExportText_Direct(ValStr, ReturnProp->ContainerPtrToValuePtr<uint8>(Buffer.GetData()), nullptr, nullptr, PPF_None);
+					
+					// Destroy properties
+					for (TFieldIterator<FProperty> It(Func); It; ++It)
+					{
+						It->DestroyValue_InContainer(Buffer.GetData());
+					}
+					
+					return FText::FromString(ValStr);
+				});
+		}
+		else
+		{
+			// Standard Invoke Button for state-mutating methods or methods with inputs
+			return SNew(SButton)
+				.Text(INVTEXT("Invoke"))
+				.VAlign(VAlign_Center)
+				.ToolTipText(FText::FromString(Node->TooltipText))
+				.OnClicked(this, &SMVVMInspectorPanel::OnInvokeClicked, Node);
+		}
 	}
 
 	FProperty* Prop = Node ? Node->Property.Get() : nullptr;
@@ -1779,13 +2054,13 @@ TSharedRef<SWidget> SMVVMInspectorPanel::CreateBoolWidget(TSharedPtr<FMVVMProper
 
 			return Prop->GetPropertyValue(Ptr) ? ECheckBoxState::Checked : ECheckBoxState::Unchecked;
 		})
-		.OnCheckStateChanged_Lambda([this, Node](ECheckBoxState NewState)
+		.OnCheckStateChanged_Lambda([this, Node](const ECheckBoxState NewState)
 		{
 			if (!Node.IsValid()) return;
 
 			if (const FBoolProperty* Prop = CastField<FBoolProperty>(Node->Property.Get()))
 			{
-				bool bNewValue = (NewState == ECheckBoxState::Checked);
+				const bool bNewValue = (NewState == ECheckBoxState::Checked);
 				
 				TArray<uint8> Buffer;
 				Buffer.SetNumZeroed(Prop->GetSize());
@@ -1803,10 +2078,13 @@ TSharedRef<SWidget> SMVVMInspectorPanel::CreateBoolWidget(TSharedPtr<FMVVMProper
 		});
 }
 
-TSharedRef<SWidget> SMVVMInspectorPanel::CreateEnumWidget(TSharedPtr<FMVVMPropertyNode> Node, const FProperty* Prop,
-														  bool bCanEdit)
+TSharedRef<SWidget> SMVVMInspectorPanel::CreateEnumWidget(TSharedPtr<FMVVMPropertyNode> Node, const FProperty* Prop, const bool bCanEdit)
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE_STR(__FUNCTION__)
+	if (!Node.IsValid())
+	{
+		return SNullWidget::NullWidget;
+	}
 	UEnum* EnumDef = nullptr;
 	if (const FEnumProperty* EnumProp = CastField<FEnumProperty>(Prop))
 	{
@@ -1839,7 +2117,7 @@ TSharedRef<SWidget> SMVVMInspectorPanel::CreateEnumWidget(TSharedPtr<FMVVMProper
 	}
 
 	// Determine current selection
-	TSharedPtr<int64> CurrentItem;
+	TSharedPtr<int64> CurrentItem = nullptr;
 	TArray<uint8> Buffer;
 	Buffer.SetNumZeroed(Prop->GetSize());
 	if (const uint8* Ptr = TryCallGetterSafe(Node, Buffer.GetData()) ? Buffer.GetData() : Node->GetRawValuePtr())
@@ -1884,7 +2162,7 @@ TSharedRef<SWidget> SMVVMInspectorPanel::CreateEnumWidget(TSharedPtr<FMVVMProper
 			TArray<uint8> LocalBuffer;
 			LocalBuffer.SetNumZeroed(CurrentProp->GetSize());
 
-			if (FEnumProperty* EP = CastField<FEnumProperty>(CurrentProp))
+			if (const FEnumProperty* EP = CastField<FEnumProperty>(CurrentProp))
 			{
 				EP->GetUnderlyingProperty()->SetIntPropertyValue(LocalBuffer.GetData(), Val);
 			}
@@ -1897,7 +2175,7 @@ TSharedRef<SWidget> SMVVMInspectorPanel::CreateEnumWidget(TSharedPtr<FMVVMProper
 			{
 				if (uint8* Ptr = Node->GetRawValuePtr())
 				{
-					if (FEnumProperty* EP = CastField<FEnumProperty>(CurrentProp))
+					if (const FEnumProperty* EP = CastField<FEnumProperty>(CurrentProp))
 					{
 						EP->GetUnderlyingProperty()->SetIntPropertyValue(Ptr, Val);
 					}
@@ -1940,7 +2218,7 @@ TSharedRef<SWidget> SMVVMInspectorPanel::CreateEnumWidget(TSharedPtr<FMVVMProper
 }
 
 TSharedRef<SWidget> SMVVMInspectorPanel::CreateNumericWidget(TSharedPtr<FMVVMPropertyNode> Node,
-															 const FNumericProperty* NumProp, bool bCanEdit)
+															 const FNumericProperty* NumProp, const bool bCanEdit)
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE_STR(__FUNCTION__)
 	if (NumProp->IsFloatingPoint())

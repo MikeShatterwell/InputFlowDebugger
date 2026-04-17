@@ -165,5 +165,8 @@ private:
 
 #if WITH_EDITOR
 	TSharedRef<class SDockTab> OnSpawnPluginTab(const FSpawnTabArgs& SpawnTabArgs);
+
+	/** Handle to the preview toolkit's tab-registration delegate, so we can unregister on shutdown. */
+	FDelegateHandle PreviewTabsDelegateHandle;
 #endif
 };
