@@ -69,7 +69,6 @@ public class InputFlowDebugger : ModuleRules
 					"UMGEditor",
 					"EditorInteractiveToolsFramework",
 					"SlateReflector",
-					"UMGWidgetPreview"
 				}
 			);
 		}
@@ -124,6 +123,10 @@ public class InputFlowDebugger : ModuleRules
 						else if (PluginName == "ModelViewViewModel")
 						{
 							PrivateDependencyModuleNames.Add("ModelViewViewModel");
+						}
+						else if (PluginName == "UMGWidgetPreview")
+						{
+							PrivateDependencyModuleNames.Add("UMGWidgetPreview");
 						}
 					}
 

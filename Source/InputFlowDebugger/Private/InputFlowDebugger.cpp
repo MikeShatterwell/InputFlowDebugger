@@ -15,14 +15,16 @@
 #include <Framework/Docking/TabManager.h>
 #include <Widgets/Docking/SDockTab.h>
 
+#if WITH_PLUGIN_UMGWIDGETPREVIEW
 // UMGWidgetPreview
 #include <IUMGWidgetPreviewModule.h>
 #include <IWidgetPreviewToolkit.h>
+#endif // WITH_PLUGIN_UMGWIDGETPREVIEW
 
 // Internal
 #include "SInputFlowAnalyzer.h"
 #include "SMVVMInspectorPanel.h"
-#endif
+#endif // WITH_EDITOR
 
 static_assert(!UE_SERVER, "InputFlowDebugger is not allowed in Server builds.");
 
@@ -37,6 +39,7 @@ void FInputFlowDebuggerModule::StartupModule()
 		.SetGroup(WorkspaceMenu::GetMenuStructure().GetDeveloperToolsDebugCategory())
 		.SetIcon(FSlateIcon(FAppStyle::GetAppStyleSetName(), "Icons.Layout"));
 
+#if WITH_PLUGIN_UMGWIDGETPREVIEW
 	// Register the MVVM Inspector into the Widget Preview toolkit
 	if (FModuleManager::Get().IsModuleLoaded("UMGWidgetPreview"))
 	{
@@ -80,12 +83,13 @@ void FInputFlowDebuggerModule::StartupModule()
 			}
 		});
 	}
-#endif
+#endif // WITH_PLUGIN_UMGWIDGETPREVIEW
+#endif // WITH_EDITOR
 }
 
 void FInputFlowDebuggerModule::ShutdownModule()
 {
-#if WITH_EDITOR
+#if WITH_EDITOR && WITH_PLUGIN_UMGWIDGETPREVIEW
 	FGlobalTabmanager::Get()->UnregisterNomadTabSpawner(InputFlowTabName);
 
 	if (PreviewTabsDelegateHandle.IsValid() && FModuleManager::Get().IsModuleLoaded("UMGWidgetPreview"))
@@ -94,7 +98,7 @@ void FInputFlowDebuggerModule::ShutdownModule()
 		PreviewModule.OnRegisterTabsForEditor().Remove(PreviewTabsDelegateHandle);
 		PreviewTabsDelegateHandle.Reset();
 	}
-#endif
+#endif // WITH_EDITOR && WITH_PLUGIN_UMGWIDGETPREVIEW
 }
 
 #if WITH_EDITOR
