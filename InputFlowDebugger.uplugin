@@ -41,6 +41,11 @@
 			"Name": "ModelViewViewModel",
 			"Enabled": true,
 			"Optional": true
+		},
+		{
+			"Name": "UMGWidgetPreview",
+			"Enabled": true,
+			"Optional": true
 		}
 	],
 	"SupportURL": ""

@@ -141,11 +141,19 @@ UInputDebugSubsystem* InputFlowHelpers::GetActiveDebugSubsystem()
 		return GEditor->PlayWorld->GetGameInstance()->GetSubsystem<UInputDebugSubsystem>();
 	}
 #endif
-	if (UWorld* World = GEngine->GetWorldFromContextObject(GetTransientPackage(), EGetWorldErrorMode::ReturnNull))
+	if (IsValid(GEngine))
 	{
-		if (World->IsGameWorld() && IsValid(World->GetGameInstance()))
+		for (const FWorldContext& Context : GEngine->GetWorldContexts())
 		{
-			return World->GetGameInstance()->GetSubsystem<UInputDebugSubsystem>();
+			const UWorld* World = Context.World();
+			if (IsValid(World))
+			{
+				UGameInstance* GameInstance = World->GetGameInstance();
+				if (IsValid(GameInstance))
+				{
+					return GameInstance->GetSubsystem<UInputDebugSubsystem>();
+				}
+			}
 		}
 	}
 	return nullptr;

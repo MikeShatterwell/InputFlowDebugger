@@ -1769,6 +1769,18 @@ void SMVVMInspectorPanel::SelectUserWidgetInHierarchy(const UUserWidget* Target)
 				HierarchyTreeView->SetItemExpansion(Node, true);
 			}
 			const TSharedPtr<FMVVMHierarchyNode>& Match = AncestorPath.Last();
+			TWeakPtr<STreeView<TSharedPtr<FMVVMHierarchyNode>>> WeakTree = HierarchyTreeView;
+
+			// Wait a tick for expansion
+			RegisterActiveTimer(0.f, FWidgetActiveTimerDelegate::CreateLambda([WeakTree, Match](double, float) -> EActiveTimerReturnType
+			{
+				if (const TSharedPtr<STreeView<TSharedPtr<FMVVMHierarchyNode>>> Tree = WeakTree.Pin())
+				{
+					Tree->SetSelection(Match);
+					Tree->RequestScrollIntoView(Match);
+				}
+				return EActiveTimerReturnType::Stop;
+			}));
 			HierarchyTreeView->SetSelection(Match);
 			HierarchyTreeView->RequestScrollIntoView(Match);
 			return;
@@ -1902,6 +1914,7 @@ void SMVVMInspectorPanel::CommitPick()
 
 	if (IsValid(Target))
 	{
+		RefreshHierarchy();
 		SelectUserWidgetInHierarchy(Target);
 	}
 }
