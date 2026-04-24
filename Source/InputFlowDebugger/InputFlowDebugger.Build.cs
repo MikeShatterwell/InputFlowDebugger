@@ -124,7 +124,7 @@ public class InputFlowDebugger : ModuleRules
 						{
 							PrivateDependencyModuleNames.Add("ModelViewViewModel");
 						}
-						else if (PluginName == "UMGWidgetPreview")
+						else if (PluginName == "UMGWidgetPreview" && Target.bBuildEditor)
 						{
 							PrivateDependencyModuleNames.Add("UMGWidgetPreview");
 						}

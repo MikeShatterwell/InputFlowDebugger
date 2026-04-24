@@ -100,16 +100,16 @@ void UInputDebugSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 
 	CVarInputFlowOverlay.AsVariable()->SetOnChangedCallback(
 		FConsoleVariableDelegate::CreateWeakLambda(this, [this](IConsoleVariable* Var)
-												   {
-													   const bool bEnabled = Var->GetBool();
-													   UInputFlowSettings* Settings = GetMutableDefault<
-														   UInputFlowSettings>();
-													   if (Settings->IsOverlayEnabled() != bEnabled)
-													   {
-														   Settings->SetEnableOverlay(bEnabled);
-													   }
-												   }
-		));
+		{
+			const bool bEnabled = Var->GetBool();
+			UInputFlowSettings* Settings = GetMutableDefault<
+				UInputFlowSettings>();
+			if (Settings->IsOverlayEnabled() != bEnabled)
+			{
+				Settings->SetEnableOverlay(bEnabled);
+			}
+	   }
+	));
 }
 
 void UInputDebugSubsystem::Deinitialize()

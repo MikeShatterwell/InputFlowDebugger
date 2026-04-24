@@ -48,16 +48,8 @@ void FInputFlowDebuggerModule::StartupModule()
 		PreviewTabsDelegateHandle = PreviewModule.OnRegisterTabsForEditor().AddLambda([](const TSharedPtr<UE::UMGWidgetPreview::IWidgetPreviewToolkit>& Toolkit, const TSharedRef<FTabManager>& TabManager)
 		{
 			const FName MVVMInspectorTabId("WidgetPreview_MVVMInspector");
-
-			// Capture as TWeakPtr to avoid a circular reference:
-			// Toolkit → TabManager → TabSpawner lambda → Toolkit
-			// A strong capture here would prevent the toolkit from ever being destroyed.
+			
 			TWeakPtr<UE::UMGWidgetPreview::IWidgetPreviewToolkit> WeakToolkit = Toolkit;
-
-			// Use the toolkit's own workspace menu category. Without SetGroup(), Unreal's
-			// menu population auto-adds the tab to multiple sections (workspace root +
-			// an ungrouped fallback), producing duplicate "top and bottom" entries in the
-			// Window dropdown. Explicitly grouping it restricts placement to one section.
 			TSharedRef<FWorkspaceItem> WorkspaceGroup = TabManager->GetLocalWorkspaceMenuRoot();
 
 			TabManager->RegisterTabSpawner(
@@ -75,7 +67,7 @@ void FInputFlowDebuggerModule::StartupModule()
 				.SetGroup(WorkspaceGroup);
 
 			// Dock the tab next to the existing Preview Scene Settings tab on first open.
-			// Users can still redock it elsewhere — layout changes are persisted per-asset.
+			// Users can still redock it elsewhere, layout changes are persisted per-asset.
 			if (TSharedPtr<FLayoutExtender> LayoutExtender = Toolkit->GetLayoutExtender())
 			{
 				FTabManager::FTab MVVMTab(FTabId(MVVMInspectorTabId, ETabIdFlags::SaveLayout), ETabState::OpenedTab);
