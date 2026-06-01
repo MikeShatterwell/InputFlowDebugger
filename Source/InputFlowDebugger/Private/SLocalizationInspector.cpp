@@ -23,38 +23,6 @@
 #include "InputFlowSettings.h"
 #include "LogInputFlow.h"
 
-#define INVTEXT_NAMESPACE "InputFlowDebugger.Localization"
-
-namespace InputFlowLocStyle
-{
-	static const FLinearColor Color_Localized        = FLinearColor(0.30f, 0.85f, 0.30f);
-	static const FLinearColor Color_Hardcoded        = FLinearColor(1.00f, 0.35f, 0.35f);
-	static const FLinearColor Color_CultureInvariant = FLinearColor(0.65f, 0.65f, 0.65f);
-	static const FLinearColor Color_Empty            = FLinearColor(0.50f, 0.50f, 0.50f);
-
-	static FLinearColor GetStatusColor(const EInputFlowLocStatus Status)
-	{
-		switch (Status)
-		{
-			case EInputFlowLocStatus::Localized:        return Color_Localized;
-			case EInputFlowLocStatus::Hardcoded:        return Color_Hardcoded;
-			case EInputFlowLocStatus::CultureInvariant: return Color_CultureInvariant;
-			default:                                    return Color_Empty;
-		}
-	}
-
-	static FString GetStatusName(const EInputFlowLocStatus Status)
-	{
-		switch (Status)
-		{
-			case EInputFlowLocStatus::Localized:        return TEXT("Localized");
-			case EInputFlowLocStatus::Hardcoded:        return TEXT("Hardcoded");
-			case EInputFlowLocStatus::CultureInvariant: return TEXT("Culture Invariant");
-			default:                                    return TEXT("Empty");
-		}
-	}
-}
-
 void SLocalizationInspector::Construct(const FArguments& InArgs)
 {
 	bCanSupportFocus = false;
