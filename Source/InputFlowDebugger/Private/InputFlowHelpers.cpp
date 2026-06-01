@@ -40,11 +40,21 @@
 // Slate
 #include <Slate/SObjectWidget.h>
 #include <Styling/AppStyle.h>
+#include <Widgets/Input/SEditableText.h>
+#include <Widgets/Text/SMultiLineEditableText.h>
 #include <Widgets/SViewport.h>
+#include <Widgets/Text/SRichTextBlock.h>
+#include <Widgets/Text/STextBlock.h>
 
 // UMG
 #include <Blueprint/UserWidget.h>
 #include <Components/Button.h>
+#include <Components/EditableText.h>
+#include <Components/EditableTextBox.h>
+#include <Components/MultiLineEditableText.h>
+#include <Components/MultiLineEditableTextBox.h>
+#include <Components/RichTextBlock.h>
+#include <Components/TextBlock.h>
 #include <Components/Widget.h>
 
 // Internal
@@ -513,10 +523,10 @@ bool InputFlowHelpers::IsGameWorldWidget(const TSharedPtr<SWidget>& Widget)
 	}
 
 	UWidget* Owner = GetOwnerUWidget(Widget);
-	if (Owner)
+	if (IsValid(Owner))
 	{
 		UWorld* World = Owner->GetWorld();
-		if (World && World->IsGameWorld())
+		if (IsValid(World) && World->IsGameWorld())
 		{
 			return true;
 		}
@@ -716,6 +726,82 @@ FArrangedWidget InputFlowHelpers::ToWindowSpace(const FArrangedWidget& InArrange
 
 	Out.Geometry.AppendTransform(WindowInverse);
 	return Out;
+}
+
+bool InputFlowHelpers::ExtractTextFromWidget(const TSharedPtr<SWidget>& Widget, FText& OutText)
+{
+	if (!Widget.IsValid())
+	{
+		return false;
+	}
+	
+	const FName WidgetType = Widget->GetType();
+	
+	static const FName Type_STextBlock("STextBlock");
+	static const FName Type_SRichTextBlock("SRichTextBlock");
+	static const FName Type_SEditableText("SEditableText");
+	static const FName Type_SMultiLineEditableText("SMultiLineEditableText");
+
+	if (WidgetType == Type_STextBlock)
+	{
+		OutText = StaticCastSharedPtr<STextBlock>(Widget)->GetText();
+		return true;
+	}
+	if (WidgetType == Type_SRichTextBlock)
+	{
+		OutText = StaticCastSharedPtr<SRichTextBlock>(Widget)->GetText();
+		return true;
+	}
+	if (WidgetType == Type_SEditableText)
+	{
+		OutText = StaticCastSharedPtr<SEditableText>(Widget)->GetText();
+		return true;
+	}
+	if (WidgetType == Type_SMultiLineEditableText)
+	{
+		OutText = StaticCastSharedPtr<SMultiLineEditableText>(Widget)->GetText();
+		return true;
+	}
+
+	return false;
+}
+
+void InputFlowHelpers::ForEachTextWidget(
+	const TSharedPtr<SWidget>& Root,
+	TFunctionRef<void(const TSharedPtr<SWidget>&)> Callback,
+	const FName ExcludeTag)
+{
+	if (!Root.IsValid())
+	{
+		return;
+	}
+
+	if (!Root->GetVisibility().IsVisible())
+	{
+		return;
+	}
+
+	if (!ExcludeTag.IsNone() && Root->GetTag() == ExcludeTag)
+	{
+		return;
+	}
+
+	FText Unused;
+	if (ExtractTextFromWidget(Root, Unused))
+	{
+		Callback(Root);
+	}
+
+	// Recurse
+	if (FChildren* Children = Root->GetChildren())
+	{
+		const int32 NumChildren = Children->Num();
+		for (int32 i = 0; i < NumChildren; ++i)
+		{
+			const TSharedPtr<SWidget> Child = Children->GetChildAt(i);
+			ForEachTextWidget(Child, Callback, ExcludeTag);
+		}
+	}
 }
 
 #if WITH_PLUGIN_ENHANCEDINPUT

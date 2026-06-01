@@ -1,7 +1,9 @@
 ﻿// Copyright Mike Desrosiers, All Rights Reserved.
 
 #include "SInputFlowOverlay.h"
-#include "InputFlowDebugger.h"
+
+// Core
+#include <Internationalization/Culture.h>
 
 // Slate
 #include <Framework/Application/SlateApplication.h>
@@ -16,14 +18,17 @@
 #include <Widgets/Layout/SDPIScaler.h>
 
 // Internal
+#include "InputFlowDebugger.h"
 #include "InputFlowSettings.h"
 #include "InputDebugSubsystem.h"
 #include "InputFlowHelpers.h"
+#include "InputFlowLocAnalyzer.h"
 #include "SCommonUIHierarchyView.h"
 #include "SEnhancedInputInspector.h"
 #include "SInputFlowLogView.h"
 #include "SInputFlowSettingsPanel.h"
 #include "SInputFlowStatusDashboard.h"
+#include "SLocalizationInspector.h"
 #include "SMVVMInspectorPanel.h"
 
 // --- CONSTANTS FOR STYLING ---
@@ -36,6 +41,10 @@ namespace InputFlowStyle
 	constexpr FLinearColor Color_NavBlocked = FLinearColor(1.0f, 0.3f, 0.3f);
 	constexpr FLinearColor Color_Void = FLinearColor(0.5f, 0.5f, 0.5f);
 	constexpr FLinearColor Color_LabelBg = FLinearColor(0.05f, 0.05f, 0.05f, 0.85f); // Dark Overlay
+
+	static const FLinearColor LocColor_Localized = FLinearColor(0.30f, 0.85f, 0.30f);
+	static const FLinearColor LocColor_Hardcoded = FLinearColor(1.00f, 0.35f, 0.35f);
+	static const FLinearColor LocColor_Invariant = FLinearColor(0.70f, 0.70f, 0.70f);
 
 	static const FSlateBrush* GetBrush(FName BrushName)
 	{
@@ -947,6 +956,25 @@ void SInputFlowOverlay::Construct(const FArguments& InArgs)
 	);
 #endif
 
+	// Localization Inspector
+	AddPanel(
+		SNew(SInputFlowDraggablePanel)
+		.Title(TEXT("Localization Inspector"))
+		.InitialPosition(FVector2D(100, 800))
+		.InitialSize(FVector2D(420, 160))
+		.OnGetSnapTargets_Lambda(GetSnapTargets)
+		.OnClose_Lambda([]() { GetMutableDefault<UInputFlowSettings>()->SetShowLocalizationPanel(false); })
+		.Visibility_Lambda([]() -> EVisibility
+		{
+			return UInputFlowSettings::Get()->IsLocalizationPanelShown()
+					   ? EVisibility::SelfHitTestInvisible
+					   : EVisibility::Collapsed;
+		})
+		[
+			SAssignNew(LocalizationInspector, SLocalizationInspector)
+		]
+	);
+
 	// Add custom external panels
 	if (FInputFlowDebuggerModule::IsAvailable())
 	{
@@ -1031,6 +1059,7 @@ int32 SInputFlowOverlay::OnPaint(const FPaintArgs& Args, const FGeometry& Allott
 	PaintNavigationSimulation(AllottedGeometry, OutDrawElements, LayerId);
 	PaintFocusHistory(AllottedGeometry, OutDrawElements, LayerId);
 	PaintHitTestGrid(AllottedGeometry, OutDrawElements, LayerId);
+	PaintLocalizationXRay(AllottedGeometry, OutDrawElements, LayerId);
 
 	// Trigger External Draw Hooks
 	if (UInputDebugSubsystem* Sub = GetSubsystem(); IsValid(Sub))
@@ -1356,6 +1385,56 @@ void SInputFlowOverlay::PaintHitTestGrid(const FGeometry& AllottedGeometry, FSla
 #endif
 }
 
+void SInputFlowOverlay::PaintLocalizationXRay(const FGeometry& AllottedGeometry, FSlateWindowElementList& OutDrawElements, int32& LayerId) const
+{
+	if (!UInputFlowSettings::Get()->IsLocLabelsEnabled())
+	{
+		return;
+	}
+
+	for (const FQueuedLabel& LabelData : QueuedLabels)
+	{
+		TSharedPtr<SWidget> Widget = LabelData.TargetWidget.Pin();
+		if (!Widget.IsValid())
+		{
+			continue;
+		}
+
+		const FGeometry& WidgetGeo = Widget->GetPaintSpaceGeometry();
+		if (WidgetGeo.GetAbsoluteSize().IsZero())
+		{
+			continue;
+		}
+
+		const FVector2D TopLeft = AllottedGeometry.AbsoluteToLocal(WidgetGeo.GetAbsolutePosition());
+		const FVector2D BottomRight = AllottedGeometry.AbsoluteToLocal(
+			WidgetGeo.GetAbsolutePositionAtCoordinates(FVector2D(1.0f, 1.0f)));
+		const FVector2D Size = BottomRight - TopLeft;
+		
+		if (Size.X <= 0.0f || Size.Y <= 0.0f)
+		{
+			continue;
+		}
+
+		FLinearColor HighlightColor = LabelData.Color;
+
+		if (LabelData.TargetWidget.IsValid())
+		{
+			const FPaintGeometry PaintGeo = AllottedGeometry.ToPaintGeometry(
+				UE::Slate::CastToVector2f(Size),
+				FSlateLayoutTransform(UE::Slate::CastToVector2f(TopLeft)));
+
+			FSlateDrawElement::MakeBox(OutDrawElements, LayerId, PaintGeo,
+				InputFlowStyle::GetBrush("WhiteBrush"), ESlateDrawEffect::None, LabelData.Color);
+			FSlateDrawElement::MakeBox(OutDrawElements, LayerId + 1, PaintGeo,
+				InputFlowStyle::GetBrush("Debug.Border"), ESlateDrawEffect::None, LabelData.Color.CopyWithNewOpacity(0.95f));
+
+			HighlightColor = LabelData.Color.CopyWithNewOpacity(0.8f);
+			DrawWidgetHighlight(Widget, HighlightColor, FString(), AllottedGeometry, OutDrawElements, LayerId, 3.0f);
+		}
+	}
+}
+
 // --- VISUAL HELPERS ---
 
 void SInputFlowOverlay::DrawCircle(
@@ -1427,13 +1506,14 @@ void SInputFlowOverlay::DrawWidgetHighlight(const TSharedPtr<SWidget>& Widget, c
 }
 
 void SInputFlowOverlay::QueueLabel(const FVector2D& Position, const FString& Text, const FLinearColor& Color,
-								   const FVector2D& Pivot) const
+								   const FVector2D& Pivot, TWeakPtr<SWidget> InTargetWidget) const
 {
 	FQueuedLabel& Item = QueuedLabels.AddDefaulted_GetRef();
 	Item.OriginalPos = Position;
 	Item.Text = Text;
 	Item.Color = Color;
 	Item.Pivot = Pivot;
+	Item.TargetWidget = InTargetWidget;
 }
 
 void SInputFlowOverlay::GatherLabelsFromSubsystem(const FGeometry& AllottedGeometry)
@@ -1561,6 +1641,92 @@ void SInputFlowOverlay::GatherLabelsFromSubsystem(const FGeometry& AllottedGeome
 					QueueLabel(RejCenter, *Rej.Reason, InputFlowStyle::Color_NavBlocked.CopyWithNewOpacity(0.001f), FVector2D(0.5f, 0.5f));
 				}
 			}
+		}
+	}
+
+	// --- LOCALIZATION OVERLAY ---
+	if (UInputFlowSettings::Get()->IsLocLabelsEnabled())
+	{
+		const UInputFlowSettings* LocSettings = UInputFlowSettings::Get();
+		const TSharedPtr<SWindow> MyWindow = FSlateApplication::Get().FindWidgetWindow(AsShared());
+		if (MyWindow.IsValid())
+		{
+			InputFlowHelpers::ForEachTextWidget(MyWindow,
+				[&](const TSharedPtr<SWidget>& Widget)
+				{
+					if (!InputFlowHelpers::IsGameWorldWidget(Widget))
+					{
+						return;
+					}
+					FText ExtractedText;
+					if (!InputFlowHelpers::ExtractTextFromWidget(Widget, ExtractedText))
+					{
+						return;
+					}
+
+					const FGeometry& WidgetGeo = Widget->GetPaintSpaceGeometry();
+					if (WidgetGeo.GetAbsoluteSize().IsZero()) return;
+
+					const FLocStringData Data = FInputFlowLocAnalyzer::AnalyzeText(ExtractedText);
+					if (Data.Status == EInputFlowLocStatus::Empty)
+					{
+						return;
+					}
+					
+					bool bShow = false;
+					switch (Data.Status)
+					{
+					case EInputFlowLocStatus::Localized: bShow = LocSettings->IsLocShowLocalized();
+						break;
+					case EInputFlowLocStatus::Hardcoded: bShow = LocSettings->IsLocShowHardcoded();
+						break;
+					case EInputFlowLocStatus::CultureInvariant: bShow = LocSettings->IsLocShowInvariant();
+						break;
+					default: return;
+					}
+					if (!bShow)
+					{
+						return;
+					}
+
+					FString LabelText;
+					FLinearColor LabelColor;
+					switch (Data.Status)
+					{
+					case EInputFlowLocStatus::Localized:
+							LabelText = FString::Printf(TEXT("[%s] %s"),
+							Data.Namespace.IsEmpty() ? TEXT("?") : *Data.Namespace,
+							*Data.Key);
+							LabelColor = InputFlowStyle::LocColor_Localized;
+							break;
+						case EInputFlowLocStatus::Hardcoded:
+							LabelText = TEXT("HARDCODED");
+							LabelColor = InputFlowStyle::LocColor_Hardcoded;
+							break;
+						case EInputFlowLocStatus::CultureInvariant:
+							LabelText = TEXT("CULTURE-INVARIANT");
+							LabelColor = InputFlowStyle::LocColor_Invariant;
+							break;
+						default:
+							return;
+					}
+
+					if (!LabelText.IsEmpty())
+					{
+						FString FullLabel = LabelText;
+						if (LocSettings->IsLocShowWidgetName())
+						{
+							FString WidgetName = InputFlowHelpers::GetWidgetDisplayName(Widget);
+							WidgetName.ReplaceInline(TEXT("\n"), TEXT(" "));
+							FullLabel = FString::Printf(TEXT("%s\n%s"), *WidgetName, *LabelText);
+						}
+
+						const FVector2D TopCenter = AllottedGeometry.AbsoluteToLocal(
+							WidgetGeo.GetAbsolutePositionAtCoordinates(FVector2D(0.5f, 0.0f)));
+						QueueLabel(TopCenter, FullLabel, LabelColor, FVector2D(0.5f, 1.0f));
+					}
+				},
+				InputFlowHelpers::InputFlowAnalyzerTag);
 		}
 	}
 }

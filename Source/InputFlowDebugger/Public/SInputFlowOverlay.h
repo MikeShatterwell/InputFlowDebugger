@@ -14,6 +14,7 @@ class UInputDebugSubsystem;
 class SInputFlowLogView;
 class SCommonUIHierarchyView;
 class SEnhancedInputInspector;
+class SLocalizationInspector;
 class SOverlay;
 class SDPIScaler;
 class SCanvas;
@@ -69,7 +70,7 @@ public:
 	void DrawWidgetHighlight(const TSharedPtr<SWidget>& Widget, const FLinearColor& Color, const FString& Label, const FGeometry& OverlayGeometry, FSlateWindowElementList& OutDrawElements, int32& LayerId, float Thickness = 2.f) const;
 	
 	/** Queues a label into the physics solver */
-	void QueueLabel(const FVector2D& Position, const FString& Text, const FLinearColor& Color, const FVector2D& Pivot = FVector2D::ZeroVector) const;
+	void QueueLabel(const FVector2D& Position, const FString& Text, const FLinearColor& Color, const FVector2D& Pivot = FVector2D::ZeroVector, TWeakPtr<SWidget> InTargetWidget = nullptr) const;
 
 private:
 	/** Renders the highlight ring/box for the currently focused widget. */
@@ -83,6 +84,9 @@ private:
 
 	/** Renders the hit-testable widget grid for debugging mouse clicks. */
 	void PaintHitTestGrid(const FGeometry& AllottedGeometry, FSlateWindowElementList& OutDrawElements, int32& LayerId) const;
+
+	/** Renders the localization X-Ray */
+	void PaintLocalizationXRay(const FGeometry& AllottedGeometry, FSlateWindowElementList& OutDrawElements, int32& LayerId) const;
 
 	static void DrawCircle(const FGeometry& AllottedGeometry, const FVector2D& Center, float Radius, const FLinearColor& Color,
 							float Thickness, FSlateWindowElementList& OutDrawElements, int32 LayerId);
@@ -115,6 +119,7 @@ private:
 		FString Text;
 		FLinearColor Color;
 		FVector2D Pivot; // Pivot for alignment (0.5, 1.0 means bottom-middle is at OriginalPos)
+		TWeakPtr<SWidget> TargetWidget = nullptr; // Optional widget to track, can be used to call DrawWidgetHighlight 
 	};
 	mutable TArray<FQueuedLabel> QueuedLabels; // Mutable because QueueLabel can be called from const methods. 
 	
@@ -125,4 +130,5 @@ private:
 	TSharedPtr<SCommonUIHierarchyView> CommonUIHierarchyView;
 	TSharedPtr<SEnhancedInputInspector> EnhancedInputInspectorView;
 	TSharedPtr<SMVVMInspectorPanel> MVVMInspectorView;
+	TSharedPtr<SLocalizationInspector> LocalizationInspector;
 };

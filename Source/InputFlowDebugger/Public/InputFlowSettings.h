@@ -49,6 +49,9 @@ public:
 	// Visualization Settings
 	bool IsOverlayEnabled() const { return bEnableOverlay; }
 	void SetEnableOverlay(bool bEnabled) { if (bEnableOverlay != bEnabled) { bEnableOverlay = bEnabled; SaveConfig(); OnSettingsChanged.Broadcast(); } }
+
+	float GetOverlayScale() const { return OverlayScale; }
+	void SetOverlayScale(float NewScale) { NewScale = FMath::Clamp(NewScale, 0.5f, 3.0f); if (!FMath::IsNearlyEqual(OverlayScale, NewScale)) { OverlayScale = NewScale; SaveConfig(); OnSettingsChanged.Broadcast(); } }
 	
 	bool IsFocusHighlightEnabled() const { return bShowFocusHighlight; }
 	void SetShowFocusHighlight(bool bEnabled) { if (bShowFocusHighlight != bEnabled) { bShowFocusHighlight = bEnabled; SaveConfig(); OnSettingsChanged.Broadcast(); } }
@@ -58,21 +61,41 @@ public:
 
 	bool IsLogPanelShown() const { return bShowLogPanel; }
 	void SetShowLogPanel(bool bEnabled) { if (bShowLogPanel != bEnabled) { bShowLogPanel = bEnabled; SaveConfig(); OnSettingsChanged.Broadcast(); } }
-
+	
 	bool IsDashboardPanelShown() const { return bShowDashboardPanel; }
 	void SetShowDashboardPanel(bool bEnabled) { if (bShowDashboardPanel != bEnabled) { bShowDashboardPanel = bEnabled; SaveConfig(); OnSettingsChanged.Broadcast(); } }
 
+	// CommonUI
 	bool IsHierarchyPanelShown() const { return bShowHierarchyPanel; }
 	void SetShowHierarchyPanel(bool bEnabled) { if (bShowHierarchyPanel != bEnabled) { bShowHierarchyPanel = bEnabled; SaveConfig(); OnSettingsChanged.Broadcast(); } }
 
+	// EnhancedInput
 	bool IsEnhancedInputPanelShown() const { return bShowEnhancedInputPanel; }
 	void SetShowEnhancedInputPanel(bool bEnabled) { if (bShowEnhancedInputPanel != bEnabled) { bShowEnhancedInputPanel = bEnabled; SaveConfig(); OnSettingsChanged.Broadcast(); } }
-	
+
+	// MVVM
 	bool IsMVVMInspectorPanelShown() const { return bShowMVVMInspectorPanel; }
 	void SetShowMVVMInspectorPanel(bool bEnabled) { if (bShowMVVMInspectorPanel != bEnabled) { bShowMVVMInspectorPanel = bEnabled; SaveConfig(); OnSettingsChanged.Broadcast(); } }
 
-	float GetOverlayScale() const { return OverlayScale; }
-	void SetOverlayScale(float NewScale) { NewScale = FMath::Clamp(NewScale, 0.5f, 3.0f); if (!FMath::IsNearlyEqual(OverlayScale, NewScale)) { OverlayScale = NewScale; SaveConfig(); OnSettingsChanged.Broadcast(); } }
+	// Localization overlay toggle
+	bool IsLocalizationPanelShown() const { return bShowLocalizationPanel; }
+	void SetShowLocalizationPanel(bool bEnabled) { if (bShowLocalizationPanel != bEnabled) { bShowLocalizationPanel = bEnabled; SaveConfig(); OnSettingsChanged.Broadcast(); } }
+
+	bool IsLocLabelsEnabled() const { return bShowLocLabels; }
+	void SetLocLabelsEnabled(bool bEnabled) { if (bShowLocLabels != bEnabled) { bShowLocLabels = bEnabled; SaveConfig(); OnSettingsChanged.Broadcast(); } }
+
+	// Loc X-Ray per-status filters. Default to surfacing only problems (Hardcoded).
+	bool IsLocShowLocalized() const { return bLocShowLocalized; }
+	void SetLocShowLocalized(bool bEnabled) { if (bLocShowLocalized != bEnabled) { bLocShowLocalized = bEnabled; SaveConfig(); OnSettingsChanged.Broadcast(); } }
+
+	bool IsLocShowHardcoded() const { return bLocShowHardcoded; }
+	void SetLocShowHardcoded(bool bEnabled) { if (bLocShowHardcoded != bEnabled) { bLocShowHardcoded = bEnabled; SaveConfig(); OnSettingsChanged.Broadcast(); } }
+
+	bool IsLocShowInvariant() const { return bLocShowInvariant; }
+	void SetLocShowInvariant(bool bEnabled) { if (bLocShowInvariant != bEnabled) { bLocShowInvariant = bEnabled; SaveConfig(); OnSettingsChanged.Broadcast(); } }
+
+	bool IsLocShowWidgetName() const { return bLocShowWidgetName; }
+	void SetLocShowWidgetName(bool bEnabled) { if (bLocShowWidgetName != bEnabled) { bLocShowWidgetName = bEnabled; SaveConfig(); OnSettingsChanged.Broadcast(); } }
 
 	// Simulation Settings
 	bool IsNavSimulationEnabled() const { return bEnableNavSimulation; }
@@ -168,6 +191,27 @@ private:
 
 	UPROPERTY(EditAnywhere, Config, Category = "Panels")
 	bool bShowMVVMInspectorPanel = false;
+
+	UPROPERTY(EditAnywhere, Config, Category = "Panels")
+	bool bShowLocalizationPanel = false;
+
+	UPROPERTY(EditAnywhere, Config, Category = "Visualization|Localization")
+	bool bLocXRayOverflow = false;
+
+	UPROPERTY(EditAnywhere, Config, Category = "Visualization|Localization")
+	bool bShowLocLabels = false;
+
+	UPROPERTY(EditAnywhere, Config, Category = "Visualization|Localization")
+	bool bLocShowLocalized = false;
+
+	UPROPERTY(EditAnywhere, Config, Category = "Visualization|Localization")
+	bool bLocShowHardcoded = true;
+
+	UPROPERTY(EditAnywhere, Config, Category = "Visualization|Localization")
+	bool bLocShowInvariant = false;
+
+	UPROPERTY(EditAnywhere, Config, Category = "Visualization|Localization")
+	bool bLocShowWidgetName = false;
 
 	UPROPERTY(EditAnywhere, Config, Category = "Visualization", meta=(ClampMin=0.5, ClampMax=3.0))
 	float OverlayScale = 1.0f;

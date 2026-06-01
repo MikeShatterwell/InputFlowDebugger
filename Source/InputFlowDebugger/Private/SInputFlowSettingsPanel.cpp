@@ -389,6 +389,7 @@ TSharedRef<SWidget> SInputFlowSettingsPanel::MakePanelMenu()
 #if WITH_PLUGIN_MODELVIEWVIEWMODEL
 	AddPanelEntry(INVTEXT("MVVM Inspector"), "bShowMVVMInspectorPanel");
 #endif
+	AddPanelEntry(INVTEXT("Localization Inspector"), "bShowLocalizationPanel");
 
 	return MenuBuilder.MakeWidget();
 }

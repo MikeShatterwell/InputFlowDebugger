@@ -24,12 +24,13 @@
 #include <View/MVVMViewClass.h>
 
 #if WITH_EDITOR && WITH_PLUGIN_UMGWIDGETPREVIEW
-	// UMGWidgetPreview
-	#include <IWidgetPreviewToolkit.h>
-	#include <WidgetPreview.h>
+// UMGWidgetPreview
+#include <IWidgetPreviewToolkit.h>
+#include <WidgetPreview.h>
 #endif
 
-// CoreUObject 
+// CoreUObject
+#include <UObject/UObjectArray.h>
 #include <UObject/Class.h>
 #include <UObject/EnumProperty.h>
 #include <UObject/TextProperty.h>
@@ -700,7 +701,7 @@ void SMVVMInspectorPanel::RefreshHierarchy()
 	for (TObjectIterator<UUserWidget> It; It; ++It)
 	{
 		UUserWidget* Widget = *It;
-		if (!IsValid(Widget) || Widget->HasAnyFlags(RF_ClassDefaultObject | RF_ArchetypeObject))
+		if (!IsValid(Widget) || Widget->HasAnyFlags(RF_ClassDefaultObject | RF_ArchetypeObject | RF_BeginDestroyed) || Widget->IsUnreachable())
 		{
 			continue;
 		}
@@ -983,7 +984,7 @@ void SMVVMInspectorPanel::RecursivelyBuildHierarchy(
 	// Check if this Slate Widget corresponds to a UUserWidget
 	if (UWidget* OwnerUWidget = InputFlowHelpers::GetOwnerUWidget(InWidget); IsValid(OwnerUWidget))
 	{
-		if (UUserWidget* FoundUserWidget = Cast<UUserWidget>(OwnerUWidget); IsValid(FoundUserWidget))
+		if (UUserWidget* FoundUserWidget = Cast<UUserWidget>(OwnerUWidget); IsValid(FoundUserWidget) && !FoundUserWidget->HasAnyFlags(RF_ClassDefaultObject | RF_ArchetypeObject | RF_BeginDestroyed))
 		{
 			UserWidget = FoundUserWidget;
 			FoundView = UserWidget->GetExtension<UMVVMView>();
@@ -3819,7 +3820,7 @@ TSharedRef<SWidget> SMVVMInspectorPanel::CreateFallbackWidget(TSharedPtr<FMVVMPr
 		.AutoWrapText(true)
 		.Text_Lambda([Node]()
 		{
-			if (!Node.IsValid())
+			if (!Node.IsValid() || !Node->EffectiveOwner.IsValid())
 			{
 				return FText::GetEmpty();
 			}
@@ -3827,7 +3828,13 @@ TSharedRef<SWidget> SMVVMInspectorPanel::CreateFallbackWidget(TSharedPtr<FMVVMPr
 			{
 				if (const uint8* Ptr = Node->GetRawValuePtr())
 				{
-					UObject* Obj = ObjectProperty->GetObjectPropertyValue(Ptr);
+					const UObject* Obj = ObjectProperty->GetObjectPropertyValue(Ptr);
+					
+					if (Obj != nullptr && !GUObjectArray.IsValid(Obj))
+					{
+						return FText::FromString(TEXT("Object (Invalid Memory)"));
+					}
+					
 					if (!IsValid(Obj))
 					{
 						return FText::FromString(TEXT("Object (None)"));
@@ -3927,104 +3934,104 @@ TSharedRef<SWidget> SMVVMInspectorPanel::CreateObjectPropertyWidget(TSharedPtr<F
 		// Non-ViewModel object references are displayed but not instantiable from the inspector.
 		if (IsValid(ObjProp->PropertyClass) && ObjProp->PropertyClass->IsChildOf(UMVVMViewModelBase::StaticClass()))
 		{
-		TArray<UClass*> Candidates;
-		GatherConcreteSubclasses(ObjProp->PropertyClass, Candidates);
+			TArray<UClass*> Candidates;
+			GatherConcreteSubclasses(ObjProp->PropertyClass, Candidates);
 
-		if (Candidates.Num() == 0)
-		{
-			// Nothing can be instantiated for this property type (e.g., purely abstract interface-like base).
-			Box->AddSlot()
-			.AutoWidth()
-			.VAlign(VAlign_Center)
-			.Padding(4, 0, 0, 0)
-			[
-				SNew(SButton)
-				.IsEnabled(false)
-				.Text(INVTEXT("+ Add"))
-				.ToolTipText(FText::FromString(FString::Printf(
-					TEXT("No concrete, non-deprecated subclass of %s is available."),
-					IsValid(ObjProp->PropertyClass) ? *ObjProp->PropertyClass->GetName() : TEXT("(unknown)"))))
-			];
-		}
-		else if (Candidates.Num() == 1)
-		{
-			// Exactly one candidate: shortcut past the picker and instantiate directly.
-			UClass* OnlyClass = Candidates[0];
-			Box->AddSlot()
-			.AutoWidth()
-			.VAlign(VAlign_Center)
-			.Padding(4, 0, 0, 0)
-			[
-				SNew(SButton)
-				.IsEnabled(bCanEdit)
-				.Text(FText::FromString(FString::Printf(TEXT("+ Add %s"), *OnlyClass->GetName())))
-				.ToolTipText(FText::FromString(FString::Printf(
-					TEXT("Instantiate a new %s transient object and assign it here."),
-					*OnlyClass->GetName())))
-				.OnClicked_Lambda([this, Node, OnlyClass]() -> FReply
-				{
-					InstantiateObjectProperty(Node, OnlyClass);
-					return FReply::Handled();
-				})
-			];
-		}
-		else
-		{
-			// Multiple candidates: combo-button-driven picker. Menu content is built lazily each
-			// time the menu opens, so class sets discovered at runtime stay current.
-			TWeakPtr<FMVVMPropertyNode> WeakNode = Node;
-			Box->AddSlot()
-			.AutoWidth()
-			.VAlign(VAlign_Center)
-			.Padding(4, 0, 0, 0)
-			[
-				SNew(SComboButton)
-				.IsEnabled(bCanEdit)
-				.ContentPadding(FMargin(4, 2))
-				.ToolTipText(INVTEXT("Pick a class to instantiate."))
-				.ButtonContent()
+			if (Candidates.Num() == 0)
+			{
+				// Nothing can be instantiated for this property type (e.g., purely abstract interface-like base).
+				Box->AddSlot()
+				.AutoWidth()
+				.VAlign(VAlign_Center)
+				.Padding(4, 0, 0, 0)
 				[
-					SNew(STextBlock).Text(INVTEXT("+ Add..."))
-				]
-				.OnGetMenuContent_Lambda([this, WeakNode, ObjProp]() -> TSharedRef<SWidget>
-				{
-					TSharedPtr<FMVVMPropertyNode> PinnedNode = WeakNode.Pin();
-					if (!PinnedNode.IsValid() || ObjProp == nullptr)
+					SNew(SButton)
+					.IsEnabled(false)
+					.Text(INVTEXT("+ Add"))
+					.ToolTipText(FText::FromString(FString::Printf(
+						TEXT("No concrete, non-deprecated subclass of %s is available."),
+						IsValid(ObjProp->PropertyClass) ? *ObjProp->PropertyClass->GetName() : TEXT("(unknown)"))))
+				];
+			}
+			else if (Candidates.Num() == 1)
+			{
+				// Exactly one candidate: shortcut past the picker and instantiate directly.
+				UClass* OnlyClass = Candidates[0];
+				Box->AddSlot()
+				.AutoWidth()
+				.VAlign(VAlign_Center)
+				.Padding(4, 0, 0, 0)
+				[
+					SNew(SButton)
+					.IsEnabled(bCanEdit)
+					.Text(FText::FromString(FString::Printf(TEXT("+ Add %s"), *OnlyClass->GetName())))
+					.ToolTipText(FText::FromString(FString::Printf(
+						TEXT("Instantiate a new %s transient object and assign it here."),
+						*OnlyClass->GetName())))
+					.OnClicked_Lambda([this, Node, OnlyClass]() -> FReply
 					{
-						return SNullWidget::NullWidget;
-					}
-
-					TArray<UClass*> MenuCandidates;
-					GatherConcreteSubclasses(ObjProp->PropertyClass, MenuCandidates);
-
-					FMenuBuilder MenuBuilder(/*bInShouldCloseWindowAfterMenuSelection*/ true, nullptr);
-					MenuBuilder.BeginSection(NAME_None, INVTEXT("Select class"));
-
-					for (UClass* Candidate : MenuCandidates)
+						InstantiateObjectProperty(Node, OnlyClass);
+						return FReply::Handled();
+					})
+				];
+			}
+			else
+			{
+				// Multiple candidates: combo-button-driven picker. Menu content is built lazily each
+				// time the menu opens, so class sets discovered at runtime stay current.
+				TWeakPtr<FMVVMPropertyNode> WeakNode = Node;
+				Box->AddSlot()
+				.AutoWidth()
+				.VAlign(VAlign_Center)
+				.Padding(4, 0, 0, 0)
+				[
+					SNew(SComboButton)
+					.IsEnabled(bCanEdit)
+					.ContentPadding(FMargin(4, 2))
+					.ToolTipText(INVTEXT("Pick a class to instantiate."))
+					.ButtonContent()
+					[
+						SNew(STextBlock).Text(INVTEXT("+ Add..."))
+					]
+					.OnGetMenuContent_Lambda([this, WeakNode, ObjProp]() -> TSharedRef<SWidget>
 					{
-						if (!IsValid(Candidate))
+						TSharedPtr<FMVVMPropertyNode> PinnedNode = WeakNode.Pin();
+						if (!PinnedNode.IsValid() || ObjProp == nullptr)
 						{
-							continue;
+							return SNullWidget::NullWidget;
 						}
-						UClass* CapturedClass = Candidate;
-						TSharedPtr<FMVVMPropertyNode> CapturedNode = PinnedNode;
 
-						MenuBuilder.AddMenuEntry(
-							FText::FromString(Candidate->GetName()),
-							FText::FromString(FString::Printf(TEXT("Instantiate a new %s."), *Candidate->GetName())),
-							FSlateIcon(),
-							FUIAction(FExecuteAction::CreateLambda([this, CapturedNode, CapturedClass]()
+						TArray<UClass*> MenuCandidates;
+						GatherConcreteSubclasses(ObjProp->PropertyClass, MenuCandidates);
+
+						FMenuBuilder MenuBuilder(/*bInShouldCloseWindowAfterMenuSelection*/ true, nullptr);
+						MenuBuilder.BeginSection(NAME_None, INVTEXT("Select class"));
+
+						for (UClass* Candidate : MenuCandidates)
+						{
+							if (!IsValid(Candidate))
 							{
-								InstantiateObjectProperty(CapturedNode, CapturedClass);
-							}))
-						);
-					}
+								continue;
+							}
+							UClass* CapturedClass = Candidate;
+							TSharedPtr<FMVVMPropertyNode> CapturedNode = PinnedNode;
 
-					MenuBuilder.EndSection();
-					return MenuBuilder.MakeWidget();
-				})
-			];
-		}
+							MenuBuilder.AddMenuEntry(
+								FText::FromString(Candidate->GetName()),
+								FText::FromString(FString::Printf(TEXT("Instantiate a new %s."), *Candidate->GetName())),
+								FSlateIcon(),
+								FUIAction(FExecuteAction::CreateLambda([this, CapturedNode, CapturedClass]()
+								{
+									InstantiateObjectProperty(CapturedNode, CapturedClass);
+								}))
+							);
+						}
+
+						MenuBuilder.EndSection();
+						return MenuBuilder.MakeWidget();
+					})
+				];
+			}
 		} // end ViewModel add-flow
 	}
 

@@ -12,6 +12,7 @@
 #include "InputDebugSubsystem.h"
 
 #if WITH_PLUGIN_ENHANCEDINPUT
+struct FLocStringData;
 class UEnhancedPlayerInput;
 class UInputMappingContext;
 struct FAppliedInputContextData;
@@ -78,6 +79,32 @@ public:
 	static FArrangedWidget ToWindowSpace(const FArrangedWidget& InArranged, const TSharedRef<SWindow>& Window);
 
 	static TSharedPtr<SWidget> ResolveFocusableDescendant(TSharedPtr<SWidget> Root);
+
+	/**
+	 * Attempts to pull the FText out of a Slate widget that displays text
+	 * (STextBlock, SRichTextBlock, SEditableText, SMultiLineEditableText).
+	 *
+	 * Slate has no virtual GetText() on SWidget, so this dispatches by RTTI string.
+	 * Falls back to UMG owner cast (UTextBlock / URichTextBlock / UEditableText* / etc.)
+	 * for cases where a UMG widget uses a custom Slate widget under the hood.
+	 *
+	 * Returns true if extraction succeeded.
+	 */
+	static bool ExtractTextFromWidget(const TSharedPtr<SWidget>& Widget, FText& OutText);
+
+	/**
+	 * Walks the Slate widget tree under Root depth-first, invoking Callback for every
+	 * widget where ExtractTextFromWidget succeeds.
+	 *
+	 * Subtrees are skipped if (a) the widget is collapsed, or (b) the widget's tag
+	 * matches ExcludeTag (used to avoid scanning the debugger's own UI).
+	 *
+	 * This finds text widgets regardless of hit-test visibility.
+	 */
+	static void ForEachTextWidget(
+		const TSharedPtr<SWidget>& Root,
+		TFunctionRef<void(const TSharedPtr<SWidget>&)> Callback,
+		FName ExcludeTag = NAME_None);
 	
 #if WITH_PLUGIN_ENHANCEDINPUT
 	/** * Centralized accessor to reach into protected data of UEnhancedPlayerInput.

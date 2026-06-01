@@ -39,7 +39,7 @@ void FInputFlowDebuggerModule::StartupModule()
 		.SetGroup(WorkspaceMenu::GetMenuStructure().GetDeveloperToolsDebugCategory())
 		.SetIcon(FSlateIcon(FAppStyle::GetAppStyleSetName(), "Icons.Layout"));
 
-#if WITH_PLUGIN_UMGWIDGETPREVIEW
+#if WITH_PLUGIN_UMGWIDGETPREVIEW && WITH_PLUGIN_MODELVIEWVIEWMODEL
 	// Register the MVVM Inspector into the Widget Preview toolkit
 	if (FModuleManager::Get().IsModuleLoaded("UMGWidgetPreview"))
 	{
