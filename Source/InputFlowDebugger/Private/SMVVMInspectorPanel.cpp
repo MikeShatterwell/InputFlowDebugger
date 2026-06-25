@@ -637,7 +637,11 @@ FReply SMVVMInspectorPanel::OnInvokeClicked(TSharedPtr<FMVVMPropertyNode> Node)
 				if (const FMulticastScriptDelegate* MulticastDelegate = const_cast<FMulticastScriptDelegate*>(MulticastProp->GetMulticastDelegate(DelegateMemory)))
 				{
 					uint8* ParamsMemory = Node->FunctionParams.IsValid() ? Node->FunctionParams->GetStructMemory() : nullptr;
+#if ENGINE_MAJOR_VERSION < 5 || (ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION < 8)
 					MulticastDelegate->ProcessMulticastDelegate<UObject>(ParamsMemory);
+#else
+					MulticastDelegate->ProcessDelegate<UObject>(ParamsMemory);
+#endif
 				}
 			}
 			else if (const FDelegateProperty* DelegateProp = CastField<FDelegateProperty>(Node->Property.Get()))
