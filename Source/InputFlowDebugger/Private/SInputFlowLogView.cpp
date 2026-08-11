@@ -794,7 +794,11 @@ TSharedPtr<SWidget> SInputFlowLogView::MakeRowContextMenu(TSharedPtr<FInputEvent
 				});
 
 				// Build string
+#if ENGINE_MAJOR_VERSION < 5 || (ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION < 8)
 				FStringBuilderBase OutputBuilder;
+#else
+				TStringBuilder<256> OutputBuilder;
+#endif
 				for (const TSharedPtr<FInputEventLog>& Log : SelectedItems)
 				{
 					if (!Log.IsValid()) continue;
