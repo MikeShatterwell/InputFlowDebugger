@@ -41,6 +41,9 @@ public:
 
 	void ClearLog();
 
+	/** Points the log at a different client's subsystem (each one has its own history). */
+	void SetDebugSubsystem(UInputDebugSubsystem* InSubsystem);
+
 	// Context Menu & Filtering API
 	TSharedPtr<SWidget> MakeRowContextMenu(TSharedPtr<FInputEventLog> Item, FName ColumnId);
 	void AddExclusionFilter(FName ColumnId, const FString& Value);

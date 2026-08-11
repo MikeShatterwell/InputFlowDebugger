@@ -135,9 +135,24 @@ void SEnhancedInputInspector::Tick(const FGeometry& AllottedGeometry, const doub
 	UpdateData(InDeltaTime);
 }
 
+void SEnhancedInputInspector::SetDebugSubsystem(UInputDebugSubsystem* InSubsystem)
+{
+	if (DebugSubsystem.Get() == InSubsystem) return;
+
+	DebugSubsystem = InSubsystem;
+
+	// Rows carry decay state for the previous player's input - start clean.
+	SourceData.Empty();
+	if (TreeView.IsValid())
+	{
+		TreeView->RequestTreeRefresh();
+	}
+}
+
 void SEnhancedInputInspector::UpdateData(float DeltaTime)
 {
-	// Recover subsystem if lost (re-PIE)
+	// Recover subsystem if lost (re-PIE). Only fires when the current one is gone,
+	// so it never overrides an explicit target pick.
 	if (!DebugSubsystem.IsValid())
 	{
 		DebugSubsystem = InputFlowHelpers::GetActiveDebugSubsystem();
@@ -145,10 +160,9 @@ void SEnhancedInputInspector::UpdateData(float DeltaTime)
 
 	if (!DebugSubsystem.IsValid()) return;
 
-	const UGameInstance* GameInstance = DebugSubsystem->GetGameInstance();
-	if (!IsValid(GameInstance)) return;
-
-	auto LocalPlayer = GameInstance->GetFirstGamePlayer();
+	// Enhanced Input is a LocalPlayerSubsystem, so this must follow the selected player
+	// rather than always reporting player 0's mapping contexts and action values.
+	const ULocalPlayer* LocalPlayer = DebugSubsystem->GetDebugLocalPlayer();
 	if (!IsValid(LocalPlayer)) return;
 
 	const UEnhancedInputLocalPlayerSubsystem* EISub = LocalPlayer->GetSubsystem<UEnhancedInputLocalPlayerSubsystem>();
@@ -159,10 +173,10 @@ void SEnhancedInputInspector::UpdateData(float DeltaTime)
 
 	const UWorld* World = EISub->GetWorld();
 	if (!IsValid(World)) return;
-	
+
 	// We mimic APlayerController::BuildInputStack logic to find active components.
 	TArray<UInputComponent*> PotentialComponents;
-	const APlayerController* PC = LocalPlayer->GetPlayerController(GameInstance->GetWorld());
+	const APlayerController* PC = LocalPlayer->GetPlayerController(World);
 	if (IsValid(PC))
 	{
 		const APawn* Pawn = PC->GetPawn();

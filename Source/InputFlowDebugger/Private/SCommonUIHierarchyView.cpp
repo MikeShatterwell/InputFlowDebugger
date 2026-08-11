@@ -16,6 +16,9 @@
 
 // Engine
 #include <Engine/GameInstance.h>
+#include <Engine/LocalPlayer.h>
+#include <Engine/World.h>
+#include <GameFramework/PlayerController.h>
 
 // Slate
 #include <Styling/AppStyle.h>
@@ -257,15 +260,40 @@ void SCommonUIHierarchyView::Construct(const FArguments& InArgs, UInputDebugSubs
 	];
 }
 
+ULocalPlayer* SCommonUIHierarchyView::ResolveTargetLocalPlayer() const
+{
+	if (!DebugSubsystem.IsValid()) return nullptr;
+
+	// The subsystem owns the selection so the editor tab and the in-game overlay agree.
+	return DebugSubsystem->GetDebugLocalPlayer();
+}
+
+void SCommonUIHierarchyView::SetDebugSubsystem(UInputDebugSubsystem* InSubsystem)
+{
+	if (DebugSubsystem.Get() == InSubsystem) return;
+
+	DebugSubsystem = InSubsystem;
+
+	// Cached items belong to the previous client's world - none of them are reusable.
+	WidgetItemCache.Empty();
+	Roots.Empty();
+
+	BindRouterDelegates();
+	RequestRefresh();
+}
+
 void SCommonUIHierarchyView::Tick(const FGeometry& AllottedGeometry, const double InCurrentTime, const float InDeltaTime)
 {
-	// Recover Subsystem if lost (e.g. PIE restart or opened before PIE)
+	// Recover Subsystem if lost (e.g. PIE restart or opened before PIE).
+	// Only fires when the current one is gone, so it never overrides an explicit target pick.
 	if (!DebugSubsystem.IsValid())
 	{
 		DebugSubsystem = InputFlowHelpers::GetActiveDebugSubsystem();
 	}
-	
-	if (!BoundRouter.IsValid())
+
+	// Rebind when the router dies, or when the target player changed under us
+	// (split-screen player joining/leaving, or the tab switching viewports).
+	if (!BoundRouter.IsValid() || BoundLocalPlayer.Get() != ResolveTargetLocalPlayer())
 	{
 		BindRouterDelegates();
 	}
@@ -320,12 +348,20 @@ FString SCommonUIHierarchyView::GetInputConfigString(const UCommonActivatableWid
 void SCommonUIHierarchyView::UpdateTree()
 {
 	if (!DebugSubsystem.IsValid()) return;
-	UGameInstance* GI = DebugSubsystem->GetGameInstance();
-	ULocalPlayer* LP = GI ? GI->GetFirstGamePlayer() : nullptr;
+
+	ULocalPlayer* LP = ResolveTargetLocalPlayer();
 	if (!IsValid(LP)) return;
 
-	// Get the action router for querying active root
+	UWorld* TargetWorld = LP->GetWorld();
+	if (!IsValid(TargetWorld)) return;
+
+	// The action router is a LocalPlayerSubsystem - one activatable tree root per player,
+	// so this must come from the target player rather than the game instance.
 	UCommonUIActionRouterBase* ActionRouter = LP->GetSubsystem<UCommonUIActionRouterBase>();
+
+	// Slate focus is per-user; querying it via the player's controller scopes it correctly
+	// instead of lighting up for whichever user happens to hold focus.
+	APlayerController* TargetPC = LP->GetPlayerController(TargetWorld);
 
 	TSet<TSharedPtr<FCommonUITreeItem>> ActiveItems;
 	TMap<UWidget*, TSharedPtr<FCommonUITreeItem>> WorkingMap;
@@ -336,7 +372,13 @@ void SCommonUIHierarchyView::UpdateTree()
 	TArray<UCommonActivatableWidgetContainerBase*> FoundContainers;
 	for (TObjectIterator<UWidget> It; It; ++It)
 	{
-		if (It->GetWorld() != DebugSubsystem->GetWorld()) continue;
+		if (It->GetWorld() != TargetWorld) continue;
+
+		// Split-screen players share one world, so the world check alone merges both
+		// players' widgets into a single tree. Scope to the target player's widgets.
+		// Widgets with no player context are viewport-level content - keep those.
+		const ULocalPlayer* OwningPlayer = It->GetOwningLocalPlayer();
+		if (OwningPlayer && OwningPlayer != LP) continue;
 
 		if (UCommonActivatableWidget* AW = Cast<UCommonActivatableWidget>(*It))
 		{
@@ -404,7 +446,7 @@ void SCommonUIHierarchyView::UpdateTree()
 
 		Item->Name = Widget->GetName();
 		Item->bIsContainer = Widget->IsA<UCommonActivatableWidgetContainerBase>();
-		Item->bIsFocused = Widget->HasAnyUserFocus();
+		Item->bIsFocused = IsValid(TargetPC) ? Widget->HasUserFocus(TargetPC) : Widget->HasAnyUserFocus();
 		Item->bIsLeaf = false;
 		Item->bIsInActivePath = false;
 		Item->bIsActiveRoot = false;
@@ -695,21 +737,20 @@ void SCommonUIHierarchyView::BindRouterDelegates()
 		BoundRouter->OnActiveInputConfigChanged().Remove(ConfigChangeHandle);
 		BoundRouter.Reset();
 	}
+	BoundLocalPlayer.Reset();
 
 	if (!DebugSubsystem.IsValid()) return;
 
-	if (const UGameInstance* GI = DebugSubsystem->GetGameInstance())
+	ULocalPlayer* LP = ResolveTargetLocalPlayer();
+	if (!IsValid(LP)) return;
+
+	if (UCommonUIActionRouterBase* Router = LP->GetSubsystem<UCommonUIActionRouterBase>())
 	{
-		if (const ULocalPlayer* LP = GI->GetFirstGamePlayer())
-		{
-			if (UCommonUIActionRouterBase* Router = LP->GetSubsystem<UCommonUIActionRouterBase>())
-			{
-				BoundRouter = Router;
-				ActionRouterHandle = Router->OnBoundActionsUpdated().AddSP(this, &SCommonUIHierarchyView::RequestRefresh);
-				ConfigChangeHandle = Router->OnActiveInputConfigChanged().AddLambda([this](const FUIInputConfig&){ RequestRefresh(); });
-				RequestRefresh();
-			}
-		}
+		BoundRouter = Router;
+		BoundLocalPlayer = LP;
+		ActionRouterHandle = Router->OnBoundActionsUpdated().AddSP(this, &SCommonUIHierarchyView::RequestRefresh);
+		ConfigChangeHandle = Router->OnActiveInputConfigChanged().AddLambda([this](const FUIInputConfig&){ RequestRefresh(); });
+		RequestRefresh();
 	}
 }
 

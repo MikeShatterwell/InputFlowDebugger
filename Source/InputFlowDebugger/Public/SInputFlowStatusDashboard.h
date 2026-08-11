@@ -24,6 +24,9 @@ public:
 	void Construct(const FArguments& InArgs, UInputDebugSubsystem* InSubsystem);
 	virtual void Tick(const FGeometry& AllottedGeometry, const double InCurrentTime, const float InDeltaTime) override;
 
+	/** Points the dashboard at a different client's subsystem. */
+	void SetDebugSubsystem(UInputDebugSubsystem* InSubsystem);
+
 private:
 	FText GetFocusWidgetName() const;
 	FText GetCommonInputType(UInputDebugSubsystem* Subsystem) const;

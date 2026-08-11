@@ -56,6 +56,9 @@ public:
 	void Construct(const FArguments& InArgs, UInputDebugSubsystem* InSubsystem);
 	virtual void Tick(const FGeometry& AllottedGeometry, const double InCurrentTime, const float InDeltaTime) override;
 
+	/** Points the inspector at a different client's subsystem, discarding cached rows. */
+	void SetDebugSubsystem(UInputDebugSubsystem* InSubsystem);
+
 private:
 	void UpdateData(float DeltaTime);
 	TSharedRef<ITableRow> GenerateRow(TSharedPtr<FEnhancedInputInfoItem> Item, const TSharedRef<STableViewBase>& OwnerTable);

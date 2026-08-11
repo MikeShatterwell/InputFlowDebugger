@@ -5,6 +5,7 @@
 
 // Engine
 #include <Engine/GameInstance.h>
+#include <Engine/LocalPlayer.h>
 
 // CommonUI
 #if WITH_PLUGIN_COMMONUI
@@ -94,9 +95,15 @@ void SInputFlowStatusDashboard::Construct(const FArguments& InArgs, UInputDebugS
 	];
 }
 
+void SInputFlowStatusDashboard::SetDebugSubsystem(UInputDebugSubsystem* InSubsystem)
+{
+	WeakSubsystem = InSubsystem;
+}
+
 void SInputFlowStatusDashboard::Tick(const FGeometry& AllottedGeometry, const double InCurrentTime, const float InDeltaTime)
 {
-	// Refresh Subsystem reference if stale
+	// Refresh Subsystem reference if stale. Only fires when the current one is gone,
+	// so it never overrides an explicit target pick.
 	if (!WeakSubsystem.IsValid())
 	{
 		WeakSubsystem = InputFlowHelpers::GetActiveDebugSubsystem();
@@ -119,7 +126,23 @@ void SInputFlowStatusDashboard::Tick(const FGeometry& AllottedGeometry, const do
 
 FText SInputFlowStatusDashboard::GetFocusWidgetName() const
 {
-	TSharedPtr<SWidget> FocusWidget = FSlateApplication::Get().GetKeyboardFocusedWidget();
+	// Slate tracks focus per user. Resolve the target player's user index so split-screen
+	// reports that player's focus instead of whichever user happens to hold it.
+	TSharedPtr<SWidget> FocusWidget;
+
+	const UInputDebugSubsystem* Subsystem = WeakSubsystem.Get();
+	const ULocalPlayer* LP = IsValid(Subsystem) ? Subsystem->GetDebugLocalPlayer() : nullptr;
+	const int32 UserIndex = InputFlowHelpers::GetSlateUserIndexForLocalPlayer(LP);
+
+	if (UserIndex != INDEX_NONE)
+	{
+		FocusWidget = FSlateApplication::Get().GetUserFocusedWidget(static_cast<uint32>(UserIndex));
+	}
+	else
+	{
+		FocusWidget = FSlateApplication::Get().GetKeyboardFocusedWidget();
+	}
+
 	if (!FocusWidget.IsValid()) return FText::FromString("Slate Focus: None");
 
 	FString WidgetName = FocusWidget->ToString();
@@ -130,8 +153,10 @@ FText SInputFlowStatusDashboard::GetFocusWidgetName() const
 
 FText SInputFlowStatusDashboard::GetCommonInputType(UInputDebugSubsystem* Subsystem) const
 {
-	if (!Subsystem) return FText::GetEmpty();
-	if (ULocalPlayer* LP = Subsystem->GetGameInstance()->GetFirstGamePlayer())
+	if (!IsValid(Subsystem)) return FText::GetEmpty();
+
+	// CommonInputSubsystem is per local player - gamepad vs mouse/KB can differ per viewport.
+	if (ULocalPlayer* LP = Subsystem->GetDebugLocalPlayer())
 	{
 #if WITH_PLUGIN_COMMONUI
 		if (UCommonInputSubsystem* CommonInput = UCommonInputSubsystem::Get(LP))

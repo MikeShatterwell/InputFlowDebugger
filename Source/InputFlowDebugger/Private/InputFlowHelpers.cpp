@@ -36,8 +36,11 @@
 // Engine
 #include <Engine/Engine.h>
 #include <Engine/GameInstance.h>
+#include <Engine/LocalPlayer.h>
+#include <Engine/World.h>
 
 // Slate
+#include <Framework/Application/SlateApplication.h>
 #include <Slate/SObjectWidget.h>
 #include <Styling/AppStyle.h>
 #include <Widgets/Input/SEditableText.h>
@@ -167,6 +170,91 @@ UInputDebugSubsystem* InputFlowHelpers::GetActiveDebugSubsystem()
 		}
 	}
 	return nullptr;
+}
+
+void InputFlowHelpers::GatherDebugTargets(TArray<TSharedPtr<FInputFlowDebugTarget>>& OutTargets)
+{
+	OutTargets.Reset();
+
+	if (!IsValid(GEngine)) return;
+
+	for (const FWorldContext& Context : GEngine->GetWorldContexts())
+	{
+		if (Context.WorldType != EWorldType::PIE && Context.WorldType != EWorldType::Game) continue;
+
+		// The subsystem opts out of dedicated servers entirely (see ShouldCreateSubsystem).
+		if (Context.RunAsDedicated) continue;
+
+		UGameInstance* GameInstance = Context.OwningGameInstance;
+		UWorld* World = Context.World();
+		if (!IsValid(GameInstance) || !IsValid(World)) continue;
+
+		UInputDebugSubsystem* Subsystem = GameInstance->GetSubsystem<UInputDebugSubsystem>();
+		if (!IsValid(Subsystem)) continue;
+
+		FString InstanceLabel;
+		switch (World->GetNetMode())
+		{
+		case NM_Client:
+			// Under one process PIE instance 0 is the server, so clients start at 1.
+			InstanceLabel = (Context.PIEInstance > 0)
+				? FString::Printf(TEXT("Client %d"), Context.PIEInstance)
+				: TEXT("Client");
+			break;
+		case NM_ListenServer:
+			InstanceLabel = TEXT("Listen Server");
+			break;
+		case NM_DedicatedServer:
+			InstanceLabel = TEXT("Dedicated Server");
+			break;
+		default:
+			InstanceLabel = TEXT("Standalone");
+			break;
+		}
+
+		const bool bSplitScreen = GameInstance->GetNumLocalPlayers() > 1;
+
+		for (ULocalPlayer* LocalPlayer : GameInstance->GetLocalPlayers())
+		{
+			if (!IsValid(LocalPlayer)) continue;
+
+			TSharedRef<FInputFlowDebugTarget> Target = MakeShared<FInputFlowDebugTarget>();
+			Target->Subsystem   = Subsystem;
+			Target->LocalPlayer = LocalPlayer;
+			Target->PIEInstance = Context.PIEInstance;
+			Target->Label       = bSplitScreen
+				? FString::Printf(TEXT("%s - Player %d"), *InstanceLabel, LocalPlayer->GetLocalPlayerIndex())
+				: InstanceLabel;
+
+			OutTargets.Add(Target);
+		}
+	}
+
+	// Server first, then by local player index, so the list order is stable across polls.
+	OutTargets.Sort([](const TSharedPtr<FInputFlowDebugTarget>& A, const TSharedPtr<FInputFlowDebugTarget>& B)
+	{
+		if (A->PIEInstance != B->PIEInstance) return A->PIEInstance < B->PIEInstance;
+
+		const ULocalPlayer* LPA = A->LocalPlayer.Get();
+		const ULocalPlayer* LPB = B->LocalPlayer.Get();
+		if (LPA && LPB) return LPA->GetLocalPlayerIndex() < LPB->GetLocalPlayerIndex();
+		return LPA != nullptr;
+	});
+}
+
+int32 InputFlowHelpers::GetSlateUserIndexForLocalPlayer(const ULocalPlayer* LocalPlayer)
+{
+	if (!IsValid(LocalPlayer) || !FSlateApplication::IsInitialized()) return INDEX_NONE;
+
+	const TOptional<int32> PlatformUserIndex =
+		FSlateApplication::Get().GetUserIndexForPlatformUser(LocalPlayer->GetPlatformUserId());
+
+	if (PlatformUserIndex.IsSet())
+	{
+		return PlatformUserIndex.GetValue();
+	}
+
+	return FSlateApplication::Get().GetUserIndexForController(LocalPlayer->GetControllerId());
 }
 
 FString InputFlowHelpers::GetWidgetDisplayName(const TSharedPtr<SWidget>& Widget)

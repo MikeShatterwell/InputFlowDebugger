@@ -11,6 +11,8 @@
 // Internal
 #include "InputDebugSubsystem.h"
 
+class ULocalPlayer;
+
 #if WITH_PLUGIN_ENHANCEDINPUT
 struct FLocStringData;
 class UEnhancedPlayerInput;
@@ -27,6 +29,34 @@ struct FInputFlowPhysicsItem
 	bool bIsFixed = false; // If true, acts as a wall (e.g. pinned panels)
 };
 
+/**
+ * One selectable debug target: a (GameInstance, LocalPlayer) pair.
+ *
+ * Both halves are required to identify a viewport:
+ *  - In "Play As Client" PIE each client is its own UWorld + UGameInstance, so each one
+ *    owns a separate UInputDebugSubsystem.
+ *  - In split-screen a single GameInstance owns several ULocalPlayers, and CommonUI's
+ *    action router is a LocalPlayerSubsystem - one activatable tree root per player.
+ */
+struct FInputFlowDebugTarget
+{
+	TWeakObjectPtr<UInputDebugSubsystem> Subsystem;
+	TWeakObjectPtr<ULocalPlayer>         LocalPlayer;
+
+	// Display name, e.g. "Client 1" or "Listen Server - Player 0"
+	FString Label;
+
+	// PIE instance this target belongs to (INDEX_NONE outside PIE). Used for ordering.
+	int32 PIEInstance = INDEX_NONE;
+
+	bool IsValidTarget() const { return Subsystem.IsValid() && LocalPlayer.IsValid(); }
+
+	bool operator==(const FInputFlowDebugTarget& Other) const
+	{
+		return Subsystem == Other.Subsystem && LocalPlayer == Other.LocalPlayer;
+	}
+};
+
 class InputFlowHelpers
 {
 public:
@@ -39,7 +69,23 @@ public:
 
 	static const FSlateBrush* GetBackgroundBrush(bool bIsOverlay);
 	static UInputDebugSubsystem* GetActiveDebugSubsystem();
-	
+
+	/**
+	 * Enumerates every inspectable (GameInstance, LocalPlayer) pair in this process,
+	 * ordered server-first then by local player index.
+	 *
+	 * NOTE: other PIE clients are only reachable when "Run Under One Process" is enabled
+	 * (Editor Preferences > Level Editor > Play > Multiplayer Options). Without it each
+	 * client is a separate process and cannot be enumerated from the editor.
+	 */
+	static void GatherDebugTargets(TArray<TSharedPtr<FInputFlowDebugTarget>>& OutTargets);
+
+	/**
+	 * Maps a local player to its Slate user index so focus can be queried per-player
+	 * rather than "any user". Returns INDEX_NONE if it cannot be resolved.
+	 */
+	static int32 GetSlateUserIndexForLocalPlayer(const ULocalPlayer* LocalPlayer);
+
 	// Generates a human-readable name for a widget, including hierarchy context
 	// e.g. "ConfirmButton (from PopupDialog)"
 	static FString GetWidgetDisplayName(const TSharedPtr<SWidget>& Widget);

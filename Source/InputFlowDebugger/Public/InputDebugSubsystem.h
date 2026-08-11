@@ -15,6 +15,7 @@
 #include "InputDebugSubsystem.generated.h"
 
 class SWidget;
+class ULocalPlayer;
 class UInputDebugSubsystem;
 
 /**
@@ -141,6 +142,19 @@ public:
 
 	const FInputSnapshotStrings& GetInputSnapshotStrings() const { return DataSnapshot; }
 
+	/**
+	 * The local player every panel inspects.
+	 *
+	 * CommonUI's action router and Enhanced Input's subsystem are both LocalPlayerSubsystems,
+	 * so in split-screen each player has an independent activatable tree and input stack.
+	 * This is the single source of truth for which one the debugger reports on - the editor
+	 * tab's target picker writes it, and the in-game overlay panels read it.
+	 *
+	 * Falls back to the first local player when unset or stale.
+	 */
+	ULocalPlayer* GetDebugLocalPlayer() const;
+	void SetDebugLocalPlayer(ULocalPlayer* InLocalPlayer);
+
 	// Data Access
 	const TArray<FNavigationLink>& GetNavigationLinks() const { return NavigationLinks; }
 	TSharedPtr<SWidget> GetFocusedWidget() const { return FocusedWidget.Pin(); }
@@ -185,6 +199,9 @@ private:
 
 	TSharedPtr<FInputFlowSpy> InputSpy;
 	FInputSnapshotStrings DataSnapshot;
+
+	// Which local player the debugger reports on. Unset means "first local player".
+	TWeakObjectPtr<ULocalPlayer> DebugLocalPlayer;
 
 	// Log History
 	TArray<TSharedPtr<FInputEventLog>> LogHistory;

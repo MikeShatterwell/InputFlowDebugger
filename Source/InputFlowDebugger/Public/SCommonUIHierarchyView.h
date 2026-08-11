@@ -12,6 +12,7 @@
 #if WITH_PLUGIN_COMMONUI
 
 class UWidget;
+class ULocalPlayer;
 class UCommonUIActionRouterBase;
 class UInputDebugSubsystem;
 class UCommonActivatableWidget;
@@ -51,7 +52,16 @@ public:
 	virtual void Tick(const FGeometry& AllottedGeometry, const double InCurrentTime, const float InDeltaTime) override;
 	virtual ~SCommonUIHierarchyView();
 
+	/**
+	 * Points the view at a different client's subsystem (each PIE client owns its own).
+	 * Drops the cached items and rebinds the action router delegates for the new target.
+	 */
+	void SetDebugSubsystem(UInputDebugSubsystem* InSubsystem);
+
 private:
+	/** The local player whose activatable tree we render, or null if none is resolvable. */
+	ULocalPlayer* ResolveTargetLocalPlayer() const;
+
 	void UpdateTree();
 	void BindRouterDelegates();
 	void RequestRefresh();
@@ -62,7 +72,10 @@ private:
 
 	TWeakObjectPtr<UInputDebugSubsystem> DebugSubsystem = nullptr;
 	TWeakObjectPtr<UCommonUIActionRouterBase> BoundRouter = nullptr;
-	
+
+	// The player BoundRouter belongs to, so a target switch can be detected and rebound.
+	TWeakObjectPtr<ULocalPlayer> BoundLocalPlayer = nullptr;
+
 	// Delegate Handles
 	FDelegateHandle RebuildingHandle;
 	FDelegateHandle ActionRouterHandle;

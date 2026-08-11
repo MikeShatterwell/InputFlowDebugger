@@ -14,6 +14,7 @@
 // Engine
 #include <Engine/GameInstance.h>
 #include <Engine/GameViewportClient.h>
+#include <Engine/LocalPlayer.h>
 
 // EnhancedInput
 #if WITH_PLUGIN_ENHANCEDINPUT
@@ -155,6 +156,29 @@ bool UInputDebugSubsystem::ShouldCreateSubsystem(UObject* Outer) const
 #else
 	return Super::ShouldCreateSubsystem(Outer);
 #endif // UE_SERVER
+}
+
+ULocalPlayer* UInputDebugSubsystem::GetDebugLocalPlayer() const
+{
+	UGameInstance* GI = GetGameInstance();
+	if (!IsValid(GI)) return nullptr;
+
+	// Only honour the explicit target while it still belongs to this GameInstance -
+	// a player can be removed (split-screen drop-out) or survive into a stale selection.
+	if (ULocalPlayer* Target = DebugLocalPlayer.Get())
+	{
+		if (GI->GetLocalPlayers().Contains(Target))
+		{
+			return Target;
+		}
+	}
+
+	return GI->GetFirstGamePlayer();
+}
+
+void UInputDebugSubsystem::SetDebugLocalPlayer(ULocalPlayer* InLocalPlayer)
+{
+	DebugLocalPlayer = InLocalPlayer;
 }
 
 void UInputDebugSubsystem::ClearLogHistory()
@@ -332,7 +356,7 @@ void UInputDebugSubsystem::UpdateDataSnapshot()
 	UGameInstance* GI = GetGameInstance();
 	if (!IsValid(GI)) return;
 
-	ULocalPlayer* LP = GI->GetFirstGamePlayer();
+	ULocalPlayer* LP = GetDebugLocalPlayer();
 	if (!IsValid(LP)) return;
 
 #if WITH_PLUGIN_COMMONUI

@@ -396,6 +396,21 @@ void SInputFlowLogView::Tick(const FGeometry& AllottedGeometry, const double InC
 	UpdateLogView();
 }
 
+void SInputFlowLogView::SetDebugSubsystem(UInputDebugSubsystem* InSubsystem)
+{
+	if (DebugSubsystem.Get() == InSubsystem) return;
+
+	DebugSubsystem = InSubsystem;
+
+	// Each client keeps its own ring buffer, so the displayed rows are not reusable.
+	SourceData.Empty();
+	LastObservedVersion = 0; // Force a rebuild from the new history
+	if (ListView.IsValid())
+	{
+		ListView->RequestListRefresh();
+	}
+}
+
 void SInputFlowLogView::ClearLog()
 {
 	if (!DebugSubsystem.IsValid())
